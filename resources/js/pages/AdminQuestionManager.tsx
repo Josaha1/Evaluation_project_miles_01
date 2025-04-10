@@ -71,6 +71,7 @@ export default function AdminQuestionManager() {
     }
     return [{ label: '', score: null }]
   }
+
   const cancelEdit = () => {
     setEditingId(null)
     setForm({
@@ -168,13 +169,18 @@ export default function AdminQuestionManager() {
             <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">ประเภทคำถาม</label>
             <select
               value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value })}
+              onChange={(e) => {
+                const type = e.target.value
+                setForm({ ...form, type, options: getDefaultOptions(type) })
+              }}
               className="w-full border p-2 rounded dark:bg-gray-800 dark:text-white"
             >
               <option value="rating">Rating</option>
               <option value="open_text">Open Text</option>
-              <option value="multiple_choice">Multiple Choice</option> {/* ✅ เพิ่มตรงนี้ */}
+              <option value="multiple_choice">Multiple Choice</option>
+              <option value="choice">Choice (ตัวเลือกเดียว)</option> {/* ✅ เพิ่มตรงนี้ */}
             </select>
+
 
           </div>
 
@@ -218,6 +224,45 @@ export default function AdminQuestionManager() {
               >➕ เพิ่มตัวเลือก</button>
             </div>
           )}
+          {form.type === 'choice' && (
+            <div>
+              <label className="block text-sm mb-2 text-gray-700 dark:text-gray-300">ตัวเลือกคำตอบ (เลือกได้เพียง 1 ข้อ)</label>
+              {form.options.map((opt, i) => (
+                <div key={i} className="flex items-center gap-2 mb-2">
+                  <input
+                    type="text"
+                    placeholder={`ตัวเลือก ${i + 1}`}
+                    value={opt.label}
+                    onChange={(e) => {
+                      const updated = [...form.options]
+                      updated[i].label = e.target.value
+                      setForm({ ...form, options: updated })
+                    }}
+                    className="flex-1 border p-2 rounded dark:bg-gray-800 dark:text-white"
+                  />
+                  {form.options.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForm({ ...form, options: form.options.filter((_, idx) => idx !== i) })
+                      }}
+                      className="text-red-500 text-sm"
+                    >
+                      ลบ
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, options: [...form.options, { label: '', score: null }] })}
+                className="text-blue-600 text-sm mt-1"
+              >
+                ➕ เพิ่มตัวเลือก
+              </button>
+            </div>
+          )}
+
           {form.type === 'multiple_choice' && (
             <div>
               <label className="block text-sm mb-2 text-gray-700 dark:text-gray-300">ตัวเลือกคำตอบ</label>
@@ -335,20 +380,28 @@ export default function AdminQuestionManager() {
                   <td className="p-4">
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${q.type === "rating"
-                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
-                          : q.type === "open_text"
-                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                            : "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300"
+                        ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
+                        : q.type === "open_text"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
+                          : q.type === "multiple_choice"
+                            ? "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300"
+                            : "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300"
                         }`}
                     >
                       {q.type === "rating" && <BookOpenCheck className="w-4 h-4" />}
                       {q.type === "open_text" && <MessageSquare className="w-4 h-4" />}
                       {q.type === "multiple_choice" && <PlusCircle className="w-4 h-4" />}
-                      {q.type === "rating" && "Rating"}
-                      {q.type === "open_text" && "Open Text"}
-                      {q.type === "multiple_choice" && "Multiple Choice"}
+                      {q.type === "choice" && <PlusCircle className="w-4 h-4" />} {/* ✅ reuse icon */}
+
+                      {{
+                        rating: "Rating",
+                        open_text: "Open Text",
+                        multiple_choice: "Multiple Choice",
+                        choice: "Choice (เลือก 1)",
+                      }[q.type]}
                     </span>
                   </td>
+
 
                   <td className="p-4 text-center">
                     {editingId === q.id ? (

@@ -34,7 +34,7 @@ class QuestionController extends Controller
 
         $question->aspects()->sync($validated['aspect_ids']);
 
-        if (in_array($validated['type'], ['rating', 'multiple_choice']) && isset($validated['options'])) {
+        if (in_array($validated['type'], ['rating', 'multiple_choice','choice']) && isset($validated['options'])) {
             $question->options()->createMany($validated['options']);
         }
         return redirect()->route('adminquestionmanager')->with('success', 'เพิ่มคำถามเรียบร้อยแล้ว!');
@@ -72,13 +72,13 @@ class QuestionController extends Controller
     {
         $rules = [
             'title'        => ['required', 'string'],
-            'type'         => ['required', 'in:rating,open_text,multiple_choice'],
+            'type'         => ['required', 'in:rating,open_text,multiple_choice,choice'],
             'aspect_ids'   => ['required', 'array'],
             'aspect_ids.*' => ['integer'],
         ];
 
         // ถ้ามีตัวเลือก
-        if (in_array($request->type, ['rating', 'multiple_choice'])) {
+        if (in_array($request->type, ['rating', 'multiple_choice', 'choice'])) {
             $rules['options']         = ['required', 'array', 'min:1'];
             $rules['options.*.label'] = ['required', 'string'];
             $rules['options.*.score'] = ['nullable', 'integer'];

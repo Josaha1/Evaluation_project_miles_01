@@ -21,7 +21,7 @@ return new class extends Migration
         Schema::create('questions', function (Blueprint $table) {
             $table->id();
             $table->string('title');
-            $table->enum('type', ['rating','multiple_choice', 'open_text']);
+            $table->enum('type', ['rating','multiple_choice','choice', 'open_text']);
             $table->timestamps();
         });
 
