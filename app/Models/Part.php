@@ -4,20 +4,20 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Aspect extends Model
+class Part extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['part_id', 'name', 'has_subaspects'];
+    protected $fillable = ['evaluation_id', 'title', 'order'];
 
-    public function part()
+    public function evaluation()
     {
-        return $this->belongsTo(Part::class);
+        return $this->belongsTo(Evaluation::class);
     }
 
-    public function subAspects()
+    public function aspects()
     {
-        return $this->hasMany(SubAspect::class);
+        return $this->hasMany(Aspect::class);
     }
 
     public function questions()

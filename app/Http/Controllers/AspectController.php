@@ -2,102 +2,78 @@
 namespace App\Http\Controllers;
 
 use App\Models\Aspect;
-use App\Models\Section;
+use App\Models\Evaluation;
+use App\Models\Part;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class AspectController extends Controller
 {
-    public function index()
+    public function index(Evaluation $evaluation, Part $part)
     {
-        $aspects = Aspect::with('sections.userTypes')->paginate(5);
-    
-        // แปลง userTypes เพื่อให้แสดงได้ใน View
-        $sections = Section::with('userTypes')->get()->map(function ($section) {
-            $section->user_types = $section->userTypes->map(function ($ut) {
-                return [
-                    'user_type'  => $ut->user_type,
-                    'grade_min'  => $ut->grade_min,
-                    'grade_max'  => $ut->grade_max,
-                ];
-            });
-            unset($section->userTypes);
-            return $section;
-        });
-    
-        return Inertia::render('AdminAspectManager', [
-            'aspects'  => $aspects,
-            'sections' => $sections,
+        // โหลด aspects ที่เกี่ยวข้องกับ part นี้ พร้อม sub-aspects
+        $aspects = $part->aspects()->with('subAspects')->get();
+
+        return Inertia::render('AdminAspectIndex', [
+            'evaluation' => $evaluation,
+            'part'       => $part,
+            'aspects'    => $aspects,
         ]);
     }
-    
 
-    public function store(Request $request)
+    public function create(Evaluation $evaluation, Part $part)
+    {
+        return Inertia::render('AdminAspectCreate', [
+            'evaluation' => $evaluation,
+            'part'       => $part,
+        ]);
+    }
+
+    public function store(Request $request, Evaluation $evaluation, Part $part)
     {
         $validated = $request->validate([
-            'name'          => 'required|string|max:255',
-            'description'   => 'nullable|string|max:500',
-            'section_ids'   => 'required|array|min:1',
-            'section_ids.*' => 'exists:sections,id',
+            'aspects'                  => ['required', 'array', 'min:1'],
+            'aspects.*.name'           => ['required', 'string'],
+            'aspects.*.has_subaspects' => ['sometimes'],
         ]);
 
-        $duplicate = Aspect::where('name', $validated['name'])
-            ->whereHas('sections', function ($q) use ($validated) {
-                $q->whereIn('sections.id', $validated['section_ids']);
-            })->exists();
-
-        if ($duplicate) {
-            return redirect()->back()->withErrors([
-                'name' => 'มีด้านนี้อยู่แล้วในหมวดที่เลือก',
+        foreach ($validated['aspects'] as $aspectData) {
+            $part->aspects()->create([
+                'name'           => $aspectData['name'],
+                'has_subaspects' => filter_var($aspectData['has_subaspects'] ?? false, FILTER_VALIDATE_BOOLEAN),
             ]);
         }
 
-        $aspect = Aspect::create([
-            'name'        => $validated['name'],
-            'description' => $validated['description'] ?? null,
-        ]);
-
-        $aspect->sections()->sync($validated['section_ids']);
-
-        return redirect()->back()->with('success', 'เพิ่มด้านเรียบร้อยแล้ว!');
+        return redirect()->route('aspects.index', [$evaluation, $part])
+            ->with('success', 'เพิ่มด้านเรียบร้อยแล้ว');
     }
 
-    public function update(Request $request, Aspect $aspect)
+    public function edit(Evaluation $evaluation, Part $part, Aspect $aspect)
+    {
+        return Inertia::render('AdminAspectEdit', [
+            'evaluation' => $evaluation,
+            'part'       => $part,
+            'aspect'     => $aspect,
+        ]);
+    }
+
+    public function update(Request $request, Evaluation $evaluation, Part $part, Aspect $aspect)
     {
         $validated = $request->validate([
-            'name'          => 'required|string|max:255',
-            'description'   => 'nullable|string|max:500',
-            'section_ids'   => 'required|array|min:1',
-            'section_ids.*' => 'exists:sections,id',
+            'name'           => ['required', 'string'],
+            'has_subaspects' => ['boolean'],
         ]);
 
-        $duplicate = Aspect::where('id', '!=', $aspect->id)
-            ->where('name', $validated['name'])
-            ->whereHas('sections', function ($q) use ($validated) {
-                $q->whereIn('sections.id', $validated['section_ids']);
-            })->exists();
+        $aspect->update($validated);
 
-        if ($duplicate) {
-            return redirect()->back()->withErrors([
-                'name' => 'มีด้านนี้อยู่แล้วในหมวดที่เลือก',
-            ]);
-        }
-
-        $aspect->update([
-            'name'        => $validated['name'],
-            'description' => $validated['description'] ?? null,
-        ]);
-
-        $aspect->sections()->sync($validated['section_ids']);
-
-        return redirect()->back()->with('success', 'อัปเดตด้านเรียบร้อยแล้ว!');
+        return redirect()->route('aspects.index', [$evaluation, $part])
+            ->with('success', 'อัปเดตด้านเรียบร้อยแล้ว');
     }
 
-    public function destroy(Aspect $aspect)
+    public function destroy(Evaluation $evaluation, Part $part, Aspect $aspect)
     {
-        $aspect->sections()->detach();
         $aspect->delete();
 
-        return redirect()->back()->with('success', 'ลบด้านเรียบร้อยแล้ว!');
+        return back()->with('success', 'ลบด้านเรียบร้อยแล้ว');
     }
 }

@@ -8,26 +8,26 @@ class Question extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['aspect_id', 'title', 'type'];
+    protected $fillable = ['title', 'type', 'part_id', 'aspect_id', 'sub_aspect_id'];
 
-    public function section()
+
+    public function part()
     {
-        return $this->belongsTo(Section::class);
+        return $this->belongsTo(Part::class);
+    }
+
+    public function aspect()
+    {
+        return $this->belongsTo(Aspect::class);
+    }
+
+    public function subAspect()
+    {
+        return $this->belongsTo(SubAspect::class);
     }
 
     public function options()
     {
         return $this->hasMany(Option::class);
     }
-
-    public function answers()
-    {
-        return $this->hasMany(EvaluationAnswer::class);
-    }
-
-    public function aspects()
-    {
-        return $this->belongsToMany(Aspect::class, 'aspect_question');
-    }
-
 }

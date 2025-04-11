@@ -11,11 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('aspect_section', function (Blueprint $table) {
+        Schema::create('options', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('aspect_id')->constrained()->onDelete('cascade');
-            $table->foreignId('section_id')->constrained()->onDelete('cascade');
-            $table->unique(['aspect_id', 'section_id']); // ป้องกัน duplication
+            $table->foreignId('question_id')->constrained()->onDelete('cascade');
+            $table->string('label');
+            $table->integer('score')->nullable();
+            $table->timestamps();
         });
     }
 
@@ -24,6 +25,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('aspect_section');
+        Schema::dropIfExists('options');
     }
 };

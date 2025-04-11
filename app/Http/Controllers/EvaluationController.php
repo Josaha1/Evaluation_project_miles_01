@@ -1,11 +1,8 @@
 <?php
 namespace App\Http\Controllers;
 
-use App\Models\Aspect;
 use App\Models\Evaluation;
-use App\Models\EvaluationAssignment;
-use App\Models\Question;
-use App\Models\Section;
+use App\Models\Part;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -13,131 +10,111 @@ class EvaluationController extends Controller
 {
     public function index()
     {
+        $evaluations = Evaluation::with(['parts.aspects.subAspects.questions.options'])->get();
+
         return Inertia::render('AdminEvaluationManager', [
-            'evaluations' => Evaluation::with([
-                'sections.userTypes',
-                'aspects.sections.userTypes',
-                'questions.aspects.sections.userTypes',
-            ])->get(),
+            'evaluations' => $evaluations,
         ]);
     }
 
-    public function create(Request $request)
+    public function create()
     {
-        $userType = $request->input('user_type');
-
-        $sections = Section::with('userTypes')
-            ->whereHas('userTypes', fn($q) => $q->where('user_type', $userType))
-            ->get();
-
-        $aspects = Aspect::with(['sections.userTypes'])
-            ->whereHas('sections.userTypes', fn($q) => $q->where('user_type', $userType))
-            ->get();
-
-        $questions = Question::with(['aspects.sections.userTypes'])
-            ->whereHas('aspects.sections.userTypes', fn($q) => $q->where('user_type', $userType))
-            ->get();
-
         return Inertia::render('AdminEvaluationCreate', [
-            'userType'     => $userType,
-            'sections'     => $sections,
-            'aspects'      => $aspects,
-            'questions'    => $questions,
-            'allUserTypes' => ['internal', 'external'],
+            'userTypes' => [
+                ['value' => 'internal', 'label' => 'บุคลากรภายใน'],
+                ['value' => 'external', 'label' => 'บุคลากรภายนอก'],
+            ],
+            'grades'    => [
+                ['min' => 9, 'max' => 12],
+                ['min' => 5, 'max' => 8],
+            ],
         ]);
     }
 
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'title'        => 'required|string|max:255',
-            'description'  => 'nullable|string',
-            'user_type'    => 'required|string|in:internal,external',
-            'grade_min'    => 'required|integer|min:1',
-            'grade_max'    => 'required|integer|min:1|gte:grade_min',
-            'section_ids'  => 'array',
-            'aspect_ids'   => 'array',
-            'question_ids' => 'array',
+            'title'       => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'user_type'   => 'required|in:internal,external',
+            'grade_min'   => 'required|integer',
+            'grade_max'   => 'required|integer',
         ]);
 
-        $evaluation = Evaluation::create([
-            'title'       => $validated['title'],
-            'description' => $validated['description'],
-            'user_type'   => $validated['user_type'],
-            'grade_min'   => $validated['grade_min'],
-            'grade_max'   => $validated['grade_max'],
+        $evaluation = Evaluation::create($validated);
+
+        // สร้าง 3 parts โดย default
+        Part::insert([
+            ['evaluation_id' => $evaluation->id, 'title' => 'ส่วนที่ 1', 'order' => 1],
+            ['evaluation_id' => $evaluation->id, 'title' => 'ส่วนที่ 2', 'order' => 2],
+            ['evaluation_id' => $evaluation->id, 'title' => 'ส่วนที่ 3', 'order' => 3],
         ]);
 
-        $evaluation->sections()->sync($validated['section_ids'] ?? []);
-        $evaluation->aspects()->sync($validated['aspect_ids'] ?? []);
-        $evaluation->questions()->sync($validated['question_ids'] ?? []);
+        return redirect()->route('evaluations.edit', ['evaluation' => $evaluation->id])
+            ->with('success', 'สร้างแบบประเมินสำเร็จ');
 
-        return redirect()->route('evaluations.index')->with('success', 'สร้างแบบประเมินเรียบร้อย!');
     }
 
     public function edit(Evaluation $evaluation)
     {
-        $userType = $evaluation->user_type;
+        $evaluation->load('parts.aspects.subAspects.questions.options');
 
-        $sections  = Section::whereHas('userTypes', fn($q) => $q->where('user_type', $userType))->get();
-        $aspects   = Aspect::whereHas('sections.userTypes', fn($q) => $q->where('user_type', $userType))->get();
-        $questions = Question::whereHas('aspects.sections.userTypes', fn($q) => $q->where('user_type', $userType))->get();
-
-        $evaluation->load(['sections', 'aspects', 'questions']);
+        // นับรวม
+        $partsCount      = $evaluation->parts->count();
+        $aspectsCount    = $evaluation->parts->flatMap->aspects->count();
+        $subaspectsCount = $evaluation->parts->flatMap->aspects->flatMap->subAspects->count();
+        $questionsCount  = $evaluation->parts->flatMap->aspects->flatMap->subAspects->flatMap->questions->count();
+        $optionsCount    = $evaluation->parts->flatMap->aspects->flatMap->subAspects->flatMap->questions->flatMap->options->count();
 
         return Inertia::render('AdminEvaluationEdit', [
             'evaluation' => $evaluation,
-            'sections'   => $sections,
-            'aspects'    => $aspects,
-            'questions'  => $questions,
+            'stats'      => [
+                'parts'      => $partsCount,
+                'aspects'    => $aspectsCount,
+                'subaspects' => $subaspectsCount,
+                'questions'  => $questionsCount,
+                'options'    => $optionsCount,
+            ],
         ]);
     }
 
     public function update(Request $request, Evaluation $evaluation)
     {
         $validated = $request->validate([
-            'title'        => 'required|string|max:255',
-            'description'  => 'nullable|string',
-            'grade_min'    => 'required|integer|min:1',
-            'grade_max'    => 'required|integer|min:1|gte:grade_min',
-            'section_ids'  => 'array',
-            'aspect_ids'   => 'array',
-            'question_ids' => 'array',
+            'title'       => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'user_type'   => 'required|in:internal,external',
+            'grade_min'   => 'required|integer',
+            'grade_max'   => 'required|integer',
         ]);
 
-        $evaluation->update([
-            'title'       => $validated['title'],
-            'description' => $validated['description'],
-            'grade_min'   => $validated['grade_min'],
-            'grade_max'   => $validated['grade_max'],
-        ]);
+        $evaluation->update($validated);
 
-        $evaluation->sections()->sync($validated['section_ids'] ?? []);
-        $evaluation->aspects()->sync($validated['aspect_ids'] ?? []);
-        $evaluation->questions()->sync($validated['question_ids'] ?? []);
-
-        return redirect()->route('evaluations.index')->with('success', 'อัปเดตแบบประเมินเรียบร้อย!');
+        return redirect()->route('evaluations.index')->with('success', 'อัปเดตแบบประเมินสำเร็จ');
     }
 
     public function destroy(Evaluation $evaluation)
     {
-        $evaluation->sections()->detach();
-        $evaluation->aspects()->detach();
-        $evaluation->questions()->detach();
+        $evaluation->parts->each(function ($part) {
+            $part->aspects->each(function ($aspect) {
+                $aspect->subAspects->each(function ($subAspect) {
+                    $subAspect->questions->each(fn($q) => $q->options()->delete());
+                    $subAspect->questions()->delete();
+                });
+
+                $aspect->questions->each(fn($q) => $q->options()->delete());
+                $aspect->questions()->delete();
+
+                $aspect->subAspects()->delete();
+            });
+
+            $part->aspects()->delete();
+        });
+
+        $evaluation->parts()->delete();
         $evaluation->delete();
 
-        return redirect()->route('evaluations.index')->with('success', 'ลบแบบประเมินเรียบร้อยแล้ว!');
+        return redirect()->route('evaluations.index')->with('success', 'ลบแบบประเมินเรียบร้อย');
     }
 
-    public function show(EvaluationAssignment $assignment)
-    {
-        $this->authorize('view', $assignment);
-
-        $evaluation = $assignment->evaluation()->with(['sections.questions'])->first();
-
-        return Inertia::render('EvaluationShow', [
-            'evaluation' => $evaluation,
-            'assignment' => $assignment,
-        ]);
-    }
 }

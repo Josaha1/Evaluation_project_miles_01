@@ -45,12 +45,7 @@ export default function AdminDashboard() {
     ]
 
     const actions = [
-        {
-            title: 'จัดการคำถาม',
-            description: 'เพิ่ม ลบ แก้ไขหมวดคำถามและคำถามย่อย',
-            icon: <FileText className="w-6 h-6" />,
-            href: route('adminquestionmanager'),
-        },
+        
         {
             title: 'สร้างแบบประเมินใหม่',
             description: 'กำหนดแบบประเมินจากหมวด ด้าน และคำถาม',
