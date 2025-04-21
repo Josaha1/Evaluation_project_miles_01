@@ -12,14 +12,20 @@ class AdminEvaluationAssignmentController extends Controller
 {
     public function index(Request $request)
     {
-        $year = $request->get('year', Carbon::now()->month >= 10 ? Carbon::now()->addYear()->year : Carbon::now()->year);
+        $year = $request->get('fiscal_year', Carbon::now()->month >= 10 ? Carbon::now()->addYear()->year : Carbon::now()->year);
 
         $assignments = EvaluationAssignment::with(['evaluator', 'evaluatee'])
             ->where('fiscal_year', $year)
-            ->paginate(10);
+            ->paginate(5);
+
+        $fiscalYears = EvaluationAssignment::select('fiscal_year')
+            ->distinct()
+            ->orderBy('fiscal_year', 'desc')
+            ->pluck('fiscal_year');
 
         return Inertia::render('AdminEvaluationAssignmentManager', [
             'assignments'   => $assignments,
+            'fiscal_years'  => $fiscalYears,
             'selected_year' => $year,
         ]);
     }

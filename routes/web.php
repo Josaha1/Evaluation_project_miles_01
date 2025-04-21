@@ -4,10 +4,13 @@ use App\Http\Controllers\AdminEvaluationAssignmentController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\AspectController;
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\EvaluationAssignmentController;
 use App\Http\Controllers\EvaluationController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\PartController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\QuestionController;
+use App\Http\Controllers\SelfEvaluationController;
 use App\Http\Controllers\SubAspectController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -47,7 +50,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/evaluations/{evaluation}/edit', [EvaluationController::class, 'edit'])->name('evaluations.edit');
     Route::put('/evaluations/{evaluation}', [EvaluationController::class, 'update'])->name('evaluations.update');
     Route::delete('/evaluations/{evaluation}', [EvaluationController::class, 'destroy'])->name('evaluations.destroy');
-
+    Route::get('/evaluations/{evaluation}/preview', [EvaluationController::class, 'preview'])
+        ->name('evaluations.preview');
+    Route::patch('/evaluations/{evaluation}/publish', [EvaluationController::class, 'publish'])
+        ->name('evaluations.publish');
     // จัดการส่วนของแบบประเมิน
     Route::get('/evaluations/{evaluation}/parts', [PartController::class, 'index'])->name('parts.index');
     Route::get('/evaluations/{evaluation}/parts/create', [PartController::class, 'create'])->name('parts.create');
@@ -118,12 +124,17 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/assignments', [AdminEvaluationAssignmentController::class, 'store'])->name('assignments.store');
     Route::delete('/assignments/{assignment}', [AdminEvaluationAssignmentController::class, 'destroy'])->name('assignments.destroy');
 
-    Route::get('/dashboard', function () {
-        if (Auth::user()->role !== 'user') {
-            abort(403, 'คุณไม่มีสิทธิ์เข้าถึงหน้านี้');
-        }
-        return app(HomeController::class)->dashboard();
-    })->name('dashboard');
+    Route::get('/profile', [ProfileController::class, 'index'])->name('profile');
+    Route::get('/dashboard', [EvaluationAssignmentController::class, 'index'])->name('dashboard');
+
+    // แสดงหน้าเริ่มต้นประเมินตนเอง
+    Route::get('/evaluations/self', [SelfEvaluationController::class, 'intro'])->name('evaluations.self.intro');
+    Route::get('/evaluations/self/start', [SelfEvaluationController::class, 'start'])->name('evaluations.self.start');
+    Route::get('/evaluations/self/questions/{step}', [SelfEvaluationController::class, 'step'])
+        ->name('evaluations.self.step');
+
+    Route::post('/evaluations/self/submit', [SelfEvaluationController::class, 'submit'])->name('evaluations.self.submit');
+
 });
 
 // Route::get('/register', function () {

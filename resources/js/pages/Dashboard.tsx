@@ -1,108 +1,177 @@
-import MainLayout from "@/Layouts/MainLayout";
-import { Progress } from "@/components/ui/progress";
-const evaluations = [
-    {
-        id: 1,
-        name: "นายสมชาย กล้าหาญ",
-        photo: "https://unsplash.com/photos/LNRyGwIJr5c",
-        status: "กำลังดำเนินการ",
-        position: "ผู้ช่วยผู้ว่าการ",
-        grade: 11,
-        progress: 50,
-    },
-    {
-        id: 2,
-        name: "นางสาวอรทัย แสงจันทร์",
-        photo: "/images/orn.jpg",
-        status: "ยังไม่เริ่ม",
-        position: "ผู้อำนวยการฝ่าย",
-        grade: 10,
-        progress: 0,
-    },
-    {
-        id: 3,
-        name: "นายพีระพงษ์ ใจดี",
-        photo: "/images/peera.jpg",
-        status: "เสร็จสมบูรณ์",
-        position: "ผู้อำนวยการกอง",
-        grade: 9,
-        progress: 100,
-    },
-];
-export default function Dashboard() {
-    return (
-        <MainLayout title="Dashboard">
-            <div className="max-w-5xl mx-auto px-6 py-10">
-                <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-6">
-                    รายการที่ต้องประเมิน
-                </h1>
+import MainLayout from '@/Layouts/MainLayout'
+import { useEffect, useState } from 'react'
+import { usePage, router } from '@inertiajs/react'
+import Select from 'react-select'
+import { Progress } from '@/Components/ui/progress'
+import { cn } from '@/lib/utils'
 
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 rounded-lg shadow">
-                        <thead className="bg-gray-100 dark:bg-gray-800 text-center">
-                            <tr>
-                                <th className="px-6 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">ชื่อ</th>
-                                <th className="px-6 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">ตำแหน่ง</th>
-                                <th className="px-6 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">ระดับ</th>
-                                <th className="px-6 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">สถานะ</th>
-                                <th className="px-6 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">ความคืบหน้า</th>
-                                <th className="px-6 py-3 text-sm font-medium text-gray-600 dark:text-gray-300 text-center">การดำเนินการ</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {evaluations.map((evalItem) => (
-                                <tr key={evalItem.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition">
-                                    <td className="px-6 py-4 flex items-center gap-3">
-                                        <img
-                                            src={evalItem.photo}
-                                            alt={evalItem.name}
-                                            className="w-10 h-10 rounded-full object-cover border"
-                                        />
-                                        <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                            {evalItem.name}
-                                        </span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                            {evalItem.position}
-                                        </span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                            {evalItem.grade}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <span
-                                            className={`inline-block px-3 py-1 text-xs font-semibold text-center rounded-full ${evalItem.status === "เสร็จสมบูรณ์"
-                                                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                                                : evalItem.status === "กำลังดำเนินการ"
-                                                    ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
-                                                    : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
-                                                }`}
-                                        >
-                                            {evalItem.status}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 w-1/3">
-                                        <Progress value={evalItem.progress} className="h-2" />
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        {evalItem.progress < 100 ? (
-                                            <a
-                                                href={`/evaluation/${evalItem.id}`}
-                                                className="inline-block bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-1.5 px-4 rounded-full transition"
-                                            >
-                                                เริ่มประเมิน
-                                            </a>
-                                        ) : (
-                                            <span className="text-sm text-gray-500 dark:text-gray-400">เสร็จแล้ว</span>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+interface EvaluationCard {
+    id: number
+    evaluatee_name: string
+    evaluatee_photo: string
+    position: string
+    grade: number
+    status: string
+    progress: number
+}
+
+interface EvaluationsData {
+    self?: EvaluationCard[]
+    target?: EvaluationCard[]
+}
+
+interface OptionType {
+    value: string
+    label: string
+}
+
+export default function Dashboard() {
+    const { evaluations, fiscal_years = [], selected_year } = usePage<{
+        evaluations: EvaluationsData
+        fiscal_years: string[]
+        selected_year: string
+    }>().props
+
+    const [selectedYear, setSelectedYear] = useState<OptionType>({
+        value: selected_year,
+        label: `ปีงบประมาณ ${parseInt(selected_year) + 543}`,
+    })
+
+    const yearOptions: OptionType[] = fiscal_years.map((year) => ({
+        value: year,
+        label: `ปีงบประมาณ ${parseInt(year) + 543}`,
+    }))
+
+    useEffect(() => {
+        if (selectedYear?.value !== selected_year) {
+            router.visit(route('dashboard'), {
+                method: 'get',
+                data: { fiscal_year: selectedYear.value },
+                preserveScroll: true,
+                preserveState: true,
+            })
+        }
+    }, [selectedYear])
+
+    const handleStart = (id: number, isSelf: boolean) => {
+        if (isSelf && id === 0) {
+            router.visit(route('evaluations.self.intro')) // 👈 เปลี่ยนเส้นทางไป intro ก่อน
+        } else {
+            router.visit(`/evaluations/assignment/${id}`)
+        }
+    }
+
+
+    const renderCard = (evalItem: EvaluationCard, isSelf: boolean) => (
+        <div
+            key={`${isSelf ? 'self' : 'target'}-${evalItem.id}`}
+            className="rounded-xl border shadow-sm p-5 bg-white dark:bg-gray-800 hover:shadow-md transition"
+        >
+            <div className="flex items-center gap-4 mb-4">
+                <img
+                    src={evalItem.evaluatee_photo || '/images/default.jpg'}
+                    alt={evalItem.evaluatee_name}
+                    className="w-14 h-14 rounded-full object-cover border"
+                />
+                <div>
+                    <h2 className="text-lg font-semibold text-gray-800 dark:text-white">
+                        {evalItem.evaluatee_name}
+                    </h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-300">
+                        {evalItem.position} | ระดับ {evalItem.grade}
+                    </p>
+                </div>
+            </div>
+
+            <div className="mb-2">
+                <span
+                    className={cn(
+                        'text-xs px-2 py-1 rounded-full font-medium',
+                        isSelf ? 'bg-blue-100 text-blue-700' : 'bg-indigo-100 text-indigo-700'
+                    )}
+                >
+                    {isSelf ? '🧍‍♂️ ประเมินตนเอง' : '🧑‍🤝‍🧑 ประเมินผู้รับมอบหมาย'}
+                </span>
+            </div>
+
+            <div className="mb-2">
+                <Progress value={evalItem.progress} className="h-2" />
+                <p className="text-xs text-gray-500 mt-1">ความคืบหน้า: {evalItem.progress}%</p>
+            </div>
+
+            <div className="mt-3">
+                {evalItem.progress < 100 ? (
+                    <button
+                        onClick={() => handleStart(evalItem.id, isSelf)}
+                        className="w-full text-center bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-full"
+                    >
+                        {evalItem.progress === 0 ? 'เริ่มประเมิน' : 'ดำเนินการต่อ'}
+                    </button>
+                ) : (
+                    <span className="block text-sm text-green-600 font-medium text-center">
+                        ✅ เสร็จสิ้น
+                    </span>
+                )}
+            </div>
+        </div>
+    )
+
+    return (
+        <MainLayout title="แดชบอร์ดแบบประเมิน">
+            <div className="max-w-6xl mx-auto px-6 py-10 space-y-10">
+                <div className="flex justify-between items-center">
+                    <h1 className="text-2xl font-bold text-gray-800 dark:text-white">📊 รายการที่ต้องประเมิน</h1>
+                    <div className="w-60">
+                        <Select
+                            options={yearOptions}
+                            value={selectedYear}
+                            onChange={(val) => val && setSelectedYear(val)}
+                            classNamePrefix="react-select"
+                            isSearchable={false}
+                            styles={{
+                                menu: (base) => ({
+                                    ...base,
+                                    color: 'black',
+                                }),
+                                option: (base, { isFocused }) => ({
+                                    ...base,
+                                    color: 'black',
+                                    backgroundColor: isFocused ? '#e0e0e0' : 'white',
+                                }),
+                                singleValue: (base) => ({
+                                    ...base,
+                                    color: 'black',
+                                }),
+                                input: (base) => ({
+                                    ...base,
+                                    color: 'black',
+                                }),
+                            }}
+                        />
+
+                    </div>
+                </div>
+
+                {/* ประเมินตนเอง */}
+                <div>
+                    <h2 className="text-xl font-semibold text-blue-700 mb-3">🧍‍♂️ ประเมินตนเอง</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {(evaluations?.self ?? []).map((item) => renderCard(item, true))}
+                    </div>
+                </div>
+
+                {/* ประเมินผู้อื่น */}
+                <div>
+                    <h2 className="text-xl font-semibold text-indigo-700 mb-3">🧑‍🤝‍🧑 ประเมินผู้ที่ได้รับมอบหมาย</h2>
+                    {evaluations?.target?.length ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {evaluations.target.map((item) => renderCard(item, false))}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            — ยังไม่มีรายการที่ต้องประเมิน —
+                        </p>
+                    )}
                 </div>
             </div>
         </MainLayout>

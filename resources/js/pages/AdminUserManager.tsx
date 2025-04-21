@@ -57,14 +57,14 @@ export default function AdminUserManager() {
 
     return (
         <MainLayout title="จัดการสมาชิก" breadcrumb={
-              <Breadcrumb
+            <Breadcrumb
                 items={[
-                  { label: 'แดชบอร์ดผู้ดูแลระบบ', href: route('admindashboard') },
-                //   { label: 'รายการแบบประเมิน', href: route('evaluations.index') },
-                  { label: 'จัดการสมาชิก', active: true },
+                    { label: 'แดชบอร์ดผู้ดูแลระบบ', href: route('admindashboard') },
+                    //   { label: 'รายการแบบประเมิน', href: route('evaluations.index') },
+                    { label: 'จัดการสมาชิก', active: true },
                 ]}
-              />
-            }>
+            />
+        }>
             <div className="max-w-7xl mx-auto px-6 py-10">
                 <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
                     <h1 className="text-2xl font-bold text-gray-800 dark:text-white">รายชื่อสมาชิก</h1>
@@ -172,10 +172,20 @@ export default function AdminUserManager() {
                             <button
                                 key={index}
                                 disabled={!link.url}
-                                onClick={() => link.url && router.visit(link.url)}
+                                onClick={() =>
+                                    link.url &&
+                                    router.visit(link.url, {
+                                        preserveScroll: true,
+                                        preserveState: true,
+                                        data: {
+                                            page: new URL(link.url).searchParams.get("page"), // ⭐ ส่งหน้าไปทุกครั้ง
+                                            // เพิ่ม parameter อื่นได้ตรงนี้ เช่น search: searchTerm
+                                        },
+                                    })
+                                }
                                 className={`px-3 py-1 border rounded text-sm ${link.active
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-white'
+                                        ? 'bg-indigo-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-white'
                                     }`}
                                 dangerouslySetInnerHTML={{ __html: link.label }}
                             />

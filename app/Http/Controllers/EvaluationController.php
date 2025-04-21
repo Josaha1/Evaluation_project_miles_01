@@ -116,5 +116,52 @@ class EvaluationController extends Controller
 
         return redirect()->route('evaluations.index')->with('success', 'ลบแบบประเมินเรียบร้อย');
     }
+    public function preview(Evaluation $evaluation)
+    {
+        $evaluation->load([
+            'parts.aspects.subaspects.questions.options',
+            'parts.aspects.questions.options',
+        ]);
+
+        // 🔁 mapping title fields
+        foreach ($evaluation->parts as $part) {
+            foreach ($part->aspects as $aspect) {
+                $aspect->title = $aspect->name; // <== ✅ ให้มี field title สำหรับ frontend
+
+                if ($aspect->has_subaspects && $aspect->subaspects) {
+                    foreach ($aspect->subaspects as $sub) {
+                        $sub->title = $sub->name; // <== ✅ เช่นกัน
+                    }
+                }
+            }
+        }
+
+        $evaluation->aspects_count    = $evaluation->parts->flatMap->aspects->count();
+        $evaluation->subaspects_count = $evaluation->parts->flatMap->aspects->flatMap->subaspects->count();
+        $evaluation->questions_count  = $evaluation->parts->flatMap->aspects->flatMap(function ($aspect) {
+            return $aspect->has_subaspects ? $aspect->subaspects->flatMap->questions : $aspect->questions;
+        })->count();
+        $evaluation->options_count = $evaluation->parts->flatMap->aspects->flatMap(function ($aspect) {
+            return $aspect->has_subaspects
+            ? $aspect->subaspects->flatMap(fn($s) => $s->questions->flatMap->options)
+            : $aspect->questions->flatMap->options;
+        })->count();
+
+        return Inertia::render('AdminEvaluationPreview', [
+            'evaluation' => $evaluation,
+        ]);
+    }
+    public function publish(Evaluation $evaluation)
+    {
+        if ($evaluation->status === 'published') {
+            return back()->with('error', 'แบบประเมินนี้ถูกเผยแพร่แล้ว');
+        }
+
+        $evaluation->update([
+            'status' => 'published',
+        ]);
+
+        return redirect()->route('evaluations.index')->with('success', 'เผยแพร่แบบประเมินเรียบร้อยแล้ว');
+    }
 
 }

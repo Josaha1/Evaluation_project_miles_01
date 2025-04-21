@@ -1,7 +1,7 @@
 import MainLayout from '@/Layouts/MainLayout';
 import { usePage, router } from '@inertiajs/react';
 import { useEffect } from 'react';
-import { Pencil, Trash2, PlusCircle } from 'lucide-react';
+import { Pencil, Trash2, PlusCircle, Eye } from 'lucide-react';
 import Breadcrumb from '@/Components/ui/breadcrumb';
 import { toast } from 'sonner';
 interface Evaluation {
@@ -11,6 +11,8 @@ interface Evaluation {
     user_type: string;
     parts_count?: number;
     created_at: string;
+    status: string; // <- เพิ่ม
+
 }
 
 export default function AdminEvaluationManager() {
@@ -56,6 +58,7 @@ export default function AdminEvaluationManager() {
                                 <th className="p-4 text-left">ประเภท</th>
                                 <th className="p-4 text-left">จำนวนส่วน</th>
                                 <th className="p-4 text-left">วันที่สร้าง</th>
+                                <th className="p-4 text-left">สถานะ</th>
                                 <th className="p-4 text-center">การจัดการ</th>
                             </tr>
                         </thead>
@@ -66,19 +69,44 @@ export default function AdminEvaluationManager() {
                                     <td className="p-4 text-sm text-gray-600 dark:text-gray-300">{evalItem.user_type}</td>
                                     <td className="p-4 text-sm text-gray-600 dark:text-gray-300">{evalItem.parts_count ?? '-'}</td>
                                     <td className="p-4 text-sm text-gray-600 dark:text-gray-300">{new Date(evalItem.created_at).toLocaleDateString('th-TH')}</td>
+                                    <td className="p-4 text-sm">
+                                        <span
+                                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${evalItem.status === 'published'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : 'bg-yellow-100 text-yellow-700'
+                                                }`}
+                                        >
+                                            {evalItem.status === 'published' ? 'เผยแพร่แล้ว' : 'ฉบับร่าง'}
+                                        </span>
+                                    </td>
+
+
                                     <td className="p-4 text-center space-x-2">
                                         <button
-                                            onClick={() => router.visit(route('evaluations.edit', { evaluation: evalItem.id }))}
-                                            className="text-indigo-600 hover:text-indigo-800"
+                                            onClick={() => router.visit(route('evaluations.preview', { evaluation: evalItem.id }))}
+                                            className="text-green-600 hover:text-green-800"
+                                            title="ดูตัวอย่างแบบประเมิน"
                                         >
-                                            <Pencil className="w-5 h-5" />
+                                            <Eye className="w-5 h-5" />
                                         </button>
-                                        <button
-                                            onClick={() => handleDelete(evalItem.id)}
-                                            className="text-red-600 hover:text-red-800"
-                                        >
-                                            <Trash2 className="w-5 h-5" />
-                                        </button>
+                                        {evalItem.status !== 'published' && (
+                                            <>
+                                                <button
+                                                    onClick={() => router.visit(route('evaluations.edit', { evaluation: evalItem.id }))}
+                                                    className="text-indigo-600 hover:text-indigo-800"
+                                                    title="แก้ไข"
+                                                >
+                                                    <Pencil className="w-5 h-5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(evalItem.id)}
+                                                    className="text-red-600 hover:text-red-800"
+                                                    title="ลบ"
+                                                >
+                                                    <Trash2 className="w-5 h-5" />
+                                                </button>
+                                            </>
+                                        )}
                                     </td>
                                 </tr>
                             ))}

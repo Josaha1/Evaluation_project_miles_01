@@ -52,15 +52,13 @@ class User extends Authenticatable implements MustVerifyEmail
     public function getPhotoUrlAttribute()
     {
         if (! $this->photo) {
-            return null;
+            return '/images/default.jpg';
         }
 
-        // ถ้าเป็น URL แล้วไม่ต้องเติมอะไร
         if (str_starts_with($this->photo, 'http')) {
             return $this->photo;
         }
 
-        // ถ้าไม่ใช่ URL ให้เติม path ของ storage ด้านหน้า
         return asset('storage/' . $this->photo);
     }
 
@@ -77,4 +75,14 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->hasMany(Evaluation::class, 'evaluatee_id');
     }
+    public function assignmentsAsEvaluator()
+    {
+        return $this->hasMany(EvaluationAssignment::class, 'evaluator_id');
+    }
+
+    public function assignmentsAsEvaluatee()
+    {
+        return $this->hasMany(EvaluationAssignment::class, 'evaluatee_id');
+    }
+
 }

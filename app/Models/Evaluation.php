@@ -11,7 +11,7 @@ class Evaluation extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['title', 'description', 'user_type','grade_min', 'grade_max'];
+    protected $fillable = ['title', 'description', 'user_type','grade_min', 'grade_max','status'];
 
     public function parts()
     {
