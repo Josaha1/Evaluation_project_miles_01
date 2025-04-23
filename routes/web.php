@@ -43,7 +43,7 @@ Route::middleware(['auth'])->group(function () {
 
     // จัดการแบบประเมิน
     // แสดงรายการแบบประเมินทั้งหมด
-    Route::get('/evaluations', [EvaluationController::class, 'index'])->name('evaluations.index');
+
     Route::get('/evaluations', [EvaluationController::class, 'index'])->name('evaluations.index');
     Route::get('/evaluations/create', [EvaluationController::class, 'create'])->name('evaluations.create');
     Route::post('/evaluations', [EvaluationController::class, 'store'])->name('evaluations.store');
@@ -128,13 +128,20 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [EvaluationAssignmentController::class, 'index'])->name('dashboard');
 
     // แสดงหน้าเริ่มต้นประเมินตนเอง
-    Route::get('/evaluations/self', [SelfEvaluationController::class, 'intro'])->name('evaluations.self.intro');
-    Route::get('/evaluations/self/start', [SelfEvaluationController::class, 'start'])->name('evaluations.self.start');
-    Route::get('/evaluations/self/questions/{step}', [SelfEvaluationController::class, 'step'])
-        ->name('evaluations.self.step');
+
+    Route::get('/evaluations/self', [SelfEvaluationController::class, 'index'])->name('evaluationsself.index');
+    Route::post('/evaluations/self/questions/{step}', [SelfEvaluationController::class, 'step'])->name('evaluations.self.step');
+    Route::get('/evaluations/self/questions/{step}', function () {
+        return redirect()->route('dashboard')->with('error', 'ไม่สามารถเข้าถึงแบบประเมินผ่าน URL ตรงได้');
+    });
+    // routes/web.php
+    Route::post('/evaluations/self/save-answer', [SelfEvaluationController::class, 'saveAnswer'])->name('evaluations.self.saveAnswer');
+
+    // รองรับการเข้า GET /evaluations/self/questions/{step}
+    Route::get('/evaluations/self/questions/{step}', [SelfEvaluationController::class, 'showStep'])->name('evaluations.self.questions');
+    Route::get('/evaluations/self/resume', [SelfEvaluationController::class, 'resume'])->name('evaluationsself.resume');
 
     Route::post('/evaluations/self/submit', [SelfEvaluationController::class, 'submit'])->name('evaluations.self.submit');
-
 });
 
 // Route::get('/register', function () {

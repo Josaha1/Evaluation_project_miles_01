@@ -53,14 +53,6 @@ export default function Dashboard() {
         }
     }, [selectedYear])
 
-    const handleStart = (id: number, isSelf: boolean) => {
-        if (isSelf && id === 0) {
-            router.visit(route('evaluations.self.intro')) // 👈 เปลี่ยนเส้นทางไป intro ก่อน
-        } else {
-            router.visit(`/evaluations/assignment/${id}`)
-        }
-    }
-
 
     const renderCard = (evalItem: EvaluationCard, isSelf: boolean) => (
         <div
@@ -102,7 +94,12 @@ export default function Dashboard() {
             <div className="mt-3">
                 {evalItem.progress < 100 ? (
                     <button
-                        onClick={() => handleStart(evalItem.id, isSelf)}
+                        onClick={() =>
+                            isSelf && evalItem.id === 0
+                                ? router.visit(route(evalItem.progress === 0 ? 'evaluationsself.index' : 'evaluationsself.resume'))
+                                : router.visit(`/evaluations/assignment/${evalItem.id}`)
+                        }
+
                         className="w-full text-center bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-full"
                     >
                         {evalItem.progress === 0 ? 'เริ่มประเมิน' : 'ดำเนินการต่อ'}
@@ -112,6 +109,7 @@ export default function Dashboard() {
                         ✅ เสร็จสิ้น
                     </span>
                 )}
+
             </div>
         </div>
     )
