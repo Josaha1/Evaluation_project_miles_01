@@ -1,10 +1,10 @@
 import MainLayout from '@/Layouts/MainLayout';
 import { router, usePage } from '@inertiajs/react';
-import { useState,useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Breadcrumb from '@/Components/ui/breadcrumb';
 import { toast } from 'sonner';
 export default function AdminEvaluationCreate() {
-     const { flash } = usePage().props as any
+    const { flash } = usePage().props as any
     const [form, setForm] = useState({
         title: '',
         description: '',
@@ -64,7 +64,7 @@ export default function AdminEvaluationCreate() {
                         <select
                             value={form.user_type}
                             onChange={(e) => setForm({ ...form, user_type: e.target.value })}
-                            className="w-full border p-2 rounded"
+                            className="w-full border p-2 rounded  text-black  dark:text-white dark:bg-gray-700"
                         >
                             <option value="internal">บุคลากรภายใน</option>
                             <option value="external">บุคลากรภายนอก</option>

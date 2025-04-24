@@ -18,10 +18,6 @@ return new class extends Migration
             $table->foreignId('evaluator_id')->constrained('users')->onDelete('cascade');
             $table->foreignId('evaluatee_id')->constrained('users')->onDelete('cascade');
 
-            $table->enum('status', ['not_started', 'in_progress', 'completed'])->default('not_started');
-            $table->integer('progress')->default(0); // % completion
-            $table->timestamp('completed_at')->nullable();
-
             $table->string('fiscal_year'); // ปีงบประมาณ
 
             $table->timestamps();

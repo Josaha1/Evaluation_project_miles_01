@@ -13,8 +13,6 @@ class EvaluationAssignment extends Model
         'evaluator_id',
         'evaluatee_id',
         'fiscal_year',
-        'status',
-        'progress',
     ];
 
     public function evaluator()

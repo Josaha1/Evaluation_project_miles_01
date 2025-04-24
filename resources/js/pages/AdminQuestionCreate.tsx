@@ -73,7 +73,7 @@ export default function AdminQuestionCreate() {
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">เลือกด้าน</label>
                         <select
                             autoFocus
-                            className="w-full mt-1 border p-2 rounded dark:bg-gray-700 dark:text-white"
+                            className="w-full border p-2 rounded  text-black  dark:text-white dark:bg-gray-700"
                             value={data.aspect_id}
                             onChange={e => setData('aspect_id', e.target.value)}
                             required

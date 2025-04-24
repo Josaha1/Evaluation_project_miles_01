@@ -67,7 +67,7 @@ export default function AdminEvaluationAssignmentForm() {
                     </h1>
 
                     <form onSubmit={handleSubmit} className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 dark:text-black">
                             {/* Evaluator */}
                             <div>
                                 <label className="block mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">

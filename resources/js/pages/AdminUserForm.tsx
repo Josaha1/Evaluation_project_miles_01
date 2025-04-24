@@ -88,7 +88,7 @@ export default function AdminUserForm() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">คำนำหน้า</label>
-                            <select value={data.prename} onChange={e => setData('prename', e.target.value)} className="mt-1 w-full border p-2 rounded">
+                            <select value={data.prename} onChange={e => setData('prename', e.target.value)}  className="mt-1 w-full border p-2 rounded  text-black  dark:text-white dark:bg-gray-700">
                                 <option value="">-- เลือก --</option>
                                 {prenameOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
@@ -109,7 +109,7 @@ export default function AdminUserForm() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">เพศ</label>
-                            <select value={data.sex} onChange={e => setData('sex', e.target.value)} className="mt-1 w-full border p-2 rounded">
+                            <select value={data.sex} onChange={e => setData('sex', e.target.value)} className="mt-1 w-full border p-2 rounded  text-black  dark:text-white dark:bg-gray-700">
                                 <option value="">-- เลือก --</option>
                                 {sexOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
@@ -142,7 +142,7 @@ export default function AdminUserForm() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">บทบาท</label>
-                            <select value={data.role} onChange={e => setData('role', e.target.value)} className="mt-1 w-full border p-2 rounded">
+                            <select value={data.role} onChange={e => setData('role', e.target.value)} className="mt-1 w-full border p-2 rounded  text-black  dark:text-white dark:bg-gray-700">
                                 {roleOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
                             {errors.role && <div className="text-sm text-red-500 mt-1">{errors.role}</div>}
@@ -150,7 +150,7 @@ export default function AdminUserForm() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">ประเภทบุคคล</label>
-                            <select value={data.user_type} onChange={e => setData('user_type', e.target.value)} className="mt-1 w-full border p-2 rounded">
+                            <select value={data.user_type} onChange={e => setData('user_type', e.target.value)} className="mt-1 w-full border p-2 rounded  text-black  dark:text-white dark:bg-gray-700">
                                 {userTypeOptions.map(opt => (
                                     <option key={opt} value={opt}>{opt === 'internal' ? 'ภายใน' : 'ภายนอก'}</option>
                                 ))}

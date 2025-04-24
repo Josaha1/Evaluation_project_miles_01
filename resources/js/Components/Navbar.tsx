@@ -60,7 +60,7 @@ export default function NavBar() {
                                             สวัสดี, {auth.user.prename}{auth.user.fname} : {auth.user.position} ระดับ {auth.user.grade}
                                         </span>
                                         <img
-                                            src={auth.user.photo || "/images/default.jpg"}
+                                            src={auth.user.photo || "/storage/images/default.png"}
                                             alt="User"
                                             className="w-8 h-8 rounded-full border"
                                         />

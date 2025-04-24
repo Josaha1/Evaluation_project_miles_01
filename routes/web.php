@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminEvaluationAssignmentController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\AspectController;
+use App\Http\Controllers\AssignedEvaluationController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\EvaluationAssignmentController;
 use App\Http\Controllers\EvaluationController;
@@ -142,6 +143,17 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/evaluations/self/resume', [SelfEvaluationController::class, 'resume'])->name('evaluationsself.resume');
 
     Route::post('/evaluations/self/submit', [SelfEvaluationController::class, 'submit'])->name('evaluations.self.submit');
+
+    Route::get('/assigned-evaluations/{evaluateeId}', [AssignedEvaluationController::class, 'show'])
+        ->name('assigned-evaluations.show');
+
+    // ➡️ บันทึกคำตอบของแต่ละ step
+    Route::post('/assigned-evaluations/{evaluatee}/step/{step}', [AssignedEvaluationController::class, 'step'])
+        ->name('assigned-evaluations.step');
+
+    // 🔁 เปิดหน้าคำถามตาม step สำหรับการประเมิน evaluatee รายนี้
+    Route::get('/assigned-evaluations/{evaluatee}/step/{step}', [AssignedEvaluationController::class, 'showStep'])
+        ->name('assigned-evaluations.questions');
 });
 
 // Route::get('/register', function () {
