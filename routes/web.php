@@ -154,6 +154,10 @@ Route::middleware(['auth'])->group(function () {
     // 🔁 เปิดหน้าคำถามตาม step สำหรับการประเมิน evaluatee รายนี้
     Route::get('/assigned-evaluations/{evaluatee}/step/{step}', [AssignedEvaluationController::class, 'showStep'])
         ->name('assigned-evaluations.questions');
+
+    Route::get('/profile/edit', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::match(['put', 'post'], '/profile/update', [ProfileController::class, 'update'])->name('profile.update');
+
 });
 
 // Route::get('/register', function () {

@@ -58,7 +58,7 @@ export default function Dashboard() {
     const renderCard = (evalItem: EvaluationCard, isSelf: boolean) => {
         const progress = evalItem.progress ?? 0
         const step = evalItem.step_to_resume ?? 1
-        console.log('Rendering Card:', evalItem)
+     
         return (
             <div
                 key={`${isSelf ? 'self' : 'target'}-${evalItem.id}`}
@@ -66,7 +66,7 @@ export default function Dashboard() {
             >
                 <div className="flex items-center gap-4 mb-4">
                     <img
-                        src={evalItem.evaluatee_photo || '/storage/images/default.png'}
+                        src={evalItem.evaluatee_photo || '/images/default.png'}
                         alt={evalItem.evaluatee_name}
                         className="w-14 h-14 rounded-full object-cover border"
                     />

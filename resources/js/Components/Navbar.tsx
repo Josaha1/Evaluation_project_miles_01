@@ -60,7 +60,7 @@ export default function NavBar() {
                                             สวัสดี, {auth.user.prename}{auth.user.fname} : {auth.user.position} ระดับ {auth.user.grade}
                                         </span>
                                         <img
-                                            src={auth.user.photo || "/storage/images/default.png"}
+                                            src={auth.user.photo || "/images/default.png"}
                                             alt="User"
                                             className="w-8 h-8 rounded-full border"
                                         />
@@ -73,6 +73,15 @@ export default function NavBar() {
                                                 🏷️ {auth.user.position} | ระดับ {auth.user.grade}
                                             </div>
                                             <hr className="dark:border-gray-600" />
+
+                                            {/* 👇 เมนูโปรไฟล์ */}
+                                            <Link
+                                                href={route('profile.edit')} // ต้องมี route นี้ใน web.php หรือ Inertia controller
+                                                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                                            >
+                                                ✏️ แก้ไขโปรไฟล์
+                                            </Link>
+
                                             <div className="flex justify-between items-center px-4 py-2">
                                                 <span className="text-sm text-gray-600 dark:text-gray-300">โหมดแสง</span>
                                                 <button
@@ -82,6 +91,7 @@ export default function NavBar() {
                                                     {darkMode ? "🌙" : "🌞"}
                                                 </button>
                                             </div>
+
                                             <Link
                                                 href={route("logout")}
                                                 method="post"
@@ -92,6 +102,7 @@ export default function NavBar() {
                                             </Link>
                                         </div>
                                     )}
+
                                 </div>
                             </>
                         )}
