@@ -10,7 +10,8 @@ class Divisions extends Model
 
     protected $fillable = ['name'];
 
-    public function departments()
+    public function users()
     {
-        return $this->hasMany(Department::class);
-    }}
+        return $this->hasMany(User::class); 
+    }
+}

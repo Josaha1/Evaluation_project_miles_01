@@ -9,7 +9,9 @@ export default function NavBar() {
 
     useEffect(() => {
         const saved = localStorage.getItem("darkMode");
-        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const prefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)"
+        ).matches;
         const isDark = saved !== null ? saved === "true" : prefersDark;
         setDarkMode(isDark);
         document.documentElement.classList.toggle("dark", isDark);
@@ -30,7 +32,13 @@ export default function NavBar() {
                 <div className="flex justify-between h-16 items-center">
                     {/* Logo */}
                     <div className="flex-shrink-0 text-xl font-bold text-indigo-600">
-                        <Link href={route(auth?.user?.role === 'admin' ? 'admindashboard' : 'dashboard')}>
+                        <Link
+                            href={route(
+                                auth?.user?.role === "admin"
+                                    ? "admindashboard"
+                                    : "dashboard"
+                            )}
+                        >
                             Laravel React
                         </Link>
                     </div>
@@ -48,7 +56,10 @@ export default function NavBar() {
                         ) : (
                             // ✅ แสดง dropdown ถ้า login แล้ว
                             <>
-                                <button onClick={toggleMenu} className="text-sm font-medium dark:text-white hidden sm:block">
+                                <button
+                                    onClick={toggleMenu}
+                                    className="text-sm font-medium dark:text-white hidden sm:block"
+                                >
                                     เมนู
                                 </button>
                                 <div className="relative">
@@ -57,10 +68,19 @@ export default function NavBar() {
                                         className="flex items-center gap-2 focus:outline-none"
                                     >
                                         <span className="text-sm font-semibold text-gray-700 dark:text-white hidden sm:inline">
-                                            สวัสดี, {auth.user.prename}{auth.user.fname} : {auth.user.position} ระดับ {auth.user.grade}
+                                            สวัสดี, {auth.user.prename}
+                                            {auth.user.fname} :{" "}
+                                            {auth.user.position} ระดับ{" "}
+                                            {auth.user.grade}
                                         </span>
                                         <img
-                                            src={auth.user.photo || "/images/default.png"}
+                                            src={
+                                                auth.user.photo &&
+                                                typeof auth.user.photo ===
+                                                    "string"
+                                                    ? `/storage/${auth.user.photo}`
+                                                    : "/images/default.png"
+                                            }
                                             alt="User"
                                             className="w-8 h-8 rounded-full border"
                                         />
@@ -69,21 +89,26 @@ export default function NavBar() {
                                     {menuOpen && (
                                         <div className="absolute right-0 mt-2 w-60 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-md shadow-md z-50">
                                             <div className="p-4 text-sm text-gray-700 dark:text-gray-200">
-                                                👤 {auth.user.fname} {auth.user.lname}<br />
-                                                🏷️ {auth.user.position} | ระดับ {auth.user.grade}
+                                                👤 {auth.user.fname}{" "}
+                                                {auth.user.lname}
+                                                <br />
+                                                🏷️ {auth.user.position} | ระดับ{" "}
+                                                {auth.user.grade}
                                             </div>
                                             <hr className="dark:border-gray-600" />
 
                                             {/* 👇 เมนูโปรไฟล์ */}
                                             <Link
-                                                href={route('profile.edit')} // ต้องมี route นี้ใน web.php หรือ Inertia controller
+                                                href={route("profile.edit")} // ต้องมี route นี้ใน web.php หรือ Inertia controller
                                                 className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
                                             >
                                                 ✏️ แก้ไขโปรไฟล์
                                             </Link>
 
                                             <div className="flex justify-between items-center px-4 py-2">
-                                                <span className="text-sm text-gray-600 dark:text-gray-300">โหมดแสง</span>
+                                                <span className="text-sm text-gray-600 dark:text-gray-300">
+                                                    โหมดแสง
+                                                </span>
                                                 <button
                                                     onClick={toggleDark}
                                                     className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700"
@@ -102,7 +127,6 @@ export default function NavBar() {
                                             </Link>
                                         </div>
                                     )}
-
                                 </div>
                             </>
                         )}

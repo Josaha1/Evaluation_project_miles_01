@@ -5,6 +5,8 @@ import Navbar from '../Components/Navbar'
 import Footer from '@/Components/Footer'
 import Breadcrumb from '@/Components/ui/breadcrumb'
 import { Toaster } from 'sonner'
+import CookieConsentBanner from '@/Components/CookieConsentBanner'
+
 // Interface สำหรับรับค่า props
 interface MainLayoutProps {
     children: ReactNode
@@ -30,7 +32,7 @@ export default function MainLayout({ children, title, breadcrumb }: MainLayoutPr
             </main>
 
             <Footer />
-
+            <CookieConsentBanner />
         </div>
     )
 }

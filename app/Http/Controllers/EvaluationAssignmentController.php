@@ -13,7 +13,8 @@ class EvaluationAssignmentController extends Controller
 {
     public function index(Request $request)
     {
-        $user       = auth()->user();
+        $user = auth()->user();
+
         $userId     = $user->id;
         $fiscalYear = $request->input('fiscal_year', now()->year);
 
@@ -37,7 +38,9 @@ class EvaluationAssignmentController extends Controller
         $fiscalYears = EvaluationAssignment::select('fiscal_year')->distinct()->orderBy('fiscal_year', 'desc')->pluck('fiscal_year');
 
         // Assigned Evaluations
-        $assignments = EvaluationAssignment::with('evaluatee')
+        $assignments = EvaluationAssignment::with([
+            'evaluatee.positions.department.division', // ✅ preload
+        ])
             ->where('evaluator_id', $userId)
             ->where('fiscal_year', $fiscalYear)
             ->get()
@@ -101,10 +104,11 @@ class EvaluationAssignmentController extends Controller
                     'evaluatee_id'    => $a->evaluatee_id,
                     'evaluatee_name'  => trim("{$a->evaluatee->prename} {$a->evaluatee->fname} {$a->evaluatee->lname}"),
                     'evaluatee_photo' => $a->evaluatee->photo_url ?? '/images/default.jpg',
-                    'position'        => $a->evaluatee->position ?? '-',
+
                     'grade'           => $a->evaluatee->grade ?? '-',
                     'progress'        => $progress,
                     'step_to_resume'  => $stepToResume,
+                    'angle'           => $a->angle ?? 'unknown',
                 ];
             });
 
@@ -158,7 +162,7 @@ class EvaluationAssignmentController extends Controller
             'id'              => 0,
             'evaluatee_name'  => trim("{$user->prename} {$user->fname} {$user->lname}"),
             'evaluatee_photo' => $user->photo_url ?? '/images/default.jpg',
-            'position'        => $user->position ?? '-',
+
             'grade'           => $user->grade ?? '-',
             'progress'        => $selfProgress,
             'step_to_resume'  => $selfStep,
@@ -176,7 +180,7 @@ class EvaluationAssignmentController extends Controller
 
     public function create()
     {
-        $users = User::orderBy('fname')->get(['id', 'fname', 'lname', 'position']);
+        $users = User::orderBy('fname')->get(['id', 'fname', 'lname', 'position_id']);
 
         $fiscalYears = EvaluationAssignment::select('fiscal_year')->distinct()->pluck('fiscal_year')->sortDesc()->values();
 
@@ -233,12 +237,31 @@ class EvaluationAssignmentController extends Controller
             'evaluatee_ids.*' => 'exists:users,id|different:evaluator_id',
         ]);
 
-        $fiscalYear = now()->year; // สมมติว่าปีงบประมาณถัดไป
-
-        $created = 0;
+        $fiscalYear = now()->month >= 10 ? now()->addYear()->year : now()->year;
+        $created    = 0;
+        $notMatched = [];
 
         foreach ($data['evaluatee_ids'] as $evaluateeId) {
-            // ❗️ตรวจสอบว่าความสัมพันธ์นี้ซ้ำหรือยัง
+            $evaluatee = User::findOrFail($evaluateeId);
+
+            $userType = $evaluatee->user_type instanceof \BackedEnum
+            ? $evaluatee->user_type->value
+            : $evaluatee->user_type;
+
+            $grade = $evaluatee->grade;
+
+            $evaluation = Evaluation::where('user_type', $userType)
+                ->where('grade_min', '<=', $grade)
+                ->where('grade_max', '>=', $grade)
+                ->where('status', 'published')
+                ->latest()
+                ->first();
+
+            if (! $evaluation) {
+                $notMatched[] = "{$evaluatee->fname} {$evaluatee->lname}";
+               
+            }
+
             $alreadyExists = EvaluationAssignment::where('evaluator_id', $data['evaluator_id'])
                 ->where('evaluatee_id', $evaluateeId)
                 ->where('fiscal_year', $fiscalYear)
@@ -247,21 +270,28 @@ class EvaluationAssignmentController extends Controller
 
             if (! $alreadyExists) {
                 EvaluationAssignment::create([
-                    'evaluation_id' => 1, // สมมติว่ามี Evaluation เดียว (ถ้าไม่ต้องแก้)
+                    'evaluation_id' => $evaluation->id,
                     'evaluator_id'  => $data['evaluator_id'],
                     'evaluatee_id'  => $evaluateeId,
                     'fiscal_year'   => $fiscalYear,
                     'angle'         => $data['angle'],
                 ]);
-
                 $created++;
             }
         }
 
         if ($created > 0) {
-            return redirect()->back()->with('success', "เพิ่มความสัมพันธ์ $created รายการเรียบร้อยแล้ว 🎉");
+            $message = "✅ เพิ่มความสัมพันธ์ $created รายการเรียบร้อยแล้ว 🎉";
+            if (count($notMatched) > 0) {
+                $message .= " แต่ไม่มีแบบประเมินสำหรับ: " . implode(', ', $notMatched);
+            }
+            return redirect()->back()->with('success', $message);
         } else {
-            return redirect()->back()->with('error', 'ไม่มีการเพิ่มข้อมูลใหม่ เพราะมีอยู่แล้วทั้งหมด');
+            $message = '🚫 ไม่มีการเพิ่มข้อมูลใหม่';
+            if (count($notMatched) > 0) {
+                $message .= ' และไม่มีแบบประเมินสำหรับ: ' . implode(', ', $notMatched);
+            }
+            return redirect()->back()->with('error', $message);
         }
     }
 

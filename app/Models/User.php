@@ -18,15 +18,16 @@ class User extends Authenticatable implements MustVerifyEmail
         'fname',
         'lname',
         'sex',
-        'position',
+        'division_id',
+        'department_id',
+        'position_id',
         'grade',
-        'organize',
-        'password',
         'birthdate',
+        'password',
         'photo',
         'role',
         'user_type',
-    ];
+    ];  
 
     protected $hidden = [
         'password',
@@ -93,6 +94,16 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->hasMany(Answer::class, 'evaluatee_id');
     }
+    public function division()
+    {
+        return $this->belongsTo(Divisions::class);
+    }
+
+    public function department()
+    {
+        return $this->belongsTo(Departments::class);
+    }
+
     public function position()
     {
         return $this->belongsTo(Position::class);

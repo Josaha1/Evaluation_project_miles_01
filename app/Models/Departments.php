@@ -10,13 +10,8 @@ class Departments extends Model
 
     protected $fillable = ['name', 'division_id'];
 
-    public function division()
+    public function users()
     {
-        return $this->belongsTo(Division::class);
-    }
-
-    public function positions()
-    {
-        return $this->hasMany(Position::class);
+        return $this->hasMany(User::class); 
     }
 }

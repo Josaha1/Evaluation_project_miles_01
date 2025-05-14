@@ -4,15 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-class Positions extends Model
+class Position extends Model
 {
     use HasFactory;
-
-    protected $fillable = ['title', 'department_id'];
+    protected $table = 'positions'; 
+    protected $fillable = ['title'];
 
     public function department()
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(Departments::class);
     }
 
     public function users()

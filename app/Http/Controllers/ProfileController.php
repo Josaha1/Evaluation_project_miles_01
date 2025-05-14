@@ -2,6 +2,9 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Models\Divisions;
+use App\Models\Departments;
+use App\Models\Position;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -18,6 +21,9 @@ class ProfileController extends Controller
 
         return inertia('ProfileEditPage', [
             'user' => $user,
+            'divisions' => Divisions::all(),
+            'departments' => Departments::all(),
+            'positions' => Position::all(),
         ]);
     }
 
@@ -26,12 +32,15 @@ class ProfileController extends Controller
         $user = Auth::user();
 
         $data = $request->validate([
-            'prename'  => 'required|string|max:255',
-            'fname'    => 'required|string|max:255',
-            'lname'    => 'required|string|max:255',
-            'position' => 'nullable|string|max:255',
-            'grade'    => 'nullable|numeric',
-            'photo'    => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'prename' => 'required|string|max:255',
+            'fname' => 'required|string|max:255',
+            'lname' => 'required|string|max:255',
+            'sex' => 'nullable|string',
+            'position_id' => 'nullable|exists:positions,id',
+            'department_id' => 'nullable|exists:departments,id',
+            'division_id' => 'nullable|exists:divisions,id',
+            'grade' => 'nullable|numeric',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
         if ($request->hasFile('photo')) {

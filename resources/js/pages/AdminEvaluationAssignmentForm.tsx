@@ -1,24 +1,28 @@
-import React, { useMemo, useState } from 'react';
-import MainLayout from '@/Layouts/MainLayout';
-import { useForm, usePage } from '@inertiajs/react';
-import Select from 'react-select';
-import { toast } from 'sonner';
-import { Button } from '@/Components/ui/button';
-import { Card } from '@/Components/ui/card';
-import Breadcrumb from '@/Components/ui/breadcrumb';
-import { User } from '@/types';
-
+import React, { useMemo, useState } from "react";
+import MainLayout from "@/Layouts/MainLayout";
+import { useForm, usePage } from "@inertiajs/react";
+import Select from "react-select";
+import { toast } from "sonner";
+import { Button } from "@/Components/ui/button";
+import { Card } from "@/Components/ui/card";
+import Breadcrumb from "@/Components/ui/breadcrumb";
+import { User } from "@/types";
+import { router } from "@inertiajs/react";
 interface OptionType {
     value: number;
     label: string;
     grade: number;
+    division_id?: number;
+    department_id?: number;
+    position_title?: string;
+    user_type?: string;
 }
 
 const allAngleOptions = [
-    { value: 'top', label: 'องศาบน (เจ้านาย)' },
-    { value: 'bottom', label: 'องศาล่าง (ลูกน้อง)' },
-    { value: 'left', label: 'องศาซ้าย (เพื่อนสายงานเดียวกัน)' },
-    { value: 'right', label: 'องศาขวา (สายงานอื่นเกี่ยวข้อง)' },
+    { value: "top", label: "องศาบน (เจ้านาย)" },
+    { value: "bottom", label: "องศาล่าง (ลูกน้อง)" },
+    { value: "left", label: "องศาซ้าย (เพื่อนสายงานเดียวกัน)" },
+    { value: "right", label: "องศาขวา (สายงานอื่นเกี่ยวข้อง)" },
 ];
 
 export default function AdminEvaluationAssignmentForm() {
@@ -28,78 +32,240 @@ export default function AdminEvaluationAssignmentForm() {
         () =>
             users.map((u) => ({
                 value: u.id,
-                label: `${u.fname} ${u.lname} (${u.position || 'ไม่ระบุตำแหน่ง'})`,
+                label: `${u.fname} ${u.lname} (${
+                    u.position?.title ?? "ไม่ระบุตำแหน่ง"
+                } / ${u.department?.name ?? "ไม่ระบุหน่วยงาน"} / ${
+                    u.division?.name ?? "ไม่ระบุสายงาน"
+                })`,
                 grade: parseInt(u.grade),
+                division_id: u.division_id,
+                department_id: u.department_id,
+                position_title: u.position?.title || "",
+                user_type: u.user_type || "",
             })),
         [users]
     );
 
-    const [selectedEvaluator, setSelectedEvaluator] = useState<OptionType | null>(null);
-    const [availableAngles, setAvailableAngles] = useState<{ value: string; label: string }[]>([]);
-    const [selectedAngle, setSelectedAngle] = useState<{ value: string; label: string } | null>(null);
+    const [selectedEvaluatee, setSelectedEvaluatee] =
+        useState<OptionType | null>(null);
+    const [availableAngles, setAvailableAngles] = useState<
+        { value: string; label: string }[]
+    >([]);
+    const [selectedAngle, setSelectedAngle] = useState<{
+        value: string;
+        label: string;
+    } | null>(null);
+    const [selectedEvaluators, setSelectedEvaluators] = useState<OptionType[]>(
+        []
+    );
 
     const { data, setData, post, processing, reset, errors } = useForm({
-        evaluator_id: '',
-        angle: '',
-        evaluatee_ids: [] as number[],
+        evaluator_id: "",
+        evaluatee_id: "", // 👈 ควรเป็น string ไม่ใช่ array
+        angle: "",
     });
 
-    const handleEvaluatorChange = (selected: OptionType | null) => {
-        setSelectedEvaluator(selected);
-        setData('evaluator_id', selected?.value || '');
+    const handleEvaluateeChange = (selected: OptionType | null) => {
+        setSelectedEvaluatee(selected);
         setSelectedAngle(null);
-        setData('angle', '');
+        setSelectedEvaluators([]);
+        setData("evaluatee_id", selected ? selected.value : ""); // ✅ แก้ตรงนี้
+        setData("evaluator_id", "");
+        setData("angle", "");
 
         if (!selected) {
             setAvailableAngles([]);
             return;
         }
 
-        if (selected.grade >= 9) {
-            setAvailableAngles(allAngleOptions); // ระดับ 9–12 เลือกได้ทุกองศา
+        const grade = selected.grade;
+        if (grade >= 9) {
+            setAvailableAngles(allAngleOptions);
         } else {
-            setAvailableAngles(allAngleOptions.filter((opt) => opt.value === 'top' || opt.value === 'left')); // ระดับ 5–8 เลือกได้แค่ บน/ซ้าย
+            setAvailableAngles(
+                allAngleOptions.filter(
+                    (opt) => opt.value === "top" || opt.value === "left"
+                )
+            );
         }
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!selectedEvaluator || !selectedAngle || data.evaluatee_ids.length === 0) {
-            toast.error('กรุณาเลือกข้อมูลให้ครบถ้วน');
+        if (
+            !selectedEvaluatee ||
+            !selectedAngle ||
+            selectedEvaluators.length === 0
+        ) {
+            toast.error("กรุณาเลือกข้อมูลให้ครบถ้วน");
             return;
         }
 
-        post(route('assignments.store-multi'), {
+        const payload = {
+            evaluator_id: selectedEvaluators[0].value,
+            angle: selectedAngle.value,
+            evaluatee_id: selectedEvaluatee.value, // ✅ ใช้ค่าเดียว
+        };
+
+        router.post(route("assignments.store"), payload, {
             onSuccess: () => {
-                toast.success('✅ เพิ่มความสัมพันธ์สำเร็จแล้ว');
+                toast.success("✅ เพิ่มความสัมพันธ์สำเร็จแล้ว");
                 reset();
-                setSelectedEvaluator(null);
+                setSelectedEvaluatee(null);
                 setSelectedAngle(null);
                 setAvailableAngles([]);
+                setSelectedEvaluators([]);
             },
-            onError: () => toast.error('🚫 ไม่สามารถเพิ่มความสัมพันธ์ได้'),
+            onError: () => toast.error("🚫 ไม่สามารถเพิ่มความสัมพันธ์ได้"),
         });
     };
 
-    const filteredEvaluateeOptions = useMemo(() => {
-        if (!selectedEvaluator || !selectedAngle) return [];
+    const filteredEvaluatorOptions = useMemo(() => {
+        if (!selectedEvaluatee || !selectedAngle) return [];
 
-        const evaluatorGrade = selectedEvaluator.grade;
-
-        if (selectedAngle.value === 'top') {
-            return userOptions.filter((u) => u.grade > evaluatorGrade); // เจ้านาย
+        const grade = selectedEvaluatee.grade;
+        const divisionId = selectedEvaluatee.division_id;
+        const departmentId = selectedEvaluatee.department_id;
+        if (selectedAngle.value === "top") {
+            // กรณีระดับ 5–8 → กรองเฉพาะผอ. 9–10
+            if (grade < 9) {
+                return userOptions.filter(
+                    (u) =>
+                        u.grade >= 9 &&
+                        u.grade <= 10 &&
+                        u.position_title &&
+                        (u.position_title.includes("ผู้อำนวยการ") ||
+                            u.position_title.includes("ผู้ช่วยผู้อำนวยการ")) &&
+                        u.user_type == "internal" // ไม่รวมผู้ดูแลระบบ
+                );
+            } else if (grade == 9) {
+                return userOptions.filter(
+                    (u) =>
+                        u.grade == 10 &&
+                        u.division_id === divisionId &&
+                        u.position_title &&
+                        u.position_title.includes("ผู้ช่วยผู้ว่าการ") &&
+                        u.user_type == "internal" // ไม่รวมผู้ดูแลระบบ
+                );
+            } else if (grade == 10) {
+                return userOptions.filter(
+                    (u) =>
+                        u.division_id === divisionId &&
+                        u.position_title &&
+                        (u.position_title.includes("รองผู้ว่าการ") ||
+                            u.position_title.includes("ผู้ช่วยผู้ว่าการ")) &&
+                        u.user_type == "internal" // ไม่รวมผู้ดูแลระบบ
+                );
+            } else if (grade == 11) {
+                return userOptions.filter(
+                    (u) =>
+                        u.division_id === divisionId &&
+                        u.position_title &&
+                        (u.position_title.includes("ผู้ว่าการ") ||
+                            u.position_title.includes("รองผู้ว่าการ")) &&
+                        u.user_type == "internal" // ไม่รวมผู้ดูแลระบบ
+                );
+            } else if (grade == 12) {
+                return userOptions.filter(
+                    (u) =>
+                        u.division_id === divisionId &&
+                        u.position_title &&
+                        u.position_title.includes("ผู้ว่าการ") &&
+                        u.user_type == "internal" // ไม่รวมผู้ดูแลระบบ
+                );
+            } else {
+                return userOptions.filter((u) => u.grade > grade);
+            }
         }
-        if (selectedAngle.value === 'bottom') {
-            return userOptions.filter((u) => u.grade < evaluatorGrade); // ลูกน้อง
-        }
-        return userOptions.filter((u) => Math.abs(u.grade - evaluatorGrade) <= 1); // ซ้าย/ขวา
-    }, [selectedEvaluator, selectedAngle, userOptions]);
 
-    const previewEvaluatees = useMemo(
-        () => userOptions.filter((u) => data.evaluatee_ids.includes(u.value)),
-        [data.evaluatee_ids, userOptions]
-    );
+        if (selectedAngle.value === "left") {
+            // กรณีระดับ 5–8
+            if (grade < 9) {
+                return userOptions.filter(
+                    (u) =>
+                        u.grade >= 5 &&
+                        u.grade <= 8 &&
+                        u.division_id === divisionId && 
+                        u.user_type == "internal"
+                );
+            } else if (grade == 9) {
+                return userOptions.filter(
+                    (u) =>
+                        u.grade == 9 &&
+                        u.division_id === divisionId && // สายงานเดียวกัน
+                        u.user_type == "internal"
+                );
+            } else if (grade == 10) {
+                return userOptions.filter(
+                    (u) =>
+                        u.grade == 10 &&
+                        u.division_id === divisionId && // สายงานเดียวกัน
+                        u.user_type == "internal"
+                );
+            } else if (grade == 11) {
+                return userOptions.filter(
+                    (u) =>
+                        u.division_id === divisionId && // สายงานเดียวกัน
+                        u.position_title?.includes("ผู้ช่วยผู้ว่าการ") && // หรือร่วมงาน
+                        u.user_type == "internal"
+                );
+            } else if (grade == 12) {
+                return userOptions.filter(
+                    (u) =>
+                        u.division_id === divisionId && // สายงานเดียวกัน
+                        u.position_title?.includes("รองผู้ว่าการ") && // หรือร่วมงาน
+                        u.user_type == "internal"
+                );
+            }
+        }
+
+        if (selectedAngle.value === "bottom") {
+            if (grade == 9) {
+                return userOptions.filter(
+                    (u) =>
+                        u.department_id === departmentId && // สายงานเดียวกัน
+                        u.user_type == "internal"
+                );
+            } else if (grade == 10) {
+                return userOptions.filter(
+                    (u) =>
+                        u.grade == 8 &&
+                        u.department_id === departmentId &&
+                        (u.position_title?.includes("เลขานุการ") ||
+                            u.position_title?.includes("ผู้อำนวยการกอง")) &&
+                        u.user_type === "internal"
+                );
+            } else if (grade == 11) {
+                return userOptions.filter(
+                    (u) =>
+                        u.division_id === divisionId &&
+                        (u.position_title?.includes("เลขานุการ") ||
+                            u.position_title?.includes("ผู้อำนวยการฝ่าย") ||
+                            u.position_title?.includes("ผู้อำนวยการกอง")) &&
+                        u.user_type === "internal"
+                );
+            } else if (grade == 12) {
+                return userOptions.filter(
+                    (u) =>
+                        u.division_id === divisionId &&
+                        (u.position_title?.includes("ผู้ช่วยผู้ว่าการ") ||
+                            u.position_title?.includes("เลขานุการ") ||
+                            u.position_title?.includes("ผู้อำนวยการฝ่าย")) &&
+                        u.user_type === "internal"
+                );
+            }
+        }
+
+        if (selectedAngle.value === "right") {
+            return userOptions.filter(
+                (u) =>
+                    u.user_type === "external"
+            );
+        }
+
+        return [];
+    }, [selectedEvaluatee, selectedAngle, userOptions]);
 
     return (
         <MainLayout
@@ -107,9 +273,18 @@ export default function AdminEvaluationAssignmentForm() {
             breadcrumb={
                 <Breadcrumb
                     items={[
-                        { label: 'แดชบอร์ดผู้ดูแลระบบ', href: route('admindashboard') },
-                        { label: 'จัดการผู้ประเมิน-ผู้ถูกประเมิน', href: route('assignments.index') },
-                        { label: 'เพิ่มความสัมพันธ์ผู้ประเมิน - ผู้ถูกประเมิน', active: true },
+                        {
+                            label: "แดชบอร์ดผู้ดูแลระบบ",
+                            href: route("admindashboard"),
+                        },
+                        {
+                            label: "จัดการผู้ประเมิน-ผู้ถูกประเมิน",
+                            href: route("assignments.index"),
+                        },
+                        {
+                            label: "เพิ่มความสัมพันธ์ผู้ประเมิน - ผู้ถูกประเมิน",
+                            active: true,
+                        },
                     ]}
                 />
             }
@@ -121,28 +296,17 @@ export default function AdminEvaluationAssignmentForm() {
                     </h1>
 
                     <form onSubmit={handleSubmit} className="space-y-8">
-                        {/* Evaluator */}
+                        {/* Evaluatee */}
                         <div>
                             <label className="block mb-2 text-sm font-semibold dark:text-gray-300">
-                                👨‍🏫 เลือกผู้ประเมิน
+                                👤 เลือกผู้ถูกประเมิน
                             </label>
                             <Select
                                 options={userOptions}
-                                value={selectedEvaluator}
-                                onChange={handleEvaluatorChange}
-                                placeholder="เลือกผู้ประเมิน"
+                                value={selectedEvaluatee}
+                                onChange={handleEvaluateeChange}
+                                placeholder="เลือกผู้ถูกประเมิน"
                                 isClearable
-                                classNamePrefix="react-select"
-                                styles={{
-                                    menu: (base) => ({ ...base, color: 'black' }),
-                                    option: (base, { isFocused }) => ({
-                                        ...base,
-                                        color: 'black',
-                                        backgroundColor: isFocused ? '#e0e0e0' : 'white',
-                                    }),
-                                    singleValue: (base) => ({ ...base, color: 'black' }),
-                                    input: (base) => ({ ...base, color: 'black' }),
-                                }}
                             />
                         </div>
 
@@ -157,90 +321,41 @@ export default function AdminEvaluationAssignmentForm() {
                                     value={selectedAngle}
                                     onChange={(selected) => {
                                         setSelectedAngle(selected);
-                                        setData('angle', selected?.value || '');
+                                        setData("angle", selected?.value || "");
+                                        setSelectedEvaluators([]);
                                     }}
                                     placeholder="เลือกองศา"
                                     isClearable
-                                    classNamePrefix="react-select"
-                                    styles={{
-                                        menu: (base) => ({ ...base, color: 'black' }),
-                                        option: (base, { isFocused }) => ({
-                                            ...base,
-                                            color: 'black',
-                                            backgroundColor: isFocused ? '#e0e0e0' : 'white',
-                                        }),
-                                        singleValue: (base) => ({ ...base, color: 'black' }),
-                                        input: (base) => ({ ...base, color: 'black' }),
-                                    }}
                                 />
                             </div>
                         )}
 
-                        {/* Evaluatees */}
+                        {/* Evaluators */}
                         {selectedAngle && (
                             <div>
                                 <label className="block mb-2 text-sm font-semibold dark:text-gray-300">
-                                    📋 เลือกผู้ถูกประเมิน (หลายคน)
+                                    🧑‍💼 เลือกผู้ประเมิน
                                 </label>
                                 <Select
-                                    options={filteredEvaluateeOptions}
-                                    value={filteredEvaluateeOptions.filter((opt) =>
-                                        data.evaluatee_ids.includes(opt.value)
-                                    )}
+                                    options={filteredEvaluatorOptions}
+                                    value={selectedEvaluators}
                                     onChange={(selected) =>
-                                        setData(
-                                            'evaluatee_ids',
-                                            selected ? selected.map((s) => s.value) : []
+                                        setSelectedEvaluators(
+                                            selected ? [selected] : []
                                         )
                                     }
-                                    placeholder="เลือกผู้ถูกประเมิน"
-                                    isMulti
+                                    placeholder="เลือกผู้ประเมิน"
                                     isClearable
-                                    classNamePrefix="react-select"
-                                    styles={{
-                                        menu: (base) => ({ ...base, color: 'black' }),
-                                        option: (base, { isFocused }) => ({
-                                            ...base,
-                                            color: 'black',
-                                            backgroundColor: isFocused ? '#e0e0e0' : 'white',
-                                        }),
-                                        singleValue: (base) => ({ ...base, color: 'black' }),
-                                        input: (base) => ({ ...base, color: 'black' }),
-                                    }}
                                 />
                             </div>
                         )}
 
-                        {/* Preview Table */}
-                        {previewEvaluatees.length > 0 && (
-                            <div className="mt-6">
-                                <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
-                                    👀 รายชื่อผู้ถูกประเมินที่เลือก
-                                </h2>
-                                <div className="overflow-x-auto">
-                                    <table className="min-w-full bg-white dark:bg-zinc-800 rounded-lg overflow-hidden text-sm">
-                                        <thead>
-                                            <tr className="bg-gray-100 dark:bg-zinc-700">
-                                                <th className="p-3 text-left">ชื่อผู้ถูกประเมิน</th>
-                                                <th className="p-3 text-left">ตำแหน่ง</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {previewEvaluatees.map((u) => (
-                                                <tr key={u.value} className="border-b dark:border-zinc-700">
-                                                    <td className="p-3">{u.label}</td>
-                                                    <td className="p-3">{selectedAngle?.label}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Submit */}
                         <div className="flex justify-end pt-6">
-                            <Button type="submit" disabled={processing} className="px-6">
+                            <Button
+                                type="submit"
+                                disabled={processing}
+                                className="px-6"
+                            >
                                 ➕ บันทึกความสัมพันธ์
                             </Button>
                         </div>

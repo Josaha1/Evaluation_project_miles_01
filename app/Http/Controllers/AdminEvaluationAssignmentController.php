@@ -33,7 +33,11 @@ class AdminEvaluationAssignmentController extends Controller
     public function create()
     {
         return Inertia::render('AdminEvaluationAssignmentForm', [
-            'users' => User::orderBy('fname')->get(),
+            'users' => User::with([
+                'position',   // -> title
+                'department', // -> name
+                'division',   // -> name
+            ])->orderBy('fname')->get(),
         ]);
     }
 
@@ -42,20 +46,35 @@ class AdminEvaluationAssignmentController extends Controller
         $validated = $request->validate([
             'evaluator_id' => 'required|exists:users,id',
             'evaluatee_id' => 'required|exists:users,id|different:evaluator_id',
+            'angle'        => 'required|in:top,bottom,left,right',
         ]);
-
         $evaluatee = User::findOrFail($validated['evaluatee_id']);
 
-        // สร้าง key สำหรับค้นหา evaluation เช่น internal_11
-        $evaluationUserType = $evaluatee->user_type->value . '_' . $evaluatee->grade;
+        $grade    = $evaluatee->grade;
+        $userType = $evaluatee->user_type instanceof \BackedEnum
+        ? $evaluatee->user_type->value
+        : $evaluatee->user_type;
+
+        $evaluation = Evaluation::where('user_type', $userType)
+            ->where('grade_min', '<=', $grade)
+            ->where('grade_max', '>=', $grade)
+            ->where('status', 'published')
+            ->latest()
+            ->first();
 
         // ค้นหา evaluation
-        $evaluation = Evaluation::where('user_type', $evaluatee->user_type->value)
-            ->where('grade_min', '<=', $evaluatee->grade)
-            ->where('grade_max', '>=', $evaluatee->grade)
+        $evaluation = Evaluation::where('user_type', $userType)
+            ->where('grade_min', '<=', $grade)
+            ->where('grade_max', '>=', $grade)
+            ->where('status', 'published')
+            ->latest()
             ->first();
 
         if (! $evaluation) {
+            \Log::error('❌ ไม่พบ evaluation ที่ตรงกับ user_type และ grade', [
+                'user_type' => $userType,
+                'grade'     => $grade,
+            ]);
             return redirect()->back()->withErrors([
                 'evaluatee_id' => '❌ ไม่พบแบบประเมินที่ตรงกับประเภทบุคคลและระดับของผู้ถูกประเมิน',
             ]);
@@ -81,6 +100,7 @@ class AdminEvaluationAssignmentController extends Controller
             'evaluatee_id'  => $validated['evaluatee_id'],
             'evaluation_id' => $evaluation->id,
             'fiscal_year'   => $fiscalYear,
+            'angle'         => $validated['angle'],
         ]);
 
         return redirect()->route('assignments.index')->with('success', '✅ เพิ่มความสัมพันธ์ผู้ประเมินสำเร็จ');

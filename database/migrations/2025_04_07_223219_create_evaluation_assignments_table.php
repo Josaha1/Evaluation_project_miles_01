@@ -19,7 +19,7 @@ return new class extends Migration
             $table->foreignId('evaluatee_id')->constrained('users')->onDelete('cascade');
 
             $table->string('fiscal_year'); // ปีงบประมาณ
-            $table->enum('angle', ['upper', 'lower', 'left', 'right']); 
+            $table->enum('angle', ['top', 'bottom', 'left', 'right']); 
             $table->timestamps();
         });
 

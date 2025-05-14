@@ -2,102 +2,98 @@
 
 namespace Database\Seeders;
 
+use App\Models\Positions;
+use App\Models\Departments;
+use App\Models\Divisions;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
-use App\Models\User;
 
 class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        $positions = [
-            'เจ้าหน้าที่บริหารงานทั่วไป',
-            'นักวิชาการคอมพิวเตอร์',
-            'เจ้าหน้าที่การเงินและบัญชี',
-            'นักวิชาการพัสดุ',
-            'เจ้าหน้าที่ประชาสัมพันธ์',
-            'วิศวกรโยธา',
-            'วิศวกรเครื่องกล',
-            'เจ้าหน้าที่ธุรการ',
-            'ผู้ช่วยผู้อำนวยการ',
-        ];
+        $positions   = Positions::all();
+        $departments = Departments::all();
+        $divisions   = Divisions::all();
 
-        $organizes = [
-            'สายงานผู้ว่าการ',
-            'สายงานบริหารกลาง',
-            'สายงานก่อสร้าง',
-            'สายงานวิศวกรรม',
-            'สายงานบัญชีและการเงิน',
-            'สายงานบริการประชาชน',
-        ];
+        // สำหรับนับรัน emid ภายนอกราย division
+        $externalCountPerDivision = [];
 
-        $prenames = ['นาย', 'นางสาว', 'นาง'];
-        $sexes = ['ชาย', 'หญิง'];
-
+        // ใส่ 2 คนพิเศษก่อน
         $fixedUsers = [
             [
-                'emid'       => '350101',
-                'prename'    => 'นางสาว',
-                'fname'      => 'ปคุณดา',
-                'lname'      => 'ชั้นบุญ',
-                'sex'        => 'หญิง',
-                'position'   => 'ผู้ช่วยผู้อำนวยการ',
-                'grade'      => '11',
-                'organize'   => 'สายงานผู้ว่าการ',
-                'password'   => Hash::make('13112541'),
-                'birthdate'  => '1951-10-02',
-                'photo'      => null,
-                'role'       => 'admin',
-                'user_type'  => 'internal',
+                'emid'      => '350101',
+                'prename'   => 'นางสาว',
+                'fname'     => 'ปคุณดา',
+                'lname'     => 'ชั้นบุญ',
+                'sex'       => 'หญิง',
+                'birthdate' => '1951-10-02',
+                'password'  => Hash::make('13112541'),
+                'role'      => 'admin',
+                'user_type' => 'internal',
             ],
             [
-                'emid'       => '000000',
-                'prename'    => 'นาย',
-                'fname'      => 'อัฏฐพล',
-                'lname'      => 'นิติสุพรทวีทรัพย์',
-                'sex'        => 'ชาย',
-                'position'   => 'ผู้ช่วยผู้อำนวยการ',
-                'grade'      => '11',
-                'organize'   => 'สายงานผู้ว่าการ',
-                'password'   => Hash::make('13112541'),
-                'birthdate'  => '1979-09-20',
-                'photo'      => null,
-                'role'       => 'user',
-                'user_type'  => 'internal',
+                'emid'      => '000000',
+                'prename'   => 'นาย',
+                'fname'     => 'อัฏฐพล',
+                'lname'     => 'นิติสุพรทวีทรัพย์',
+                'sex'       => 'ชาย',
+                'birthdate' => '1979-09-20',
+                'password'  => Hash::make('13112541'),
+                'role'      => 'user',
+                'user_type' => 'internal',
             ],
         ];
 
-        foreach ($fixedUsers as $user) {
-            User::create($user);
-        }
-
-        // สร้าง User ปลอม 198 คน พร้อม avatar
-        for ($i = 1; $i <= 198; $i++) {
-            $sex = $sexes[array_rand($sexes)];
-            $prename = $sex === 'ชาย' ? 'นาย' : (rand(0, 1) ? 'นางสาว' : 'นาง');
-            $fname = fake('th_TH')->firstName();
-            $lname = fake('th_TH')->lastName();
-            $grade = rand(5, 12);
-
-            // ใช้ API pravatar สร้างรูปจำลอง
-            $photoUrl = 'https://i.pravatar.cc/150?img=' . rand(1, 70);
+        foreach ($fixedUsers as $userData) {
+            $position = $positions->random();
+            $department = $departments->random();
+            $division = $divisions->random();
 
             User::create([
-                'emid'       => str_pad(350200 + $i, 6, '0', STR_PAD_LEFT),
-                'prename'    => $prename,
-                'fname'      => $fname,
-                'lname'      => $lname,
-                'sex'        => $sex,
-                'position'   => $positions[array_rand($positions)],
-                'grade'      => $grade,
-                'organize'   => $organizes[array_rand($organizes)],
-                'password'   => Hash::make('password123'),
-                'birthdate'  => fake()->dateTimeBetween('-60 years', '-25 years')->format('Y-m-d'),
-                'photo'      => $photoUrl, // ✨ มีรูป avatar เลย
-                'role'       => 'user',
-                'user_type'  => 'internal',
-                'created_at' => now(),
-                'updated_at' => now(),
+                ...$userData,
+                'position_id'   => $position->id,
+                'department_id' => $department->id,
+                'division_id'   => $division->id,
+                'grade'         => random_int(5, 12),
+                'photo'         => 'https://i.pravatar.cc/150?img=' . rand(1, 70),
+            ]);
+        }
+
+        // Random อีก 198 คน
+        for ($i = 1; $i <= 198; $i++) {
+            $position   = $positions->random();
+            $department = $departments->random();
+            $division   = $divisions->random();
+            $sex        = fake()->randomElement(['ชาย', 'หญิง']);
+            $prename    = $sex === 'ชาย' ? 'นาย' : fake()->randomElement(['นางสาว', 'นาง']);
+            $userType   = fake()->randomElement(['internal', 'external']);
+
+            // กำหนด emid
+            if ($userType === 'internal') {
+                $emid = str_pad($i + 100000, 6, '0', STR_PAD_LEFT);
+            } else {
+                $externalCountPerDivision[$division->id] = ($externalCountPerDivision[$division->id] ?? 0) + 1;
+                $run = $externalCountPerDivision[$division->id];
+                $emid = 'E' . str_pad($division->id, 2, '0', STR_PAD_LEFT) . str_pad($run, 3, '0', STR_PAD_LEFT);
+            }
+
+            User::create([
+                'emid'          => $emid,
+                'prename'       => $prename,
+                'fname'         => fake()->firstName($sex === 'ชาย' ? 'male' : 'female'),
+                'lname'         => fake()->lastName(),
+                'sex'           => $sex,
+                'position_id'   => $position->id,
+                'department_id' => $department->id,
+                'division_id'   => $division->id,
+                'grade'         => random_int(5, 12),
+                'birthdate'     => fake()->date('Y-m-d', '-25 years'),
+                'password'      => Hash::make('password123'),
+                'photo'         => 'https://i.pravatar.cc/150?img=' . rand(1, 70),
+                'role'          => fake()->randomElement(['user', 'admin']),
+                'user_type'     => $userType,
             ]);
         }
     }

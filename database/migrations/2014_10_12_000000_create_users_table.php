@@ -13,22 +13,26 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
-            $table->string('emid')->unique();
+            $table->string('emid')->unique(); // รหัสพนักงาน เช่น 350101 หรือ E01001
             $table->string('prename');
             $table->string('fname');
             $table->string('lname');
             $table->string('sex');
-            $table->string('position');
-            $table->string('grade');
-            $table->string('organize');
-            $table->string('password');
+
+            // 🔗 เชื่อมตรงกับตารางหลัก 3 ตาราง
+            $table->foreignId('division_id')->constrained()->onDelete('cascade');   // สายงาน
+            $table->foreignId('department_id')->constrained()->onDelete('cascade'); // หน่วยงาน
+            $table->foreignId('position_id')->constrained()->onDelete('cascade');   // ตำแหน่ง
+
+            $table->string('grade')->nullable(); // ระดับ
             $table->date('birthdate');
+            $table->string('password');
             $table->rememberToken();
             $table->timestamps();
 
             $table->string('photo')->nullable();
-            $table->string('role')->default('user'); // Add role column with default value 'user'
-            $table->enum('user_type', ['internal', 'external'])->default('internal');
+            $table->string('role')->default('user'); // user หรือ admin
+            $table->enum('user_type', ['internal', 'external'])->default('internal'); // ประเภทบุคลากร
         });
 
     }

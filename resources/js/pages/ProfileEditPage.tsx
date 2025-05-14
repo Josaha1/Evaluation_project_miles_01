@@ -1,50 +1,145 @@
-import MainLayout from '@/Layouts/MainLayout'
-import { useForm, usePage } from '@inertiajs/react'
-import React, { useState, useEffect } from 'react'
-import { toast } from 'sonner'
-import { motion } from 'framer-motion'
-import { router } from '@inertiajs/react'
+import MainLayout from "@/Layouts/MainLayout";
+import { useForm, usePage, router } from "@inertiajs/react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { motion } from "framer-motion";
+import Select from "react-select";
+import { Input } from "@/Components/ui/input";
+import { Label } from "@/Components/ui/label";
+import { Button } from "@/Components/ui/button";
+interface Division {
+    id: number;
+    name: string;
+}
+interface Department {
+    id: number;
+    name: string;
+}
+interface Position {
+    id: number;
+    title: string;
+}
+
+interface PageProps {
+    auth: any;
+    flash: any;
+    divisions: Division[];
+    departments: Department[];
+    positions: Position[];
+}
+const toOptions = (items: any[], labelKey = "name") =>
+    items.map((d) => ({ value: d.id.toString(), label: d[labelKey] }));
+
+const sexOptions = [
+    { value: "ชาย", label: "ชาย" },
+    { value: "หญิง", label: "หญิง" },
+];
+
+const prenameOptions = [
+    { value: "นาย", label: "นาย" },
+    { value: "นาง", label: "นาง" },
+    { value: "นางสาว", label: "นางสาว" },
+];
+
 
 export default function ProfileEditPage() {
-    const { auth, flash } = usePage().props as any
-    const { data, setData, post, put, processing, errors } = useForm({
-        prename: auth.user.prename || '',
-        fname: auth.user.fname || '',
-        lname: auth.user.lname || '',
-        position: auth.user.position || '',
-        grade: auth.user.grade || '',
-        photo: null,
-    })
+    const { auth, flash, divisions, departments, positions } =
+        usePage<PageProps>().props;
 
-    const [preview, setPreview] = useState<string | null>(auth.user.photo || null)
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (file) {
-            setData('photo', file)
-            setPreview(URL.createObjectURL(file))
-        }
-    }
+    const divisionOptions = toOptions(divisions);
+    const departmentOptions = toOptions(departments);
+    const positionOptions = toOptions(positions, "title");
+    const [preview, setPreview] = useState<string | null>(null);
+    const { data, setData, post, processing, errors } = useForm({
+        prename: auth.user.prename || "",
+        fname: auth.user.fname || "",
+        lname: auth.user.lname || "",
+        sex: auth.user.sex || "",
+        division_id: auth.user.division_id || "",
+        department_id: auth.user.department_id || "",
+        position_id: auth.user.position_id || "",
+        grade: auth.user.grade || "",
+        photo: auth.user.photo ?? null,
+    });
+
     useEffect(() => {
-        if (flash.success) toast.success(flash.success)
-        if (flash.error) toast.error(flash.error)
-    }, [flash])
+        if (flash.success) toast.success(flash.success);
+        if (flash.error) toast.error(flash.error);
+    }, [flash]);
 
     const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault()
+        e.preventDefault();
+        post(
+            route("profile.update"),
+            {
+                _method: "PUT",
+                ...data,
+            },
+            {
+                forceFormData: true,
+                onSuccess: () => toast.success("✅ บันทึกโปรไฟล์สำเร็จ"),
+                onError: () => toast.error("❌ เกิดข้อผิดพลาด"),
+            }
+        );
+    };
 
-        post(route('profile.update'), {
-            _method: 'PUT', // จำลองเป็น PUT
-            ...data,
-        }, {
-            forceFormData: true, // ทำให้ส่ง multipart/form-data ได้
-            onSuccess: () => toast.success('อัปเดตโปรไฟล์สำเร็จจ้า'),
-            onError: () => toast.error('มีบางอย่างผิดพลาด กรุณาตรวจสอบ'),
-        })
-    }
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setData("photo", file);
+            setPreview(URL.createObjectURL(file)); // ต้องแน่ใจว่า file เป็นภาพจริง
+        }
+    };
+    const selectTheme = (theme: any) => ({
+        ...theme,
+        colors: {
+            ...theme.colors,
+            primary: "#6366f1",
+            primary25: "#e0e7ff",
+            neutral0: "#fff",
+            neutral5: "#f3f4f6",
+            neutral10: "#e5e7eb",
+            neutral20: "#d1d5db",
+            neutral30: "#9ca3af",
+            neutral80: "#111827",
+        },
+    });
 
-
-
-
+    const selectStyles = {
+        control: (base: any) => ({
+            ...base,
+            backgroundColor: "#fff",
+            borderColor: "#d1d5db",
+            borderRadius: "0.5rem",
+            paddingLeft: "0.25rem",
+            paddingRight: "0.25rem",
+            fontSize: "0.875rem",
+        }),
+        menu: (base: any) => ({
+            ...base,
+            backgroundColor: "#fff",
+            borderRadius: "0.5rem",
+            marginTop: 4,
+        }),
+        input: (base: any) => ({
+            ...base,
+            color: "#111827",
+        }),
+        singleValue: (base: any) => ({
+            ...base,
+            color: "#111827",
+        }),
+        option: (base: any, state: any) => ({
+            ...base,
+            backgroundColor: state.isSelected
+                ? "#6366f1"
+                : state.isFocused
+                ? "#f3f4f6"
+                : "#fff",
+            color: state.isSelected ? "#fff" : "#111827",
+            cursor: "pointer",
+        }),
+    };
     return (
         <MainLayout title="แก้ไขโปรไฟล์">
             <motion.div
@@ -59,9 +154,18 @@ export default function ProfileEditPage() {
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="text-center">
                         <img
-                            src={preview || '/images/default.png'}
+                            src={
+                                preview
+                                    ? preview
+                                    : typeof data.photo === "string" &&
+                                      data.photo
+                                    ? `/storage/${data.photo}`
+                                    : "/images/default.png"
+                            }
+                            alt="รูปโปรไฟล์"
                             className="w-24 h-24 rounded-full mx-auto border mb-2 object-cover"
                         />
+
                         <input
                             type="file"
                             accept="image/*"
@@ -69,76 +173,143 @@ export default function ProfileEditPage() {
                             className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:border-0 file:rounded-full file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
                         />
                     </div>
+
                     <div>
-                        <label className="block text-sm font-medium mb-1 dark:text-gray-300">คำนำหน้า</label>
-                        <select
-                            value={data.prename}
-                            onChange={e => setData('prename', e.target.value)}
-                            className="w-full p-2 rounded border dark:bg-zinc-800 dark:text-white"
-                        >
-                            <option value="">-- เลือก --</option>
-                            <option value="นาย">นาย</option>
-                            <option value="นาง">นาง</option>
-                            <option value="นางสาว">นางสาว</option>
-                        </select>
-                        {errors.prename && <p className="text-red-500 text-xs mt-1">{errors.prename}</p>}
+                        <Label>คำนำหน้า</Label>
+                        <Select
+                            options={prenameOptions}
+                            value={prenameOptions.find(
+                                (opt) => opt.value === data.prename
+                            )}
+                            onChange={(opt) =>
+                                setData("prename", opt?.value || "")
+                            }
+                            isClearable
+                            theme={selectTheme}
+                            styles={selectStyles}
+                        />
+                        {errors.prename && (
+                            <p className="text-red-500 text-xs mt-1">
+                                {errors.prename}
+                            </p>
+                        )}
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium mb-1 dark:text-gray-300">ชื่อ</label>
-                        <input
-                            type="text"
+                        <Label>ชื่อ</Label>
+                        <Input
                             value={data.fname}
-                            onChange={e => setData('fname', e.target.value)}
-                            className="w-full p-2 rounded border dark:bg-zinc-800 dark:text-white"
+                            onChange={(e) => setData("fname", e.target.value)}
+                            className="dark:bg-gray-800 dark:text-white"
                         />
-                        {errors.fname && <p className="text-red-500 text-xs mt-1">{errors.fname}</p>}
+                        {errors.fname && (
+                            <p className="text-red-500 text-xs mt-1">
+                                {errors.fname}
+                            </p>
+                        )}
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium mb-1 dark:text-gray-300">นามสกุล</label>
-                        <input
-                            type="text"
+                        <Label>นามสกุล</Label>
+                        <Input
                             value={data.lname}
-                            onChange={e => setData('lname', e.target.value)}
-                            className="w-full p-2 rounded border dark:bg-zinc-800 dark:text-white"
+                            onChange={(e) => setData("lname", e.target.value)}
+                            className="dark:bg-gray-800 dark:text-white"
                         />
-                        {errors.lname && <p className="text-red-500 text-xs mt-1">{errors.lname}</p>}
+                        {errors.lname && (
+                            <p className="text-red-500 text-xs mt-1">
+                                {errors.lname}
+                            </p>
+                        )}
+                    </div>
+                    <div>
+                        <Label>เพศ</Label>
+                        <Select
+                            options={sexOptions}
+                            value={sexOptions.find(
+                                (opt) => opt.value === data.sex
+                            )}
+                            onChange={(opt) => setData("sex", opt?.value || "")}
+                            isClearable
+                            theme={selectTheme}
+                            styles={selectStyles}
+                        />
+                    </div>
+                    <div>
+                        <Label>สายงาน</Label>
+                        <Select
+                            options={divisionOptions}
+                            value={divisionOptions.find(
+                                (opt) =>
+                                    opt.value === data.division_id?.toString()
+                            )}
+                            onChange={(opt) =>
+                                setData("division_id", opt?.value || "")
+                            }
+                            isClearable
+                            theme={selectTheme}
+                            styles={selectTheme}
+                        />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium mb-1 dark:text-gray-300">ตำแหน่ง</label>
-                        <input
-                            type="text"
-                            value={data.position}
-                            onChange={e => setData('position', e.target.value)}
-                            className="w-full p-2 rounded border dark:bg-zinc-800 dark:text-white"
+                        <Label>หน่วยงาน</Label>
+                        <Select
+                            options={departmentOptions}
+                            value={departmentOptions.find(
+                                (opt) =>
+                                    opt.value === data.department_id?.toString()
+                            )}
+                            onChange={(opt) =>
+                                setData("department_id", opt?.value || "")
+                            }
+                            isClearable
+                            theme={selectTheme}
+                            styles={selectStyles}
                         />
-                        {errors.position && <p className="text-red-500 text-xs mt-1">{errors.position}</p>}
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium mb-1 dark:text-gray-300">ระดับ</label>
-                        <input
+                        <Label>ตำแหน่ง</Label>
+                        <Select
+                            options={positionOptions}
+                            value={positionOptions.find(
+                                (opt) =>
+                                    opt.value === data.position_id?.toString()
+                            )}
+                            onChange={(opt) =>
+                                setData("position_id", opt?.value || "")
+                            }
+                            isClearable
+                            theme={selectTheme}
+                            styles={selectStyles}
+                        />
+                    </div>
+
+                    <div>
+                        <Label>ระดับ</Label>
+                        <Input
                             type="number"
                             value={data.grade}
-                            onChange={e => setData('grade', parseInt(e.target.value) || 0)}
-                            className="w-full p-2 rounded border dark:bg-zinc-800 dark:text-white"
+                            onChange={(e) =>
+                                setData("grade", parseInt(e.target.value) || 0)
+                            }
+                            className="dark:bg-gray-800 dark:text-white"
                         />
-                        {errors.grade && <p className="text-red-500 text-xs mt-1">{errors.grade}</p>}
+                        {errors.grade && (
+                            <p className="text-red-500 text-xs mt-1">
+                                {errors.grade}
+                            </p>
+                        )}
                     </div>
 
                     <div className="text-center pt-4">
-                        <button
-                            type="submit"
-                            disabled={processing}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-full shadow"
-                        >
+                        <Button type="submit" disabled={processing}>
                             💾 บันทึกการเปลี่ยนแปลง
-                        </button>
+                        </Button>
                     </div>
                 </form>
             </motion.div>
         </MainLayout>
-    )
+    );
 }

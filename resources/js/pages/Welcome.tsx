@@ -10,7 +10,7 @@ export default function Welcome() {
                     <div className="text-center mb-16">
                         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
                             โครงการประเมิน 360 องศา <br className="sm:hidden" />
-                            กลุ่มผู้บริหารและพนักงานระดับ 5-12
+                            กลุ่มผู้บริหารระดับ 5-12 และผู้มีส่วนเกี่ยวข้อง <br className="hidden sm:block" />
                         </h1>
                         <p className="mt-4 text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
                             ประจำปีงบประมาณ 2568 ของการนิคมอุตสาหกรรมแห่งประเทศไทย (กนอ.) <br />
