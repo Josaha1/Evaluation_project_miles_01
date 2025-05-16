@@ -60,7 +60,7 @@ class AdminEvaluationReportController extends Controller
             ->orderBy('aspects.name')
             ->get();
 
-        $angleScores = DB::table('evaluation_assignments as ea')
+        $angleScoresAssignment = DB::table('evaluation_assignments as ea')
             ->join('answers as a', fn($join) => $join
                     ->on('ea.evaluation_id', '=', 'a.evaluation_id')
                     ->on('ea.evaluator_id', '=', 'a.user_id')
@@ -79,8 +79,26 @@ class AdminEvaluationReportController extends Controller
                 DB::raw("CONCAT(u.fname, ' ', u.lname) as name"),
                 'ea.angle',
                 DB::raw('AVG(a.value) as score')
-            )
-            ->get();
+            );
+
+        $angleScoresSelf = DB::table('answers as a')
+            ->join('users as u', 'a.evaluatee_id', '=', 'u.id')
+            ->join('questions as q', 'a.question_id', '=', 'q.id')
+            ->join('parts as p', 'q.part_id', '=', 'p.id')
+            ->whereColumn('a.user_id', 'a.evaluatee_id')
+            ->where('p.title', 'like', 'ส่วนที่ 1%')
+            ->whereBetween('a.created_at', [$start, $end])
+            ->when($divisionId, fn($q) => $q->where('u.division_id', $divisionId))
+            ->when($grade, fn($q) => $q->where('u.grade', $grade))
+            ->groupBy('a.evaluatee_id', 'u.fname', 'u.lname')
+            ->select(
+                'a.evaluatee_id',
+                DB::raw("CONCAT(u.fname, ' ', u.lname) as name"),
+                DB::raw("'self' as angle"),
+                DB::raw('AVG(a.value) as score')
+            );
+
+        $angleScores = $angleScoresAssignment->unionAll($angleScoresSelf)->get();
 
         $part1AspectSummary = Answer::join('questions', 'answers.question_id', '=', 'questions.id')
             ->join('aspects', 'questions.aspect_id', '=', 'aspects.id')
@@ -99,61 +117,77 @@ class AdminEvaluationReportController extends Controller
             )
             ->get();
 
-        $weights = ['top' => 0.25, 'bottom' => 0.25, 'left' => 0.20, 'right' => 0.30];
+        $angleWeightsByLevel = [
+            '5-8'  => [
+                'self' => 0.20,
+                'top'  => 0.50,
+                'left' => 0.30,
+            ],
+            '9-12' => [
+                'self'   => 0.10,
+                'top'    => 0.25,
+                'bottom' => 0.25,
+                'left'   => 0.20,
+                'right'  => 0.20,
+            ],
+        ];
 
         $part1Aspects = DB::table('aspects')
             ->where('part_id', 1)
             ->orderBy('id')
             ->pluck('name');
 
-        $rawScores = $angleScores->groupBy('evaluatee_id')->map(function ($items, $evaluateeId) use ($weights) {
+        $rawScores = $angleScores->groupBy('evaluatee_id')->map(function ($items, $evaluateeId) use ($angleWeightsByLevel) {
+            $user = User::with(['division', 'position'])->find($evaluateeId);
+            if (! $user) {
+                return null;
+            }
+
+            $grade    = (int) $user->grade;
+            $userType = $user->user_type;
+
+            $level   = $grade >= 9 ? '9-12' : '5-8';
+            $weights = $angleWeightsByLevel[$level];
+
             $scoreByAngle = collect($weights)->mapWithKeys(function ($w, $angle) use ($items) {
                 $score = $items->firstWhere('angle', $angle)?->score ?? 0;
-                return [$angle => $score];
+                return [$angle => round($score, 2)];
             });
 
             $weightedAverage = $scoreByAngle->reduce(
-                fn($sum, $s, $k) => $sum + $s * $weights[$k],
+                fn($sum, $score, $angle) => $sum + $score * $weights[$angle],
                 0
             );
 
-            $user = \App\Models\User::with(['division', 'position'])->find($evaluateeId);
-
             return [
-                'id'       => $user?->id ?? null,
-                'name'     => $user ? $user->fname . ' ' . $user->lname : '-',
-                'position' => $user?->position?->name ?? '-', // ✅ แสดงตำแหน่ง
-                'grade'    => $user?->grade ?? null,          // ✅ แสดงระดับ
-                'division' => $user?->division?->name ?? '-', // ✅ แสดงสายงาน
-                'top'      => $scoreByAngle['top'],
-                'bottom'   => $scoreByAngle['bottom'],
-                'left'     => $scoreByAngle['left'],
-                'right'    => $scoreByAngle['right'],
-                'average'  => $weightedAverage,
+                'id'       => $user->id,
+                'name'     => $user->fname . ' ' . $user->lname,
+                'position' => $user->position->title ?? '-',
+                'grade'    => $grade,
+                'division' => $user->division->name ?? '-',
+                ...$scoreByAngle,
+                'average'  => round($weightedAverage, 2),
             ];
-        })->filter()->values(); // 🔁 เพิ่ม filter() เพื่อเอา record null ออก
+        })->filter()->values();
 
         if ($request->has('export') && $request->get('export') === 'xlsx') {
-            $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-
-            $sheet1 = $spreadsheet->getActiveSheet();
+            $spreadsheet = new Spreadsheet();
+            $sheet1      = $spreadsheet->getActiveSheet();
             $sheet1->setTitle('Aspects Summary');
             $sheet1->fromArray([['ด้าน', 'คะแนนเฉลี่ย']], null, 'A1');
             $sheet1->fromArray($part1AspectSummary->map(fn($r) => [$r->aspect, $r->average_score])->toArray(), null, 'A2');
 
             $sheet2 = $spreadsheet->createSheet();
             $sheet2->setTitle('Weighted Scores');
-            $sheet2->fromArray([['ชื่อ', 'ตำแหน่ง', 'ระดับ', 'สายงาน', 'Top', 'Bottom', 'Left', 'Right', 'รวม']], null, 'A1');
-            $sheet2->fromArray($rawScores->map(fn($r) => [
-                $r['name'], $r['position'], $r['grade'], $r['division'], $r['top'], $r['bottom'], $r['left'], $r['right'], $r['average'],
+            $sheet2->fromArray([
+                ['ชื่อ', 'ตำแหน่ง', 'ระดับ', 'สายงาน', 'Self', 'Top', 'Bottom', 'Left', 'Right', 'รวม'],
+            ], null, 'A1');
+            $sheet2->fromArray($weightedSummary->map(fn($r) => [
+                $r['name'], $r['position'], $r['grade'], $r['division'],
+                $r['self'], $r['top'], $r['bottom'], $r['left'], $r['right'], $r['average'],
             ])->toArray(), null, 'A2');
 
-            $sheet3 = $spreadsheet->createSheet();
-            $sheet3->setTitle('Angle Scores');
-            $sheet3->fromArray([['ชื่อ', 'องศา', 'คะแนน']], null, 'A1');
-            $sheet3->fromArray($angleScores->map(fn($a) => [$a->name, $a->angle, round($a->score, 2)])->toArray(), null, 'A2');
-
-            $writer   = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            $writer   = new Xlsx($spreadsheet);
             $filename = 'evaluation_summary_' . $fiscalYear . '.xlsx';
 
             return response()->streamDownload(function () use ($writer) {
@@ -193,48 +227,27 @@ class AdminEvaluationReportController extends Controller
         $start = Carbon::createFromDate($fiscalYear - 1, 10, 1)->startOfDay();
         $end   = Carbon::createFromDate($fiscalYear, 9, 30)->endOfDay();
 
-        // 🔍 Filter Users ที่ต้อง Export
-        $angleScores = DB::table('evaluation_assignments as ea')
-            ->join('answers as a', function ($join) {
-                $join->on('ea.evaluation_id', '=', 'a.evaluation_id')
-                    ->on('ea.evaluator_id', '=', 'a.user_id')
-                    ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
-            })
-            ->join('users as u', 'ea.evaluatee_id', '=', 'u.id')
-            ->join('questions as q', 'a.question_id', '=', 'q.id')
-            ->join('parts as p', 'q.part_id', '=', 'p.id')
-            ->where('p.title', 'like', 'ส่วนที่ 1%')
-            ->whereBetween('a.created_at', [$start, $end])
-            ->when($divisionId, fn($q) => $q->where('u.division_id', $divisionId))
-            ->when($grade, fn($q) => $q->where('u.grade', $grade))
-            ->groupBy('ea.evaluatee_id', 'u.fname', 'u.lname', 'u.grade', 'u.position_id', 'u.division_id')
-            ->select(
-                'ea.evaluatee_id as id',
-                'u.fname',
-                'u.lname',
-                'u.grade',
-                'u.position_id',
-                'u.division_id'
-            )
+        $evaluatees = User::query()
+            ->when($divisionId, fn($q) => $q->where('division_id', $divisionId))
+            ->when($grade, fn($q) => $q->where('grade', $grade))
             ->get();
 
-        $users = User::with(['position', 'division'])
-            ->whereIn('id', $angleScores->pluck('id'))
-            ->get()
-            ->sortBy('fname'); // sort ตรงกับตาราง UI
-
-        if ($users->isEmpty()) {
+        if ($evaluatees->isEmpty()) {
             return back()->withErrors(['ไม่พบข้อมูลผู้ใช้ที่ตรงกับเงื่อนไข']);
         }
 
-        $userIds = $users->pluck('id')->toArray();
+        $userIds = $evaluatees->pluck('id')->toArray();
 
-        // ดึงด้านทั้งหมด
-        $aspects = DB::table('aspects')
-            ->where('part_id', 1)
-            ->orderBy('id')
-            ->pluck('name', 'id');
+        // ✅ ดึงข้อมูลด้านทั้งหมด แยกตามระดับ
+        $aspects58 = DB::table('aspects')->where('part_id', 1)->whereIn('name', [
+            'IQ', 'EQ', 'AQTQ', 'Sustainability',
+        ])->orderBy('id')->pluck('name', 'id');
 
+        $aspects912 = DB::table('aspects')->where('part_id', 1)->whereIn('name', [
+            'ความเป็นผู้นำ', 'วิสัยทัศน์', 'การสื่อสาร', 'นวัตกรรม', 'จริยธรรม', 'ความร่วมมือ',
+        ])->orderBy('id')->pluck('name', 'id');
+
+        // ✅ ดึงคะแนนจาก answers
         $scores = Answer::join('questions', 'answers.question_id', '=', 'questions.id')
             ->join('aspects', 'questions.aspect_id', '=', 'aspects.id')
             ->where('questions.part_id', 1)
@@ -244,6 +257,7 @@ class AdminEvaluationReportController extends Controller
             ->select(
                 'answers.evaluatee_id',
                 'aspects.id as aspect_id',
+                'aspects.name as aspect_name',
                 DB::raw('AVG(CAST(answers.value AS DECIMAL(5,2))) as average')
             )
             ->get()
@@ -253,34 +267,45 @@ class AdminEvaluationReportController extends Controller
         $sheet       = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Individual Aspect Scores');
 
-        // Header row
-        $header = ['ชื่อ', 'ตำแหน่ง', 'ระดับ', 'สายงาน'];
-        foreach ($aspects as $aspectName) {
+        // ✅ เตรียม Header
+        $header         = ['ชื่อ', 'ตำแหน่ง', 'ระดับ', 'สายงาน', 'ประเภท'];
+        $allAspectNames = $aspects58->merge($aspects912)->unique()->values();
+        foreach ($allAspectNames as $aspectName) {
             $header[] = $aspectName;
         }
         $header[] = 'คะแนนเฉลี่ย';
         $sheet->fromArray([$header], null, 'A1');
 
+        // ✅ เตรียม Row
         $rows = [];
-        foreach ($users as $user) {
-            $userScores   = $scores->get($user->id, collect());
+        foreach ($evaluatees as $user) {
+            $userScores    = $scores->get($user->id, collect());
+            $userAspectSet = (int) $user->grade >= 9 ? $aspects912 : $aspects58;
+
             $aspectValues = [];
             $sum          = 0;
             $count        = 0;
-            foreach ($aspects as $id => $name) {
-                $score          = optional($userScores->firstWhere('aspect_id', $id))->average;
-                $aspectValues[] = $score !== null ? round($score, 2) : '-';
-                if ($score !== null) {
-                    $sum += $score;
-                    $count++;
+
+            foreach ($allAspectNames as $aspectName) {
+                if ($userAspectSet->contains($aspectName)) {
+                    $score          = optional($userScores->firstWhere('aspect_name', $aspectName))->average;
+                    $aspectValues[] = $score !== null ? round($score, 2) : '-';
+                    if ($score !== null) {
+                        $sum += $score;
+                        $count++;
+                    }
+                } else {
+                    $aspectValues[] = '-';
                 }
             }
+
             $avg    = $count > 0 ? round($sum / $count, 2) : '-';
             $rows[] = [
                 $user->fname . ' ' . $user->lname,
                 $user->position->title ?? '-',
                 $user->grade,
                 $user->division->name ?? '-',
+                $user->user_type === 'internal' ? 'ภายใน' : 'ภายนอก',
                 ...$aspectValues,
                 $avg,
             ];
@@ -289,7 +314,7 @@ class AdminEvaluationReportController extends Controller
         $sheet->fromArray($rows, null, 'A2');
 
         $writer   = new Xlsx($spreadsheet);
-        $filename = 'individual_aspect_scores.xlsx';
+        $filename = 'individual_aspect_scores_' . $fiscalYear . '.xlsx';
 
         return response()->streamDownload(function () use ($writer) {
             $writer->save('php://output');
@@ -298,5 +323,4 @@ class AdminEvaluationReportController extends Controller
             'Cache-Control' => 'max-age=0',
         ]);
     }
-
 }
