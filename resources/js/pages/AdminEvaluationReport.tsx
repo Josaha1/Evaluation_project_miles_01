@@ -2,15 +2,62 @@ import React, { useState } from "react";
 import MainLayout from "@/Layouts/MainLayout";
 import { usePage, router } from "@inertiajs/react";
 import Breadcrumb from "@/Components/ui/breadcrumb";
-import SummaryTable from "./Sections/SummaryTable";
+import EvaluatorSummaryTable from "./Sections/EvaluatorSummaryTable";
 import ChartSection from "./Sections/ChartSection";
 import AspectTables from "./Sections/AspectTables";
 import WeightedTables from "./Sections/WeightedTables";
+interface PageProps {
+    filters: {
+        fiscal_year?: string;
+        division?: string;
+        grade?: string;
+    };
+    availableYears: string[];
+    availableDivisions: { id: number; name: string }[];
+    availableGrades: number[];
+    fiscalYear: string;
+    evaluatorSummary: {
+        grade: number;
+        user_type: string;
+        total: number;
+    }[];
+    evaluateeCountByGrade: any[];
+    part1ScoreYearly: any[];
+    part1AspectSummary: {
+        aspect: string;
+        average_score: number | string;
+        group: "5-8" | "9-12";
+    }[];
+    weightedSummary: {
+        id: number;
+        name: string;
+        position?: string;
+        grade?: number;
+        division?: string;
+        self?: number;
+        top?: number;
+        bottom?: number;
+        left?: number;
+        right?: number;
+        average: number;
+    }[];
+}
 
 export default function AdminEvaluationReport() {
-    const { filters, availableYears, availableDivisions, availableGrades } =
-        usePage().props as any;
-
+    const {
+        filters,
+        availableYears,
+        availableDivisions,
+        availableGrades,
+        evaluateeCountByGrade,
+        part1ScoreYearly,
+        part1AspectSummary,
+        weightedSummary,
+        evaluatorSummary, // ✅ เพิ่มบรรทัดนี้ให้ครบ
+        fiscalYear, // ✅ ด้วยเพื่อให้แสดงปีงบประมาณ
+    } = usePage<PageProps>().props;
+    const group5to8 = weightedSummary.filter((u) => u.grade && u.grade < 9);
+    const group9to12 = weightedSummary.filter((u) => u.grade && u.grade >= 9);
     const [selectedYear, setSelectedYear] = useState(filters.fiscal_year || "");
     const [selectedDivision, setSelectedDivision] = useState(
         filters.division || ""
@@ -50,7 +97,7 @@ export default function AdminEvaluationReport() {
                 <div className="flex flex-wrap gap-4 justify-between">
                     <div className="flex gap-2 flex-wrap">
                         <select
-                            className="border px-3 py-2 rounded"
+                            className="border rounded dark:bg-gray-800 dark:text-white"
                             value={selectedYear}
                             onChange={(e) =>
                                 handleFilterChange(
@@ -66,7 +113,7 @@ export default function AdminEvaluationReport() {
                             ))}
                         </select>
                         <select
-                            className="border px-3 py-2 rounded"
+                            className="border px-3 py-2 rounded dark:bg-gray-800 dark:text-white"
                             value={selectedDivision}
                             onChange={(e) =>
                                 handleFilterChange("division", e.target.value)
@@ -76,22 +123,6 @@ export default function AdminEvaluationReport() {
                             {availableDivisions.map((d: any) => (
                                 <option key={d.id} value={d.id}>
                                     {d.name}
-                                </option>
-                            ))}
-                        </select>
-                        <select
-                            className="border px-3 py-2 rounded"
-                            value={selectedGrade}
-                            onChange={(e) =>
-                                handleFilterChange("grade", e.target.value)
-                            }
-                        >
-                            <option value="">ทุกระดับ</option>
-                            {availableGrades.map((g: number) => (
-                                <option key={g} value={g}>
-                                    {g >= 9
-                                        ? `ผู้บริหารระดับ ${g}`
-                                        : `พนักงานระดับ ${g}`}
                                 </option>
                             ))}
                         </select>
@@ -116,50 +147,16 @@ export default function AdminEvaluationReport() {
                         >
                             ส่งออกทั้งหมด
                         </button>
-                        <button
-                            className="bg-blue-600 text-white px-4 py-2 rounded"
-                            onClick={() =>
-                                window.open(
-                                    route(
-                                        "admin.evaluation.report.export.individual",
-                                        {
-                                            fiscal_year: selectedYear,
-                                            division:
-                                                selectedDivision || undefined,
-                                            grade: "5-8",
-                                        }
-                                    ),
-                                    "_blank"
-                                )
-                            }
-                        >
-                            ส่งออก 5–8
-                        </button>
-                        <button
-                            className="bg-green-600 text-white px-4 py-2 rounded"
-                            onClick={() =>
-                                window.open(
-                                    route(
-                                        "admin.evaluation.report.export.individual",
-                                        {
-                                            fiscal_year: selectedYear,
-                                            division:
-                                                selectedDivision || undefined,
-                                            grade: "9-12",
-                                        }
-                                    ),
-                                    "_blank"
-                                )
-                            }
-                        >
-                            ส่งออก 9–12
-                        </button>
                     </div>
                 </div>
 
                 {/* Sections */}
-                <SummaryTable data={evaluateeCountByGrade} />
-                <ChartSection data={part1ScoreYearly} />
+                <EvaluatorSummaryTable
+                    data={evaluateeCountByGrade} // ✅ ส่ง evaluateeCountByGrade
+                    fiscalYear={fiscalYear}
+                />
+
+                <ChartSection data={part1ScoreYearly} filters={filters} />
                 <AspectTables aspects={part1AspectSummary} />
                 <WeightedTables
                     title="📋 ตารางผลประเมินระดับ 5–8"

@@ -21,7 +21,7 @@ class AssignedEvaluationController extends Controller
         $evaluatee = $assignment->evaluatee;
 
         $evaluation = Evaluation::where('status', 'published')
-            ->where('user_type', 'internal')
+            ->where('user_type', $evaluatee->user_type)
             ->where('grade_min', '<=', $evaluatee->grade)
             ->where('grade_max', '>=', $evaluatee->grade)
             ->latest()
@@ -33,8 +33,31 @@ class AssignedEvaluationController extends Controller
             'questions',
         ])->orderBy('order')->get();
 
-        $stepToResume = 1;
+        // ✅ รวบรวมคำถามทั้งหมดของแบบประเมิน
+        $allQuestionIds = collect();
+        foreach ($parts as $part) {
+            $allQuestionIds = $allQuestionIds
+                ->merge($part->questions->pluck('id'))
+                ->merge($part->aspects->flatMap(fn($aspect) => $aspect->questions->pluck('id')))
+                ->merge($part->aspects->flatMap(fn($aspect) =>
+                    optional($aspect->subaspects)->flatMap(fn($sub) => $sub->questions->pluck('id')) ?? collect()
+                ));
+        }
 
+        $allQuestionIds = $allQuestionIds->unique()->filter();
+
+        $answeredCount = Answer::where('evaluation_id', $evaluation->id)
+            ->where('user_id', $user->id)
+            ->where('evaluatee_id', $evaluateeId)
+            ->whereIn('question_id', $allQuestionIds)
+            ->count();
+
+        if ($answeredCount === $allQuestionIds->count()) {
+            // ✅ ตอบครบแล้ว ส่งกลับหน้ารวม
+            return redirect()->route('dashboard')->with('success', 'ประเมินเสร็จสมบูรณ์แล้ว');
+        }
+
+        // ⛔ ถ้ายังไม่ครบ ดำเนินการ resume ต่อ
         foreach ($parts as $index => $part) {
             $grouped = collect();
 
@@ -71,12 +94,8 @@ class AssignedEvaluationController extends Controller
             }
         }
 
-        // ถ้าทำครบทุกกลุ่ม
-        return redirect()->route('assigned-evaluations.questions', [
-            'evaluatee' => $evaluateeId,
-            'step'      => 1,
-            'group'     => 0,
-        ]);
+        // fallback
+        return redirect()->route('dashboard')->with('success', 'ประเมินเสร็จสมบูรณ์แล้ว');
     }
 
     public function step($evaluateeId, $step, Request $request)
@@ -145,7 +164,7 @@ class AssignedEvaluationController extends Controller
         $evaluatee = $assignment->evaluatee;
 
         $evaluation = Evaluation::where('status', 'published')
-            ->where('user_type', 'internal')
+            ->where('user_type', $evaluatee->user_type)
             ->where('grade_min', '<=', $evaluatee->grade)
             ->where('grade_max', '>=', $evaluatee->grade)
             ->latest()
@@ -201,7 +220,7 @@ class AssignedEvaluationController extends Controller
             'evaluatee_id' => $evaluatee->id,
             'is_self'      => false,
             'auth'         => ['user' => $user],
-            'groupIndex'    => $groupIndex,
+            'groupIndex'   => $groupIndex,
         ]);
     }
 

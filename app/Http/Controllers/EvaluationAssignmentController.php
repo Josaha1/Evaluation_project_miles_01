@@ -39,7 +39,7 @@ class EvaluationAssignmentController extends Controller
 
         // Assigned Evaluations
         $assignments = EvaluationAssignment::with([
-            'evaluatee.positions.department.division', // ✅ preload
+            'evaluatee.position.department.division', // ✅ preload
         ])
             ->where('evaluator_id', $userId)
             ->where('fiscal_year', $fiscalYear)

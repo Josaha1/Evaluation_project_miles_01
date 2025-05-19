@@ -171,8 +171,7 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     Route::post('/admin/positions', [AdminUserController::class, 'storePosition'])->name('admin.positions.store');
     Route::get('/admin/reports/evaluation', [AdminEvaluationReportController::class, 'index'])
         ->name('admin.evaluation.report');
-    Route::post('/admin/evaluation/report/export-selected', [AdminEvaluationReportController::class, 'exportSelected'])->name('admin.evaluation.report.export.selected');
-    Route::get('/admin/reports/evaluation/export-individual', [AdminEvaluationReportController::class, 'exportIndividualAspects'])
-        ->name('admin.evaluation.report.export.individual');
+    Route::get('/admin/evaluation/report/export/individual', [AdminEvaluationReportController::class, 'exportIndividual'])
+    ->name('admin.evaluation.report.export.individual');
 
 });

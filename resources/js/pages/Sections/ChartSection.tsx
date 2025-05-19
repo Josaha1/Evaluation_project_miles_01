@@ -1,27 +1,63 @@
-// resources/js/Pages/AdminEvaluationReport/ChartSection.tsx
 import React from "react";
 import { Card } from "@/Components/ui/card";
 import Highcharts from "highcharts";
 import HighchartsReact from "highcharts-react-official";
-
-interface ScoreData {
+import { useEffect, useState } from "react";
+interface Part1Score {
     aspect: string;
+    part_id: 1 | 4 | 7;
     year: string;
-    average_score: number | string;
-    group: "5-8" | "9-12";
+    average_score: string | number;
 }
 
 interface Props {
-    data: ScoreData[];
+    data: Part1Score[];
+    filters: {
+        grade?: number;
+    };
 }
 
-const ChartSection: React.FC<Props> = ({ data }) => {
-    const renderChart = (group: "5-8" | "9-12") => {
-        const filtered = data.filter((d) => d.group === group);
-        const aspects = [...new Set(filtered.map((d) => d.aspect))];
-        const years = [
-            ...new Set(filtered.map((d) => `${parseInt(d.year) + 543}`)),
-        ];
+const partLabelMap: Record<number, string> = {
+    7: "📘 แบบประเมินผู้บริหารระดับ 5–8",
+    1: "📗 แบบประเมินผู้บริหารระดับ 9–12 (ภายใน)",
+    4: "📕 แบบประเมินผู้บริหารระดับ 9–12 (ภายนอก)",
+};
+
+const gradeToPartIds = (grade?: number): Array<1 | 4 | 7> => {
+    if (!grade) return [1, 4, 7]; // ทุกระดับ
+    return grade < 9 ? [7] : [1, 4]; // ถ้าระดับ < 9 → part_id 7 / ≥ 9 → part_id 1,4
+};
+
+const ChartSection: React.FC<Props> = ({ data, filters }) => {
+    const partIds = gradeToPartIds(filters.grade);
+    const [isDark, setIsDark] = useState<boolean>(
+        document.documentElement.classList.contains("dark")
+    );
+    useEffect(() => {
+        const observer = new MutationObserver(() => {
+            setIsDark(document.documentElement.classList.contains("dark"));
+        });
+
+        observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class"],
+        });
+
+        return () => observer.disconnect();
+    }, []);
+    const renderChart = (partId: 1 | 4 | 7) => {
+        const groupData = data.filter((d) => d.part_id === partId);
+        if (groupData.length === 0) return null;
+
+        const aspects = Array.from(
+            new Set(groupData.map((d) => d.aspect))
+        ).sort();
+
+        const years = Array.from(
+            new Set(groupData.map((d) => `${parseInt(d.year) + 543}`))
+        ).sort();
+
+        const isDark = document.documentElement.classList.contains("dark");
 
         const chartOptions: Highcharts.Options = {
             chart: {
@@ -29,45 +65,56 @@ const ChartSection: React.FC<Props> = ({ data }) => {
                 backgroundColor: "transparent",
             },
             title: {
-                text: `📊 คะแนนเฉลี่ย Part 1 กลุ่มระดับ ${group}`,
-                style: { color: "#fff", fontWeight: "bold", fontSize: "18px" },
+                text: `ผลคะแนนเฉลี่ย Part 1 - ${partLabelMap[partId]}`,
+                style: { color: isDark ? "#ccc" : "#000" },
             },
             xAxis: {
                 categories: years,
-                title: { text: "ปีงบประมาณ" },
-                labels: { style: { color: "#ccc" } },
+                title: {
+                    text: "ปีงบประมาณ (พ.ศ.)",
+                    style: { color: isDark ? "#ccc" : "#000" },
+                },
+                labels: {
+                    style: { color: isDark ? "#ccc" : "#000" },
+                },
+                lineColor: isDark ? "#888" : "#000",
             },
             yAxis: {
                 min: 0,
                 max: 5,
-                title: { text: "คะแนน", style: { color: "#ccc" } },
-                labels: { style: { color: "#ccc" } },
-                gridLineColor: "#444",
-            },
-            tooltip: {
-                shared: true,
-                backgroundColor: "#1f2937",
-                borderColor: "#374151",
-                style: { color: "#fff" },
-                valueDecimals: 2,
+                title: {
+                    text: "คะแนนเฉลี่ย",
+                    style: { color: isDark ? "#ccc" : "#000" },
+                },
+                labels: {
+                    style: { color: isDark ? "#ccc" : "#000" },
+                },
+                gridLineColor: isDark ? "#444" : "#ddd",
             },
             legend: {
                 layout: "horizontal",
                 align: "center",
                 verticalAlign: "bottom",
-                itemStyle: { color: "#ccc" },
+                itemStyle: {
+                    color: isDark ? "#ccc" : "#000",
+                    fontWeight: "normal",
+                },
+            },
+            tooltip: {
+                shared: true,
+                backgroundColor: isDark ? "#1f2937" : "#ffffff",
+                borderColor: isDark ? "#374151" : "#ccc",
+                style: { color: isDark ? "#fff" : "#000" },
+                valueDecimals: 2,
             },
             plotOptions: {
-                column: {
-                    pointPadding: 0.2,
-                    borderWidth: 0,
-                },
+                column: { pointPadding: 0.2, borderWidth: 0 },
             },
             series: aspects.map((aspect) => ({
                 name: aspect,
                 type: "column",
                 data: years.map((year) => {
-                    const found = filtered.find(
+                    const found = groupData.find(
                         (d) =>
                             d.aspect === aspect &&
                             `${parseInt(d.year) + 543}` === year
@@ -80,17 +127,21 @@ const ChartSection: React.FC<Props> = ({ data }) => {
         };
 
         return (
-            <Card className="p-6 mb-6">
-                <HighchartsReact highcharts={Highcharts} options={chartOptions} />
+            <Card
+                key={`${partId}-${isDark ? "dark" : "light"}`}
+                className="p-6 shadow-lg border border-indigo-300 dark:border-indigo-500 text-black dark:text-white"
+            >
+                <HighchartsReact
+                    highcharts={Highcharts}
+                    className="text-black dark:text-white"
+                    options={chartOptions}
+                />
             </Card>
         );
     };
 
     return (
-        <div className="space-y-6">
-            {renderChart("5-8")}
-            {renderChart("9-12")}
-        </div>
+        <div className="space-y-10">{partIds.map((id) => renderChart(id))}</div>
     );
 };
 

@@ -260,7 +260,8 @@ export default function AdminUserForm() {
             const birthdate = `${birthYear}-${birthMonth}-${birthDay}`;
             setData("birthdate", birthdate);
             if (mode === "create") {
-                const password = `${birthDay}${birthMonth}${birthYear}`;
+                const buddhistYear = (parseInt(birthYear) + 543).toString();
+                const password = `${birthDay}${birthMonth}${buddhistYear}`;
                 setGeneratedPassword(password);
                 setData("password", password);
             }

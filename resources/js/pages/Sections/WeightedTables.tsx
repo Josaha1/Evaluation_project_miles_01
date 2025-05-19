@@ -1,4 +1,3 @@
-// resources/js/Pages/AdminEvaluationReport/WeightedTables.tsx
 import React, { useState } from "react";
 import { Card } from "@/Components/ui/card";
 
@@ -49,12 +48,14 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
         currentPage * itemsPerPage
     );
 
+    const isGroup912 = title.includes("9–12");
+
     const renderPagination = () => (
         <div className="flex justify-center mt-4 gap-1">
             <button
                 onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-indigo-500 hover:text-white"
+                className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-indigo-500 hover:text-white dark:bg-gray-700 dark:text-white"
             >
                 «
             </button>
@@ -90,7 +91,7 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
                             className={`px-3 py-1 rounded text-sm ${
                                 currentPage === page
                                     ? "bg-indigo-600 text-white"
-                                    : "bg-gray-100 hover:bg-gray-300"
+                                    : "bg-gray-100 hover:bg-gray-300 dark:bg-gray-700 dark:text-white"
                             }`}
                         >
                             {page}
@@ -102,7 +103,7 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
                     setCurrentPage((p) => Math.min(p + 1, totalPages))
                 }
                 disabled={currentPage === totalPages}
-                className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-indigo-500 hover:text-white"
+                className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-indigo-500 hover:text-white dark:bg-gray-700 dark:text-white" 
             >
                 »
             </button>
@@ -135,9 +136,9 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
                             <th>สายงาน</th>
                             <th>Self</th>
                             <th>Top</th>
-                            <th>Bottom</th>
+                            {isGroup912 && <th>Bottom</th>}
                             <th>Left</th>
-                            <th>Right</th>
+                            {isGroup912 && <th>Right</th>}
                             <th>รวม</th>
                             <th>ผลลัพธ์</th>
                         </tr>
@@ -148,7 +149,7 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
                                 key={i}
                                 className="text-center hover:bg-gray-50 dark:hover:bg-gray-700"
                             >
-                                <td className="px-4 py-2 text-left font-medium">
+                                <td className="px-4 py-2 text-left font-medium text-gray-800 dark:text-white">
                                     {user.name}
                                 </td>
                                 <td>{user.position ?? "-"}</td>
@@ -156,9 +157,13 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
                                 <td>{user.division ?? "-"}</td>
                                 <td>{user.self?.toFixed(2) ?? "-"}</td>
                                 <td>{user.top?.toFixed(2) ?? "-"}</td>
-                                <td>{user.bottom?.toFixed(2) ?? "-"}</td>
+                                {isGroup912 && (
+                                    <td>{user.bottom?.toFixed(2) ?? "-"}</td>
+                                )}
                                 <td>{user.left?.toFixed(2) ?? "-"}</td>
-                                <td>{user.right?.toFixed(2) ?? "-"}</td>
+                                {isGroup912 && (
+                                    <td>{user.right?.toFixed(2) ?? "-"}</td>
+                                )}
                                 <td className="font-bold">
                                     {user.average.toFixed(2)}
                                 </td>
