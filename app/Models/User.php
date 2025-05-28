@@ -18,16 +18,16 @@ class User extends Authenticatable implements MustVerifyEmail
         'fname',
         'lname',
         'sex',
-        'division_id',
-        'department_id',
-        'position_id',
+        'position_id',      // ใช้ position_id แทน position
         'grade',
-        'birthdate',
-        'password',
-        'photo',
+        'division_id',      // เพิ่ม division_id
+        'department_id',    // เพิ่ม department_id
         'role',
+        'password',
+        'birthdate',
+        'photo',
         'user_type',
-    ];  
+    ];
 
     protected $hidden = [
         'password',
@@ -41,18 +41,84 @@ class User extends Authenticatable implements MustVerifyEmail
         'user_type'  => UserType::class,
     ];
 
+    // Relationships
+    public function position()
+    {
+        return $this->belongsTo(Position::class)->withDefault([
+            'title' => 'ไม่ระบุตำแหน่ง',
+            'name' => 'ไม่ระบุตำแหน่ง'
+        ]);
+    }
+
+    public function division()
+    {
+        return $this->belongsTo(Divisions::class)->withDefault([
+            'name' => 'ไม่ระบุสายงาน'
+        ]);
+    }
+
+    public function department()
+    {
+        return $this->belongsTo(Departments::class)->withDefault([
+            'name' => 'ไม่ระบุหน่วยงาน'
+        ]);
+    }
+
+    // Existing relationships
+    public function assignmentsAsEvaluator()
+    {
+        return $this->hasMany(EvaluationAssignment::class, 'evaluator_id');
+    }
+
+    public function assignmentsAsEvaluatee()
+    {
+        return $this->hasMany(EvaluationAssignment::class, 'evaluatee_id');
+    }
+
+    public function answersGiven()
+    {
+        return $this->hasMany(Answer::class, 'user_id');
+    }
+
+    public function answersReceived()
+    {
+        return $this->hasMany(Answer::class, 'evaluatee_id');
+    }
+
+    // Scopes
     public function scopeSearch($query, $value): void
     {
-        if (! empty($value)) {
+        if (!empty($value)) {
             $query->where('emid', 'like', "%{$value}%")
                 ->orWhere('fname', 'like', "%{$value}%")
-                ->orWhere('lname', 'like', "%{$value}%")
-                ->orWhere('email', 'like', "%{$value}%");
+                ->orWhere('lname', 'like', "%{$value}%");
         }
     }
+
+    public function scopeInternal($query)
+    {
+        return $query->where('user_type', 'internal');
+    }
+
+    public function scopeExternal($query)
+    {
+        return $query->where('user_type', 'external');
+    }
+
+    public function scopeByGrade($query, $grade)
+    {
+        return $query->where('grade', $grade);
+    }
+
+    public function scopeByGradeRange($query, $minGrade, $maxGrade)
+    {
+        return $query->whereBetween('grade', [$minGrade, $maxGrade]);
+    }
+
+    // Accessors
     public function getPhotoUrlAttribute()
     {
-        if (! $this->photo) {
+        if (!$this->photo) {
             return '/images/default.jpg';
         }
 
@@ -63,49 +129,88 @@ class User extends Authenticatable implements MustVerifyEmail
         return asset('storage/' . $this->photo);
     }
 
+    public function getFullNameAttribute()
+    {
+        return $this->prename . $this->fname . ' ' . $this->lname;
+    }
+
+    public function getPositionTitleAttribute()
+    {
+        return $this->position?->title ?? $this->position?->name ?? 'ไม่ระบุตำแหน่ง';
+    }
+
+    public function getDivisionNameAttribute()
+    {
+        return $this->division?->name ?? 'ไม่ระบุสายงาน';
+    }
+
+    public function getDepartmentNameAttribute()
+    {
+        return $this->department?->name ?? 'ไม่ระบุหน่วยงาน';
+    }
+
+    // Helper Methods
+    public function getRequiredEvaluationAngles()
+    {
+        $grade = (int) $this->grade;
+        return $grade >= 9 ? ['บน', 'ล่าง', 'ซ้าย', 'ขวา'] : ['บน', 'ซ้าย'];
+    }
+
+    public function isEvaluationComplete($fiscalYear)
+    {
+        $requiredAngles = $this->getRequiredEvaluationAngles();
+        $assignedAngles = $this->assignmentsAsEvaluatee()
+            ->where('fiscal_year', $fiscalYear)
+            ->distinct('angle')
+            ->pluck('angle')
+            ->toArray();
+
+        return count(array_intersect($requiredAngles, $assignedAngles)) === count($requiredAngles);
+    }
+
+    public function getEvaluationProgress($fiscalYear)
+    {
+        $requiredAngles = $this->getRequiredEvaluationAngles();
+        $assignedAngles = $this->assignmentsAsEvaluatee()
+            ->where('fiscal_year', $fiscalYear)
+            ->distinct('angle')
+            ->pluck('angle')
+            ->toArray();
+
+        return [
+            'required_count' => count($requiredAngles),
+            'assigned_count' => count(array_intersect($requiredAngles, $assignedAngles)),
+            'completion_rate' => count($requiredAngles) > 0 
+                ? round((count(array_intersect($requiredAngles, $assignedAngles)) / count($requiredAngles)) * 100, 2)
+                : 0,
+            'is_complete' => count(array_intersect($requiredAngles, $assignedAngles)) === count($requiredAngles)
+        ];
+    }
+
+    public function canEvaluateUser($userId, $angle)
+    {
+        $targetUser = self::find($userId);
+        if (!$targetUser) return false;
+
+        $myGrade = (int) $this->grade;
+        $targetGrade = (int) $targetUser->grade;
+
+        switch ($angle) {
+            case 'บน':
+                return $myGrade > $targetGrade;
+            case 'ล่าง':
+                return $myGrade < $targetGrade;
+            case 'ซ้าย':
+                return $myGrade === $targetGrade;
+            case 'ขวา':
+                return $this->user_type === 'external';
+            default:
+                return false;
+        }
+    }
+
     public function getRouteKeyName(): string
     {
         return 'emid';
-    }
-    public function evaluationsGiven()
-    {
-        return $this->hasMany(Evaluation::class, 'evaluator_id');
-    }
-
-    public function evaluationsReceived()
-    {
-        return $this->hasMany(Evaluation::class, 'evaluatee_id');
-    }
-    public function assignmentsAsEvaluator()
-    {
-        return $this->hasMany(EvaluationAssignment::class, 'evaluator_id');
-    }
-
-    public function assignmentsAsEvaluatee()
-    {
-        return $this->hasMany(EvaluationAssignment::class, 'evaluatee_id');
-    }
-    public function answersGiven()
-    {
-        return $this->hasMany(Answer::class, 'user_id');
-    }
-
-    public function answersReceived()
-    {
-        return $this->hasMany(Answer::class, 'evaluatee_id');
-    }
-    public function division()
-    {
-        return $this->belongsTo(Divisions::class);
-    }
-
-    public function department()
-    {
-        return $this->belongsTo(Departments::class);
-    }
-
-    public function position()
-    {
-        return $this->belongsTo(Position::class);
     }
 }

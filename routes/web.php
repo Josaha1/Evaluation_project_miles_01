@@ -172,6 +172,9 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     Route::get('/admin/reports/evaluation', [AdminEvaluationReportController::class, 'index'])
         ->name('admin.evaluation.report');
     Route::get('/admin/evaluation/report/export/individual', [AdminEvaluationReportController::class, 'exportIndividual'])
-    ->name('admin.evaluation.report.export.individual');
+        ->name('admin.evaluation.report.export.individual');
+// web.php
+    Route::get('/admin/reports/evaluation/list-evaluatees', [AdminEvaluationReportController::class, 'listEvaluatees'])
+        ->name('admin.evaluation.report.list-evaluatees');
 
 });
