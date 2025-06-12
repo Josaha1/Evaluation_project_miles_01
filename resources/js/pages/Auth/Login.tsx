@@ -58,7 +58,7 @@ export default function Login() {
             className="mt-1 p-2 block w-full"
           />
           {errors.password && <div className="text-red-500 text-sm mt-1">{errors.password}</div>}
-          <InputLabel htmlFor='password' className='text-red-400 mt-2' value='*ใช้วัน/เดือน/ปีเกิด เป็นค่าเริ่มต้นในรูปแบบววดดปปปป (พ.ศ.) เช่น 13052541' />
+          <InputLabel htmlFor='password' className='text-red-400 mt-2' value='*ใช้วัน/เดือน/ปีเกิด เป็นค่าเริ่มต้นในรูปแบบววดดปปปป (พ.ศ.) เช่น 01012568' />
         </div>
 
         <div className="flex items-center justify-between mt-4 mb-2">

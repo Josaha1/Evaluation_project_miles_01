@@ -18,10 +18,11 @@ class User extends Authenticatable implements MustVerifyEmail
         'fname',
         'lname',
         'sex',
-        'position_id',      // ใช้ position_id แทน position
+        'position_id', // ใช้ position_id แทน position
         'grade',
-        'division_id',      // เพิ่ม division_id
-        'department_id',    // เพิ่ม department_id
+        'division_id',   // เพิ่ม division_id
+        'department_id', // เพิ่ม department_id
+        'faction_id',
         'role',
         'password',
         'birthdate',
@@ -46,21 +47,27 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->belongsTo(Position::class)->withDefault([
             'title' => 'ไม่ระบุตำแหน่ง',
-            'name' => 'ไม่ระบุตำแหน่ง'
+            'name'  => 'ไม่ระบุตำแหน่ง',
         ]);
     }
 
     public function division()
     {
         return $this->belongsTo(Divisions::class)->withDefault([
-            'name' => 'ไม่ระบุสายงาน'
+            'name' => 'ไม่ระบุสายงาน',
         ]);
     }
 
     public function department()
     {
         return $this->belongsTo(Departments::class)->withDefault([
-            'name' => 'ไม่ระบุหน่วยงาน'
+            'name' => 'ไม่ระบุหน่วยงาน',
+        ]);
+    }
+    public function faction()
+    {
+        return $this->belongsTo(Factions::class)->withDefault([
+            'name' => 'ไม่ระบุฝ่าย',
         ]);
     }
 
@@ -88,7 +95,7 @@ class User extends Authenticatable implements MustVerifyEmail
     // Scopes
     public function scopeSearch($query, $value): void
     {
-        if (!empty($value)) {
+        if (! empty($value)) {
             $query->where('emid', 'like', "%{$value}%")
                 ->orWhere('fname', 'like', "%{$value}%")
                 ->orWhere('lname', 'like', "%{$value}%");
@@ -118,7 +125,7 @@ class User extends Authenticatable implements MustVerifyEmail
     // Accessors
     public function getPhotoUrlAttribute()
     {
-        if (!$this->photo) {
+        if (! $this->photo) {
             return '/images/default.jpg';
         }
 
@@ -143,7 +150,10 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->division?->name ?? 'ไม่ระบุสายงาน';
     }
-
+    public function getFactionNameAttribute()
+    {
+        return $this->faction?->name ?? 'ไม่ระบุฝ่าย';
+    }
     public function getDepartmentNameAttribute()
     {
         return $this->department?->name ?? 'ไม่ระบุหน่วยงาน';
@@ -178,21 +188,23 @@ class User extends Authenticatable implements MustVerifyEmail
             ->toArray();
 
         return [
-            'required_count' => count($requiredAngles),
-            'assigned_count' => count(array_intersect($requiredAngles, $assignedAngles)),
-            'completion_rate' => count($requiredAngles) > 0 
-                ? round((count(array_intersect($requiredAngles, $assignedAngles)) / count($requiredAngles)) * 100, 2)
-                : 0,
-            'is_complete' => count(array_intersect($requiredAngles, $assignedAngles)) === count($requiredAngles)
+            'required_count'  => count($requiredAngles),
+            'assigned_count'  => count(array_intersect($requiredAngles, $assignedAngles)),
+            'completion_rate' => count($requiredAngles) > 0
+            ? round((count(array_intersect($requiredAngles, $assignedAngles)) / count($requiredAngles)) * 100, 2)
+            : 0,
+            'is_complete'     => count(array_intersect($requiredAngles, $assignedAngles)) === count($requiredAngles),
         ];
     }
 
     public function canEvaluateUser($userId, $angle)
     {
         $targetUser = self::find($userId);
-        if (!$targetUser) return false;
+        if (! $targetUser) {
+            return false;
+        }
 
-        $myGrade = (int) $this->grade;
+        $myGrade     = (int) $this->grade;
         $targetGrade = (int) $targetUser->grade;
 
         switch ($angle) {

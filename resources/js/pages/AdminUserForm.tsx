@@ -22,7 +22,10 @@ interface Department {
     name: string;
     division_id: number;
 }
-
+interface Faction {
+    id: number;
+    name: string;
+}
 interface Position {
     id: number;
     title: string;
@@ -32,6 +35,7 @@ interface Position {
 interface PageProps {
     divisions: Division[];
     departments: Department[];
+    factions: Faction[];
     position: Position[];
     user?: any;
     mode: "create" | "edit";
@@ -44,7 +48,7 @@ interface OptionType {
 
 const isDarkMode = () => document.documentElement.classList.contains("dark");
 export default function AdminUserForm() {
-    const { divisions, departments, position, mode, user } =
+    const { divisions, departments, factions, position, mode, user } =
         usePage<PageProps>().props;
     const [generatedEmid, setGeneratedEmid] = useState("");
     const [generatedPassword, setGeneratedPassword] = useState("");
@@ -58,6 +62,7 @@ export default function AdminUserForm() {
         sex: user?.sex || "",
         division_id: user?.division_id || "",
         department_id: user?.department_id || "",
+        faction_id: user?.faction_id || "",
         position_id: user?.position_id || "",
         grade: user?.grade || "",
         birthdate: user?.birthdate || "",
@@ -100,11 +105,23 @@ export default function AdminUserForm() {
             }
         );
     };
-
+    const handleCreateFaction = (inputValue: string) => {
+        router.post(
+            route("admin.factions.store"),
+            { name: inputValue },
+            {
+                onSuccess: () => {
+                    toast.success("✅ เพิ่มหน่วยงานใหม่แล้ว");
+                    router.reload({ only: ["departments"] });
+                },
+                onError: () => toast.error("❌ ไม่สามารถเพิ่มหน่วยงานได้"),
+            }
+        );
+    };
     const handleCreatePosition = (inputValue: string) => {
         router.post(
-            route("admin.position.store"),
-            { title: inputValue, department_id: data.department_id },
+            route("admin.positions.store"),
+            { title: inputValue },
             {
                 onSuccess: () => {
                     toast.success("✅ เพิ่มตำแหน่งใหม่แล้ว");
@@ -120,6 +137,7 @@ export default function AdminUserForm() {
 
     const divisionOptions = toOptions(divisions);
     const departmentOptions = toOptions(departments);
+    const factionOptions = toOptions(factions);
     const positionOptions = toOptions(position, "title");
 
     useEffect(() => {
@@ -365,7 +383,7 @@ export default function AdminUserForm() {
                         </div>
                         <div>
                             <Label>เพศ</Label>
-                            <Select
+                            <CreatableSelect
                                 options={sexOptions}
                                 value={
                                     sexOptions.find(
@@ -381,45 +399,10 @@ export default function AdminUserForm() {
                                 styles={selectStyles}
                             />
                         </div>
-                        <div>
-                            <Label>สายปฏิบัติงาน</Label>
-                            <Select
-                                options={divisionOptions}
-                                value={
-                                    divisionOptions.find(
-                                        (o) => o.value === data.division_id
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("division_id", opt?.value || "")
-                                }
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-                        <div>
-                            <Label>หน่วยงาน</Label>
-                            <Select
-                                options={departmentOptions}
-                                value={
-                                    departmentOptions.find(
-                                        (o) => o.value === data.department_id
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("department_id", opt?.value || "")
-                                }
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
+
                         <div>
                             <Label>ตำแหน่งงาน</Label>
-                            <Select
+                            <CreatableSelect
                                 options={positionOptions}
                                 value={
                                     positionOptions.find(
@@ -429,6 +412,7 @@ export default function AdminUserForm() {
                                 onChange={(opt) =>
                                     setData("position_id", opt?.value || "")
                                 }
+                                onCreateOption={handleCreatePosition}
                                 isClearable
                                 placeholder="เลือก..."
                                 theme={selectTheme}
@@ -445,7 +429,62 @@ export default function AdminUserForm() {
                                 className="dark:bg-gray-800 dark:text-white"
                             />
                         </div>
-
+                        <div>
+                            <Label>กอง</Label>
+                            <CreatableSelect
+                                options={departmentOptions}
+                                value={
+                                    departmentOptions.find(
+                                        (o) => o.value === data.department_id
+                                    ) || null
+                                }
+                                onChange={(opt) =>
+                                    setData("department_id", opt?.value || "")
+                                }
+                                onCreateOption={handleCreateDepartment}
+                                isClearable
+                                placeholder="เลือก..."
+                                theme={selectTheme}
+                                styles={selectStyles}
+                            />
+                        </div>
+                        <div>
+                            <Label>ฝ่าย</Label>
+                            <CreatableSelect
+                                options={factionOptions}
+                                value={
+                                    factionOptions.find(
+                                        (o) => o.value === data.faction_id
+                                    ) || null
+                                }
+                                onChange={(opt) =>
+                                    setData("faction_id", opt?.value || "")
+                                }
+                                onCreateOption={handleCreateFaction}
+                                isClearable
+                                placeholder="เลือก..."
+                                theme={selectTheme}
+                                styles={selectStyles}
+                            />
+                        </div>
+                        <div>
+                            <Label>สายปฏิบัติงาน</Label>
+                            <CreatableSelect
+                                options={divisionOptions}
+                                value={
+                                    divisionOptions.find(
+                                        (o) => o.value === data.division_id
+                                    ) || null
+                                }
+                                onChange={(opt) =>
+                                    setData("division_id", opt?.value || "")
+                                }
+                                isClearable
+                                placeholder="เลือก..."
+                                theme={selectTheme}
+                                styles={selectStyles}
+                            />
+                        </div>
                         {mode === "create" && (
                             <div>
                                 <Label>วันเกิด</Label>
@@ -497,7 +536,7 @@ export default function AdminUserForm() {
                         )}
                         <div>
                             <Label>หน้าที่</Label>
-                            <Select
+                            <CreatableSelect
                                 options={roleOptions}
                                 value={
                                     roleOptions.find(
@@ -515,7 +554,7 @@ export default function AdminUserForm() {
                         </div>
                         <div>
                             <Label>ประเภทบุคคลากร</Label>
-                            <Select
+                            <CreatableSelect
                                 options={userTypeOptions}
                                 value={
                                     userTypeOptions.find(

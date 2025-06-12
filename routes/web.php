@@ -168,6 +168,7 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         ->name('evaluations.publish');
 
     Route::post('/admin/departments', [AdminUserController::class, 'storeDepartment'])->name('admin.departments.store');
+    Route::post('/admin/factions', [AdminUserController::class, 'storeFaction'])->name('admin.factions.store');
     Route::post('/admin/positions', [AdminUserController::class, 'storePosition'])->name('admin.positions.store');
     Route::get('/admin/reports/evaluation', [AdminEvaluationReportController::class, 'index'])
         ->name('admin.evaluation.report');

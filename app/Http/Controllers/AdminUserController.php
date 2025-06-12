@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Departments;
 use App\Models\Divisions;
+use App\Models\Factions;
 use App\Models\Position;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -16,7 +17,7 @@ class AdminUserController extends Controller
     {
         $search = $request->input('search');
 
-        $query = User::with(['position', 'department', 'division']);
+        $query = User::with(['position', 'department', 'faction', 'division']);
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -40,7 +41,8 @@ class AdminUserController extends Controller
             'mode'        => 'create',
             'divisions'   => Divisions::all(),
             'departments' => Departments::all(),
-            'position'   => Position::all(),
+            'factions'    => Factions::all(),
+            'position'    => Position::all(),
         ]);
     }
     public function storeDepartment(Request $request)
@@ -59,12 +61,33 @@ class AdminUserController extends Controller
                 'newDepartmentId' => $department->id,
             ]);
         } catch (\Exception $e) {
+            Log::error('❌ ไม่สามารถสร้างตำแหน่งได้', ['error' => $e->getMessage()]);
             throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มหน่วยงานได้: ' . $e->getMessage()]);
         }
     }
+    public function storeFaction(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
 
+        try {
+            $faction = Factions::firstOrCreate([
+                'name' => $validated['name'],
+            ]);
+
+            return redirect()->back()->with([
+                'success'      => 'สร้างหน่วยงานใหม่สำเร็จ',
+                'newFactionId' => $faction->id,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('❌ ไม่สามารถสร้างตำแหน่งได้', ['error' => $e->getMessage()]);
+            throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มหน่วยงานได้: ' . $e->getMessage()]);
+        }
+    }
     public function storePosition(Request $request)
     {
+        Log::info('📥 กำลังสร้างตำแหน่งใหม่', $request->all());
         $validated = $request->validate([
             'title' => 'required|string|max:255',
         ]);
@@ -73,12 +96,13 @@ class AdminUserController extends Controller
             $position = Position::firstOrCreate([
                 'title' => $validated['title'],
             ]);
-
+            Log::info('✅ สร้างตำแหน่งสำเร็จ', ['id' => $position->id]);
             return redirect()->back()->with([
                 'message'       => 'สร้างตำแหน่งใหม่สำเร็จ',
                 'newPositionId' => $position->id,
             ]);
         } catch (\Exception $e) {
+            Log::error('❌ ไม่สามารถสร้างตำแหน่งได้', ['error' => $e->getMessage()]);
             throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มตำแหน่งได้: ' . $e->getMessage()]);
         }
     }
@@ -93,6 +117,7 @@ class AdminUserController extends Controller
             'sex'           => 'required',
             'position_id'   => 'required|exists:positions,id',
             'department_id' => 'required|exists:departments,id',
+            'faction_id'    => 'required|exists:factions,id',
             'division_id'   => 'required|exists:divisions,id',
             'grade'         => 'required',
             'birthdate'     => 'required|date',
@@ -153,18 +178,20 @@ class AdminUserController extends Controller
 
     public function edit(User $user)
     {
-        $user->load(['position', 'department', 'division']);
+        $user->load(['position', 'department', 'faction', 'division']);
         return Inertia::render('AdminUserForm', [
             'mode'        => 'edit',
             'user'        => [
                  ...$user->toArray(),
                 'division_id'   => (string) ($user->division_id ?? optional($user->division)->id),
                 'department_id' => (string) ($user->department_id ?? optional($user->department)->id),
+                'faction_id'    => (string) ($user->faction_id ?? optional($user->faction)->id),
                 'position_id'   => (string) ($user->position_id ?? optional($user->position)->id),
             ],
             'divisions'   => Divisions::all(),
             'departments' => Departments::all(),
-            'position'   => Position::all(),
+            'position'    => Position::all(),
+            'faction'     => Factions::all(),
         ]);
     }
 
@@ -177,12 +204,12 @@ class AdminUserController extends Controller
             'sex'           => 'required',
             'position_id'   => 'required|exists:positions,id',
             'department_id' => 'required|exists:departments,id',
+            'faction_id'    => 'required|exists:factions,id',
             'division_id'   => 'required|exists:divisions,id',
             'grade'         => 'required',
-           
             'user_type'     => 'required|in:internal,external',
             'role'          => 'required|in:user,admin',
-           
+
         ]);
 
         if (! empty($validated['password'])) {

@@ -8,11 +8,16 @@ export default defineConfig({
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.tsx'],
             refresh: true,
+           
         }),
         react(),
         tailwindcss(),
     ],
     esbuild:{
         jsx: 'automatic',
+    },
+    build: {
+        outDir: 'public_html/build', // ต้องตรงกับตำแหน่งที่อัปโหลด
+        emptyOutDir: true,
     },
 });
