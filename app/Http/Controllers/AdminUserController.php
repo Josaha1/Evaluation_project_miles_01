@@ -8,6 +8,7 @@ use App\Models\Position;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -44,67 +45,6 @@ class AdminUserController extends Controller
             'factions'    => Factions::all(),
             'position'    => Position::all(),
         ]);
-    }
-    public function storeDepartment(Request $request)
-    {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-        ]);
-
-        try {
-            $department = Departments::firstOrCreate([
-                'name' => $validated['name'],
-            ]);
-
-            return redirect()->back()->with([
-                'success'         => 'สร้างหน่วยงานใหม่สำเร็จ',
-                'newDepartmentId' => $department->id,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('❌ ไม่สามารถสร้างตำแหน่งได้', ['error' => $e->getMessage()]);
-            throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มหน่วยงานได้: ' . $e->getMessage()]);
-        }
-    }
-    public function storeFaction(Request $request)
-    {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-        ]);
-
-        try {
-            $faction = Factions::firstOrCreate([
-                'name' => $validated['name'],
-            ]);
-
-            return redirect()->back()->with([
-                'success'      => 'สร้างหน่วยงานใหม่สำเร็จ',
-                'newFactionId' => $faction->id,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('❌ ไม่สามารถสร้างตำแหน่งได้', ['error' => $e->getMessage()]);
-            throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มหน่วยงานได้: ' . $e->getMessage()]);
-        }
-    }
-    public function storePosition(Request $request)
-    {
-        Log::info('📥 กำลังสร้างตำแหน่งใหม่', $request->all());
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-        ]);
-
-        try {
-            $position = Position::firstOrCreate([
-                'title' => $validated['title'],
-            ]);
-            Log::info('✅ สร้างตำแหน่งสำเร็จ', ['id' => $position->id]);
-            return redirect()->back()->with([
-                'message'       => 'สร้างตำแหน่งใหม่สำเร็จ',
-                'newPositionId' => $position->id,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('❌ ไม่สามารถสร้างตำแหน่งได้', ['error' => $e->getMessage()]);
-            throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มตำแหน่งได้: ' . $e->getMessage()]);
-        }
     }
 
     public function store(Request $request)
@@ -172,6 +112,7 @@ class AdminUserController extends Controller
             User::create($validated);
             return redirect()->route('admin.users.index')->with('success', 'เพิ่มผู้ใช้งานเรียบร้อยแล้ว');
         } catch (\Exception $e) {
+            Log::error('❌ ไม่สามารถสร้างผู้ใช้ได้', ['error' => $e->getMessage()]);
             return redirect()->back()->withErrors(['error' => 'เกิดข้อผิดพลาด: ' . $e->getMessage()]);
         }
     }
@@ -191,7 +132,7 @@ class AdminUserController extends Controller
             'divisions'   => Divisions::all(),
             'departments' => Departments::all(),
             'position'    => Position::all(),
-            'faction'     => Factions::all(),
+            'factions'    => Factions::all(),
         ]);
     }
 
@@ -209,9 +150,10 @@ class AdminUserController extends Controller
             'grade'         => 'required',
             'user_type'     => 'required|in:internal,external',
             'role'          => 'required|in:user,admin',
-
+            'password'      => 'nullable|string|min:6',
         ]);
 
+        // จัดการรหัสผ่าน
         if (! empty($validated['password'])) {
             $validated['password'] = Hash::make($validated['password']);
         } else {
@@ -226,7 +168,74 @@ class AdminUserController extends Controller
     public function destroy(User $user)
     {
         $user->delete();
+        return redirect()->back()->with('success', 'ลบผู้ใช้เรียบร้อยแล้ว');
+    }
 
-        return redirect()->back()->with('success', 'ลบความสัมพันธ์เรียบร้อยแล้ว');
+    // ========================================
+    // Helper Methods สำหรับสร้างข้อมูลใหม่
+    // ========================================
+
+    public function storeDepartment(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        try {
+            $department = Departments::firstOrCreate([
+                'name' => $validated['name'],
+            ]);
+
+            return redirect()->back()->with([
+                'success'         => 'สร้างหน่วยงานใหม่สำเร็จ',
+                'newDepartmentId' => $department->id,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('❌ ไม่สามารถสร้างหน่วยงานได้', ['error' => $e->getMessage()]);
+            throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มหน่วยงานได้: ' . $e->getMessage()]);
+        }
+    }
+
+    public function storeFaction(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        try {
+            $faction = Factions::firstOrCreate([
+                'name' => $validated['name'],
+            ]);
+
+            return redirect()->back()->with([
+                'success'      => 'สร้างฝ่ายใหม่สำเร็จ',
+                'newFactionId' => $faction->id,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('❌ ไม่สามารถสร้างฝ่ายได้', ['error' => $e->getMessage()]);
+            throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มฝ่ายได้: ' . $e->getMessage()]);
+        }
+    }
+
+    public function storePosition(Request $request)
+    {
+        Log::info('📥 กำลังสร้างตำแหน่งใหม่', $request->all());
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+        ]);
+
+        try {
+            $position = Position::firstOrCreate([
+                'title' => $validated['title'],
+            ]);
+            Log::info('✅ สร้างตำแหน่งสำเร็จ', ['id' => $position->id]);
+            return redirect()->back()->with([
+                'message'       => 'สร้างตำแหน่งใหม่สำเร็จ',
+                'newPositionId' => $position->id,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('❌ ไม่สามารถสร้างตำแหน่งได้', ['error' => $e->getMessage()]);
+            throw ValidationException::withMessages(['error' => 'ไม่สามารถเพิ่มตำแหน่งได้: ' . $e->getMessage()]);
+        }
     }
 }

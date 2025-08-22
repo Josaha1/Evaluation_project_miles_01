@@ -1,5 +1,6 @@
 import React from "react";
-import { Link } from "@inertiajs/react";
+import { Link, usePage } from "@inertiajs/react";
+
 import MainLayout from "@/Layouts/MainLayout";
 import { Button } from "@/Components/ui/button";
 

@@ -12,6 +12,7 @@ class Answer extends Model
         'evaluatee_id',
         'question_id',
         'value',
+        'other_text'
     ];
 
     public function user(): BelongsTo

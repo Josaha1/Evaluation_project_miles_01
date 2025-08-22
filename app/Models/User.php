@@ -92,6 +92,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(Answer::class, 'evaluatee_id');
     }
 
+    public function assignedEvaluations()
+    {
+        return $this->hasMany(EvaluationAssignment::class, 'evaluatee_id');
+    }
+
     // Scopes
     public function scopeSearch($query, $value): void
     {

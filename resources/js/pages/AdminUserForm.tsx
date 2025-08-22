@@ -11,6 +11,7 @@ import { Button } from "@/Components/ui/button";
 import { Card } from "@/Components/ui/card";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 
 interface Division {
     id: number;
@@ -53,6 +54,8 @@ export default function AdminUserForm() {
     const [generatedEmid, setGeneratedEmid] = useState("");
     const [generatedPassword, setGeneratedPassword] = useState("");
     const [darkMode, setDarkMode] = useState(isDarkMode());
+    const [changePassword, setChangePassword] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
 
     const { data, setData, post, put, processing, errors, reset } = useForm({
         emid: user?.emid || "",
@@ -87,6 +90,7 @@ export default function AdminUserForm() {
                         : "✅ เพิ่มผู้ใช้งานแล้ว"
                 );
                 reset("password");
+                setChangePassword(false);
             },
             onError: () => toast.error("❌ ไม่สามารถบันทึกได้"),
         });
@@ -111,10 +115,10 @@ export default function AdminUserForm() {
             { name: inputValue },
             {
                 onSuccess: () => {
-                    toast.success("✅ เพิ่มหน่วยงานใหม่แล้ว");
-                    router.reload({ only: ["departments"] });
+                    toast.success("✅ เพิ่มฝ่ายใหม่แล้ว");
+                    router.reload({ only: ["factions"] });
                 },
-                onError: () => toast.error("❌ ไม่สามารถเพิ่มหน่วยงานได้"),
+                onError: () => toast.error("❌ ไม่สามารถเพิ่มฝ่ายได้"),
             }
         );
     };
@@ -135,10 +139,11 @@ export default function AdminUserForm() {
     const toOptions = (items: any[], labelKey: string = "name"): OptionType[] =>
         items.map((d) => ({ value: d.id.toString(), label: d[labelKey] }));
 
-    const divisionOptions = toOptions(divisions);
-    const departmentOptions = toOptions(departments);
-    const factionOptions = toOptions(factions);
-    const positionOptions = toOptions(position, "title");
+    // Add safety checks for undefined arrays
+    const divisionOptions = toOptions(divisions || []);
+    const departmentOptions = toOptions(departments || []);
+    const factionOptions = toOptions(factions || []);
+    const positionOptions = toOptions(position || [], "title");
 
     useEffect(() => {
         const observer = new MutationObserver(() => {
@@ -570,6 +575,7 @@ export default function AdminUserForm() {
                                 styles={selectStyles}
                             />
                         </div>
+                        {/* Password Section */}
                         {mode === "create" && (
                             <div className="md:col-span-2">
                                 <Label>รหัสผ่านเริ่มต้น (จากวันเกิด)</Label>
@@ -578,6 +584,76 @@ export default function AdminUserForm() {
                                     readOnly
                                     className="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white cursor-not-allowed"
                                 />
+                            </div>
+                        )}
+                        
+                        {mode === "edit" && (
+                            <div className="md:col-span-2">
+                                <div className="space-y-4">
+                                    <div className="flex items-center space-x-3">
+                                        <input
+                                            type="checkbox"
+                                            id="changePassword"
+                                            checked={changePassword}
+                                            onChange={(e) => {
+                                                setChangePassword(e.target.checked);
+                                                if (!e.target.checked) {
+                                                    setData("password", "");
+                                                }
+                                            }}
+                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                        />
+                                        <Label
+                                            htmlFor="changePassword"
+                                            className="flex items-center space-x-2 cursor-pointer"
+                                        >
+                                            <Lock size={16} className="text-gray-500" />
+                                            <span>เปลี่ยนรหัสผ่าน</span>
+                                        </Label>
+                                    </div>
+
+                                    {changePassword && (
+                                        <div className="space-y-3">
+                                            <Label htmlFor="password">
+                                                รหัสผ่านใหม่
+                                            </Label>
+                                            <div className="relative">
+                                                <Input
+                                                    id="password"
+                                                    type={showPassword ? "text" : "password"}
+                                                    value={data.password}
+                                                    onChange={(e) =>
+                                                        setData("password", e.target.value)
+                                                    }
+                                                    className="pr-12 dark:bg-gray-800 dark:text-white"
+                                                    placeholder="กรอกรหัสผ่านใหม่"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setShowPassword(!showPassword)
+                                                    }
+                                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                                >
+                                                    {showPassword ? (
+                                                        <EyeOff size={16} />
+                                                    ) : (
+                                                        <Eye size={16} />
+                                                    )}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                💡 รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร
+                                            </p>
+                                            {errors.password && (
+                                                <p className="text-red-500 text-xs flex items-center space-x-1">
+                                                    <AlertCircle size={12} />
+                                                    <span>{errors.password}</span>
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
 

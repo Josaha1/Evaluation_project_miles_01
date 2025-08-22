@@ -35,7 +35,7 @@ export default function AdminDashboard() {
             title: 'รายงาน & ส่งออกข้อมูล',
             description: 'ดูผลประเมินและดาวน์โหลดข้อมูล',
             icon: <Download className="w-6 h-6" />,
-            href: route('admin.evaluation.report'),
+            href: route('admin.evaluation-report.index'),
         },
         {
             title: 'จัดการสมาชิก',

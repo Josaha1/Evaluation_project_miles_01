@@ -16,7 +16,15 @@ class LoginController extends Controller
      */
     public function showLoginForm()
     {
-        return Inertia::render('Auth/Login');
+        return Inertia::render('Auth/Login', [
+            'announcement' => [
+                'title' => 'ประกาศการประเมิน 360 องศา กนอ.',
+                
+                'deadline' => '28 มีนาคม 2568',
+                'year' => '2567-2568',
+                'show' => true // สามารถควบคุมการแสดง/ซ่อนจาก database หรือ config ได้
+            ]
+        ]);
     }
 
     /**
@@ -28,7 +36,7 @@ class LoginController extends Controller
 
         $credentials = $request->validate([
             'emid'     => 'required|digits:6',
-            'password' => 'required|digits:8',
+            'password' => 'required|min:1',
         ]);
 
         $remember = $request->boolean('remember');

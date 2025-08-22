@@ -1,0 +1,662 @@
+import MainLayout from "@/Layouts/MainLayout";
+import { useEffect, useState, useMemo } from "react";
+import { usePage, router } from "@inertiajs/react";
+import Select from "react-select";
+import { Progress } from "@/Components/ui/progress";
+import { cn } from "@/lib/utils";
+import {
+    User as UserIcon,
+    Trophy,
+    Target,
+    Clock,
+    CheckCircle,
+    ArrowRight,
+    TrendingUp,
+    Users,
+    Calendar,
+    Filter,
+    Search,
+    BarChart3,
+    PieChart,
+    Award,
+    Zap,
+} from "lucide-react";
+
+interface EvaluationCard {
+    id: number;
+    evaluatee_id?: number;
+    evaluatee_name: string;
+    evaluatee_photo: string;
+    grade: number;
+    step_to_resume?: number;
+    progress?: number;
+    angle?: "top" | "bottom" | "left" | "right"| "self" | "unknown";
+}
+
+interface EvaluationsData {
+    self?: EvaluationCard[];
+    target?: EvaluationCard[];
+}
+
+interface OptionType {
+    value: string;
+    label: string;
+}
+
+const angleLabels: Record<
+    string,
+    { label: string; shortLabel: string; icon: string; color: string; bgColor: string; borderColor: string; hoverColor: string }
+> = {
+    self: {
+        label: "ประเมินตนเอง",
+        shortLabel: "ประเมินตนเอง",
+        icon: "👤",
+        color: "text-indigo-700 dark:text-indigo-400",
+        bgColor: "bg-indigo-50 dark:bg-indigo-900/20",
+        borderColor: "border-indigo-200 dark:border-indigo-800",
+        hoverColor: "hover:bg-indigo-100 dark:hover:bg-indigo-900/30",
+    },
+    top: {
+        label: "ประเมินองศา 'ล่าง'",
+        shortLabel: "องศาล่าง",
+        icon: "⬇️",
+        color: "text-blue-700 dark:text-blue-400",
+        bgColor: "bg-blue-50 dark:bg-blue-900/20",
+        borderColor: "border-blue-200 dark:border-blue-800",
+        hoverColor: "hover:bg-blue-100 dark:hover:bg-blue-900/30",
+    },
+    bottom: {
+        label: "ประเมินองศา 'บน'",
+        shortLabel: "องศาบน",
+        icon: "⬆️",
+        color: "text-green-700 dark:text-green-400",
+        bgColor: "bg-green-50 dark:bg-green-900/20",
+        borderColor: "border-green-200 dark:border-green-800",
+        hoverColor: "hover:bg-green-100 dark:hover:bg-green-900/30",
+    },
+    left: {
+        label: "ประเมินองศา 'ซ้าย'",
+        shortLabel: "องศาซ้าย",
+        icon: "⬅️",
+        color: "text-purple-700 dark:text-purple-400",
+        bgColor: "bg-purple-50 dark:bg-purple-900/20",
+        borderColor: "border-purple-200 dark:border-purple-800",
+        hoverColor: "hover:bg-purple-100 dark:hover:bg-purple-900/30",
+    },
+    right: {
+        label: "ประเมินองศา 'ขวา'",
+        shortLabel: "องศาขวา",
+        icon: "➡️",
+        color: "text-orange-700 dark:text-orange-400",
+        bgColor: "bg-orange-50 dark:bg-orange-900/20",
+        borderColor: "border-orange-200 dark:border-orange-800",
+        hoverColor: "hover:bg-orange-100 dark:hover:bg-orange-900/30",
+    },
+};
+
+export default function Dashboard() {
+    const {
+        evaluations,
+        fiscal_years = [],
+        selected_year,
+    } = usePage<{
+        evaluations: EvaluationsData;
+        fiscal_years: string[];
+        selected_year: string;
+    }>().props;
+
+    const [searchTerm, setSearchTerm] = useState("");
+    const [filterStatus, setFilterStatus] = useState<
+        "all" | "pending" | "completed"
+    >("all");
+
+    const groupByAngle = useMemo(() => {
+        const groups: Record<string, EvaluationCard[]> = {};
+        
+        // Add self-evaluations as "self" angle
+        if (evaluations.self && evaluations.self.length > 0) {
+            groups["self"] = evaluations.self;
+        }
+        
+        // Add target evaluations by their angles
+        (evaluations.target ?? []).forEach((item) => {
+            const angle = item.angle || "unknown";
+            if (!groups[angle]) groups[angle] = [];
+            groups[angle].push(item);
+        });
+        
+        return groups;
+    }, [evaluations.target, evaluations.self]);
+
+    // Calculate statistics
+    const stats = useMemo(() => {
+        const allEvaluations = [
+            ...(evaluations.self ?? []),
+            ...(evaluations.target ?? []),
+        ];
+        const completed = allEvaluations.filter(
+            (e) => (e.progress ?? 0) >= 100
+        ).length;
+        const pending = allEvaluations.filter(
+            (e) => (e.progress ?? 0) < 100
+        ).length;
+        const avgProgress =
+            allEvaluations.length > 0
+                ? allEvaluations.reduce(
+                      (sum, e) => sum + (e.progress ?? 0),
+                      0
+                  ) / allEvaluations.length
+                : 0;
+
+        return {
+            total: allEvaluations.length,
+            completed,
+            pending,
+            avgProgress: Math.round(avgProgress),
+        };
+    }, [evaluations]);
+
+    // Calculate angle statistics
+    const angleStats = useMemo(() => {
+        const stats: Record<string, { total: number; completed: number; progress: number }> = {};
+        
+        Object.entries(groupByAngle).forEach(([angle, items]) => {
+            const completed = items.filter(item => (item.progress ?? 0) >= 100).length;
+            const totalProgress = items.reduce((sum, item) => sum + (item.progress ?? 0), 0);
+            const avgProgress = items.length > 0 ? Math.round(totalProgress / items.length) : 0;
+            
+            stats[angle] = {
+                total: items.length,
+                completed,
+                progress: avgProgress
+            };
+        });
+        
+        return stats;
+    }, [groupByAngle]);
+
+    // Filter evaluations based on search and filter
+    const filteredGroupByAngle = useMemo(() => {
+        const filtered: Record<string, EvaluationCard[]> = {};
+
+        Object.entries(groupByAngle).forEach(([angle, items]) => {
+            const filteredItems = items.filter((item) => {
+                const matchesSearch = item.evaluatee_name
+                    .toLowerCase()
+                    .includes(searchTerm.toLowerCase());
+                const matchesFilter =
+                    filterStatus === "all" ||
+                    (filterStatus === "completed" &&
+                        (item.progress ?? 0) >= 100) ||
+                    (filterStatus === "pending" && (item.progress ?? 0) < 100);
+                return matchesSearch && matchesFilter;
+            });
+
+            if (filteredItems.length > 0) {
+                filtered[angle] = filteredItems;
+            }
+        });
+
+        return filtered;
+    }, [groupByAngle, searchTerm, filterStatus]);
+
+    const filteredSelfEvaluations = useMemo(() => {
+        return (evaluations.self ?? []).filter((item) => {
+            const matchesSearch = item.evaluatee_name
+                .toLowerCase()
+                .includes(searchTerm.toLowerCase());
+            const matchesFilter =
+                filterStatus === "all" ||
+                (filterStatus === "completed" && (item.progress ?? 0) >= 100) ||
+                (filterStatus === "pending" && (item.progress ?? 0) < 100);
+            return matchesSearch && matchesFilter;
+        });
+    }, [evaluations.self, searchTerm, filterStatus]);
+
+    const renderStatCard = (
+        title: string,
+        value: number | string,
+        icon: React.ReactNode,
+        color: string,
+        trend?: number
+    ) => (
+        <div
+            className={`rounded-2xl p-6 ${color} border border-gray-200/50 dark:border-gray-700/50 hover:shadow-lg transition-all duration-300 group`}
+        >
+            <div className="flex items-center justify-between">
+                <div>
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                        {title}
+                    </p>
+                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+                        {typeof value === "number"
+                            ? value.toLocaleString()
+                            : value}
+                    </p>
+                    {trend !== undefined && (
+                        <div className="flex items-center mt-2 text-sm">
+                            <TrendingUp
+                                size={16}
+                                className="text-green-500 mr-1"
+                            />
+                            <span className="text-green-600 dark:text-green-400">
+                                +{trend}%
+                            </span>
+                            <span className="text-gray-500 ml-1">
+                                จากเดือนที่แล้ว
+                            </span>
+                        </div>
+                    )}
+                </div>
+                <div className="p-3 rounded-xl bg-white/50 dark:bg-gray-800/50 group-hover:scale-110 transition-transform">
+                    {icon}
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderCard = (evalItem: EvaluationCard, isSelf: boolean) => {
+        const progress = evalItem.progress ?? 0;
+        const step = evalItem.step_to_resume ?? 1;
+        const isCompleted = progress >= 100;
+
+        return (
+            <div
+                key={`${isSelf ? "self" : "target"}-${evalItem.id}`}
+                className={cn(
+                    "rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 group",
+                    "bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm",
+                    isCompleted ? "ring-2 ring-green-500/20" : ""
+                )}
+            >
+                {/* Header */}
+                <div className="flex items-center gap-4 mb-4">
+                    <div className="relative">
+                        {evalItem.evaluatee_photo ? (
+                            <img
+                                src={evalItem.evaluatee_photo}
+                                alt={`${evalItem.evaluatee_name} avatar`}
+                                onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).src =
+                                        "/images/default.png";
+                                }}
+                                className="w-16 h-16 rounded-full object-cover border-2 border-gray-200 dark:border-gray-600 group-hover:border-indigo-500 transition-colors"
+                            />
+                        ) : (
+                            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl">
+                                {evalItem.evaluatee_name
+                                    .charAt(0)
+                                    .toUpperCase()}
+                            </div>
+                        )}
+                        {isCompleted && (
+                            <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                                <CheckCircle size={16} className="text-white" />
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                            {evalItem.evaluatee_name}
+                        </h3>
+                        <div className="mt-1">
+                            <span
+                                className={cn(
+                                    "inline-flex items-center text-xs px-3 py-1 rounded-full font-medium",
+                                    isSelf
+                                        ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+                                        : "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400"
+                                )}
+                            >
+                                {isSelf ? (
+                                    <>
+                                        <Users size={12} className="mr-1" />
+                                        ประเมินตนเอง
+                                    </>
+                                ) : (
+                                    <>
+                                        <Users size={12} className="mr-1" />
+                                        ประเมินผู้รับมอบหมาย
+                                    </>
+                                )}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Progress Section */}
+                <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            ความคืบหน้า
+                        </span>
+                        <span
+                            className={cn(
+                                "text-sm font-bold",
+                                isCompleted
+                                    ? "text-green-600 dark:text-green-400"
+                                    : "text-indigo-600 dark:text-indigo-400"
+                            )}
+                        >
+                            {progress}%
+                        </span>
+                    </div>
+                    <Progress
+                        value={progress}
+                        className={cn(
+                            "h-3 rounded-full",
+                            isCompleted
+                                ? "bg-green-100 dark:bg-green-900/30"
+                                : "bg-gray-100 dark:bg-gray-700"
+                        )}
+                    />
+                    {!isCompleted && (
+                        <div className="flex items-center mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            <Clock size={12} className="mr-1" />
+                            ขั้นตอนที่ {step}
+                        </div>
+                    )}
+                </div>
+
+                
+            </div>
+        );
+    };
+
+    return (
+        <MainLayout title="แดชบอร์ดแบบประเมิน">
+            <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+                {/* Header Section */}
+                <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-3xl p-8 text-white relative overflow-hidden">
+                    <div className="relative z-10">
+                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+                            <div>
+                                <h1 className="text-3xl font-bold mb-2">
+                                    📊 แดชบอร์ดการประเมิน
+                                </h1>
+                                <p className="text-white/80 text-lg">
+                                    ติดตามความคืบหน้าการประเมินของคุณ
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Background decorations */}
+                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-xl"></div>
+                    <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-white/10 rounded-full blur-xl"></div>
+                </div>
+
+                {/* Statistics Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {renderStatCard(
+                        "ทั้งหมด",
+                        stats.total,
+                        <BarChart3 size={24} className="text-indigo-600" />,
+                        "bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-800/20"
+                    )}
+                    {renderStatCard(
+                        "เสร็จสิ้น",
+                        stats.completed,
+                        <CheckCircle size={24} className="text-green-600" />,
+                        "bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20",
+                        15
+                    )}
+                    {renderStatCard(
+                        "รอดำเนินการ",
+                        stats.pending,
+                        <Clock size={24} className="text-orange-600" />,
+                        "bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20"
+                    )}
+                    {renderStatCard(
+                        "ความคืบหน้าเฉลี่ย",
+                        `${stats.avgProgress}%`,
+                        <PieChart size={24} className="text-purple-600" />,
+                        "bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20",
+                        8
+                    )}
+                </div>
+
+                {/* Search and Filter Bar */}
+                <div className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50">
+                    <div className="flex flex-col sm:flex-row gap-4">
+                        {/* Search */}
+                        <div className="flex-1 relative">
+                            <Search
+                                size={20}
+                                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                            />
+                            <input
+                                type="text"
+                                placeholder="ค้นหาชื่อผู้ถูกประเมิน..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+
+                        {/* Filter */}
+                        <div className="flex items-center gap-2">
+                            <Filter size={20} className="text-gray-400" />
+                            <select
+                                value={filterStatus}
+                                onChange={(e) =>
+                                    setFilterStatus(e.target.value as any)
+                                }
+                                className="px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                            >
+                                <option value="all">ทั้งหมด</option>
+                                <option value="pending">รอดำเนินการ</option>
+                                <option value="completed">เสร็จสิ้น</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Angle Summary Cards */}
+                {Object.keys(groupByAngle).length > 0 && (
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="p-3 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600">
+                                <Target size={24} className="text-white" />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                                    🎯 ภาพรวมการประเมินแต่ละองศา
+                                </h2>
+                                <p className="text-gray-600 dark:text-gray-400">
+                                    เลือกองศาที่ต้องการเข้าไปประเมิน
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            {Object.entries(groupByAngle).map(([angle, items]) => {
+                                const angleConfig = angleLabels[angle];
+                                const stats = angleStats[angle];
+                                if (!angleConfig || !stats) return null;
+                                
+                                return (
+                                    <div
+                                        key={angle}
+                                        className={cn(
+                                            "rounded-2xl p-6 border-2 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 cursor-pointer group",
+                                            angleConfig.bgColor,
+                                            angleConfig.borderColor,
+                                            angleConfig.hoverColor
+                                        )}
+                                        
+                                    >
+                                        <div className="text-center">
+                                            <div className="text-4xl mb-3">{angleConfig.icon}</div>
+                                            <h3 className={cn("text-lg font-bold mb-2", angleConfig.color)}>
+                                                {angleConfig.shortLabel}
+                                            </h3>
+                                            
+                                            <div className="space-y-3">
+                                                <div className={cn("text-2xl font-bold", angleConfig.color)}>
+                                                    {stats.total} คน
+                                                </div>
+                                                
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <span className="text-gray-600 dark:text-gray-400">เสร็จแล้ว</span>
+                                                    <span className={cn("font-semibold", angleConfig.color)}>
+                                                        {stats.completed}/{stats.total}
+                                                    </span>
+                                                </div>
+                                                
+                                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                                    <div 
+                                                        className={cn(
+                                                            "h-2 rounded-full transition-all duration-500",
+                                                            angle === 'self' ? 'bg-indigo-500' :
+                                                            angle === 'top' ? 'bg-blue-500' :
+                                                            angle === 'bottom' ? 'bg-green-500' :
+                                                            angle === 'left' ? 'bg-purple-500' :
+                                                            'bg-orange-500'
+                                                        )}
+                                                        style={{ width: `${stats.progress}%` }}
+                                                    />
+                                                </div>
+                                                
+                                                <div className={cn("text-sm font-medium", angleConfig.color)}>
+                                                    {stats.progress}% เสร็จสิ้น
+                                                </div>
+                                            </div>
+                                            
+                                           
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                
+
+                {/* Target Evaluations by Angle */}
+                {Object.entries(filteredGroupByAngle).map(([angle, list]) => {
+                    const angleConfig = angleLabels[angle];
+                    if (!angleConfig) return null;
+
+                    return (
+                        <div key={angle} id={`angle-${angle}`} className="space-y-6 scroll-mt-8">
+                            <div className={cn(
+                                "rounded-2xl p-6 border-2",
+                                angleConfig.bgColor,
+                                angleConfig.borderColor
+                            )}>
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-4">
+                                        <div className="text-4xl">{angleConfig.icon}</div>
+                                        <div>
+                                            <h2 className={cn("text-2xl font-bold", angleConfig.color)}>
+                                                {angleConfig.label}
+                                            </h2>
+                                            <p className="text-gray-600 dark:text-gray-400">
+                                                รายการผู้ที่คุณต้องประเมิน ({list.length} คน)
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className={cn(
+                                        "text-right p-4 rounded-xl",
+                                        "bg-white/50 dark:bg-gray-800/50"
+                                    )}>
+                                        <div className={cn("text-2xl font-bold", angleConfig.color)}>
+                                            {angleStats[angle]?.progress || 0}%
+                                        </div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                                            ความคืบหน้า
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {/* Quick Action Bar */}
+                                <div className="mb-6 p-4 bg-white/50 dark:bg-gray-800/50 rounded-xl">
+                                    <div className="flex items-center justify-between text-sm">
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex items-center gap-2">
+                                                <CheckCircle size={16} className="text-green-500" />
+                                                <span>เสร็จแล้ว: <strong>{angleStats[angle]?.completed || 0}</strong></span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Clock size={16} className="text-orange-500" />
+                                                <span>รอดำเนินการ: <strong>{(angleStats[angle]?.total || 0) - (angleStats[angle]?.completed || 0)}</strong></span>
+                                            </div>
+                                        </div>
+                                        
+                                        <button
+                                            onClick={() => {
+                                                // Find first incomplete evaluation in this angle
+                                                const firstIncomplete = list.find(item => (item.progress ?? 0) < 100);
+                                                if (angle === 'self' && firstIncomplete && firstIncomplete.id === 0) {
+                                                    router.visit(
+                                                        route(
+                                                            firstIncomplete.progress === 0
+                                                                ? "evaluationsself.index"
+                                                                : "evaluationsself.resume"
+                                                        )
+                                                    );
+                                                } else if (firstIncomplete && firstIncomplete.evaluatee_id) {
+                                                    router.visit(
+                                                        route("assigned-evaluations.show", {
+                                                            evaluateeId: firstIncomplete.evaluatee_id,
+                                                        })
+                                                    );
+                                                }
+                                            }}
+                                            className={cn(
+                                                "flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all duration-200 transform hover:scale-105",
+                                                "bg-gradient-to-r text-white shadow-lg hover:shadow-xl",
+                                                angle === 'self' ? 'from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800' :
+                                                angle === 'top' ? 'from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800' :
+                                                angle === 'bottom' ? 'from-green-600 to-green-700 hover:from-green-700 hover:to-green-800' :
+                                                angle === 'left' ? 'from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800' :
+                                                'from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800'
+                                            )}
+                                            disabled={!list.some(item => (item.progress ?? 0) < 100)}
+                                        >
+                                            <Zap size={16} />
+                                            เริ่มประเมิน{angleConfig.shortLabel}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {list.map((item) => renderCard(item, false))}
+                            </div>
+                        </div>
+                    );
+                })}
+
+                {/* Empty State */}
+                {filteredSelfEvaluations.length === 0 &&
+                    Object.keys(filteredGroupByAngle).length === 0 && (
+                        <div className="text-center py-16">
+                            <div className="w-32 h-32 mx-auto mb-6 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
+                                <Search size={48} className="text-gray-400" />
+                            </div>
+                            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                                ไม่พบรายการที่ค้นหา
+                            </h3>
+                            <p className="text-gray-600 dark:text-gray-400 mb-6">
+                                ลองเปลี่ยนคำค้นหาหรือตัวกรองเพื่อดูรายการอื่น
+                            </p>
+                            <button
+                                onClick={() => {
+                                    setSearchTerm("");
+                                    setFilterStatus("all");
+                                }}
+                                className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
+                            >
+                                รีเซ็ตตัวกรอง
+                            </button>
+                        </div>
+                    )}
+            </div>
+        </MainLayout>
+    );
+}

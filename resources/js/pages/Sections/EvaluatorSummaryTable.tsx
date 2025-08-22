@@ -15,20 +15,20 @@ interface Props {
 }
 
 const gradeLabelMap: Record<number, string> = {
-    12: "ผู้บริหารระดับ 12",
-    11: "ผู้บริหารระดับ 11",
-    10: "ผู้บริหารระดับ 10",
-    9: "ผู้บริหารระดับ 9",
-    8: "ผู้บริหารระดับ 8",
-    7: "ผู้บริหารระดับ 7",
-    6: "ผู้บริหารระดับ 6",
-    5: "ผู้บริหารระดับ 5",
+    5: "พนักงานระดับ C5",
+    6: "พนักงานระดับ C6", 
+    7: "พนักงานระดับ C7",
+    8: "พนักงานระดับ C8",
+    9: "ผู้บริหารระดับ C9",
+    10: "ผู้บริหารระดับ C10",
+    11: "ผู้บริหารระดับ C11",
+    12: "ผู้บริหารระดับ C12",
 };
 
 const EvaluatorSummaryTable: React.FC<Props> = ({ data, fiscalYear }) => {
     const sortedData = [...data].sort((a, b) => {
-        // เรียงตาม grade DESC ก่อน แล้วภายใน grade ให้ internal มาก่อน external
-        if (b.grade !== a.grade) return b.grade - a.grade;
+        // เรียงตาม grade ASC ก่อน (C5, C6, C7... C12) แล้วภายใน grade ให้ internal มาก่อน external
+        if (a.grade !== b.grade) return a.grade - b.grade;
         return a.user_type === "internal" ? -1 : 1;
     });
 
@@ -57,8 +57,8 @@ const EvaluatorSummaryTable: React.FC<Props> = ({ data, fiscalYear }) => {
                                 <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                                     <td className="p-4 text-gray-800 dark:text-white font-medium">
                                         {item.user_type === "external"
-                                            ? `บุคคลภายนอกระดับ ${item.grade}`
-                                            : gradeLabelMap[item.grade] || `ผู้บริหารระดับ ${item.grade}`}
+                                            ? `บุคคลภายนอกระดับ C${item.grade}`
+                                            : gradeLabelMap[item.grade] || `พนักงานระดับ C${item.grade}`}
                                     </td>
                                     <td className="border px-4 py-2 text-center">{item.total ?? 0}</td>
                                     <td className="border px-4 py-2 text-center">{item.completed ?? 0}</td>

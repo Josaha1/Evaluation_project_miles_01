@@ -25,7 +25,7 @@ return new class extends Migration
 
             // เก็บค่าแบบ flexible รองรับทั้งข้อความ ตัวเลข และหลายตัวเลือก
             $table->text('value')->nullable();
-
+            $table->text('other_text')->nullable();
             $table->timestamps();
 
             // ป้องกันการตอบซ้ำในแบบเดียวกัน

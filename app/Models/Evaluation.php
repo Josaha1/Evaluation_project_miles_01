@@ -18,4 +18,9 @@ class Evaluation extends Model
     {
         return $this->hasMany(Answer::class);
     }
+
+    public function assignments()
+    {
+        return $this->hasMany(EvaluationAssignment::class);
+    }
 }

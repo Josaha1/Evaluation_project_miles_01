@@ -1,2562 +1,2771 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import MainLayout from "@/Layouts/MainLayout";
 import { usePage, router } from "@inertiajs/react";
 import Breadcrumb from "@/Components/ui/breadcrumb";
+import IndividualDetailedReport from "@/Components/IndividualDetailedReport";
 
-import Highcharts from "highcharts";
-import HighchartsReact from "highcharts-react-official";
 import {
-    Users,
+    Loader2,
+    AlertCircle,
+    RefreshCw,
     TrendingUp,
-    Award,
-    FileBarChart,
-    Download,
-    Filter,
-    Calendar,
-    Building2,
-    GraduationCap,
-    Target,
-    Star,
+    BarChart3,
+    Users,
     Trophy,
     Activity,
-    BarChart3,
-    PieChart as PieChartIcon,
-    Eye,
-    ChevronDown,
-    ChevronRight,
-    ArrowUp,
-    ArrowDown,
-    Minus,
-    CheckCircle,
-    AlertTriangle,
-    Clock,
     Zap,
-    FileSpreadsheet,
-    Settings,
-    Loader2,
-    RefreshCw,
-    TrendingDown,
-    AlertCircle,
-    Info,
-    Sparkles,
-    Globe,
+    ClipboardList,
+    Download,
+    Eye,
+    Search,
+    Filter,
+    CheckCircle,
+    Clock,
+    AlertTriangle,
+    Target,
+    Award,
     Building,
-    UserCheck,
-    FileText,
-    BarChart2,
+    Calendar,
+    User,
+    ArrowRight,
+    ChevronDown,
+    ChevronUp,
+    Settings,
+    Maximize2,
+    Minimize2,
+    Grid3X3,
+    List,
     PieChart,
-    TrendingUpIcon,
-    DatabaseIcon,
-    LayersIcon,
-    ShieldCheckIcon,
-    Target as TargetIcon,
+    LineChart,
+    FileText,
+    Star,
+    TrendingDown,
+    MoreHorizontal,
+    BookOpen,
+    Shield,
+    Database,
+    Share2,
+    Bell,
+    Info,
+    HelpCircle,
+    ExternalLink,
+    RotateCcw,
+    Save,
+    Mail,
+    Printer,
+    Bookmark,
+    Tag,
+    MapPin,
+    Layers,
+    Package,
+    Globe,
+    Sun,
+    Moon,
+    X,
+    Plus,
+    Minus,
+    Play,
+    Pause,
+    Crown,
 } from "lucide-react";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-    DialogClose,
-} from "@/Components/ui/dialog";
 
-// 🎯 TypeScript Interfaces
+// Enhanced TypeScript Interfaces
 interface PageProps {
     filters: {
         fiscal_year?: string;
         division?: string;
         grade?: string;
+        user_id?: string;
+        department?: string;
+        position?: string;
+        evaluation_type?: string;
+        date_range?: {
+            start: string;
+            end: string;
+        };
     };
     availableYears: string[];
     availableDivisions: { id: number; name: string }[];
     availableGrades: number[];
+    availableUsers: { id: number; name: string }[];
+    availableDepartments: { id: number; title: string }[];
+    availablePositions: { id: number; title: string }[];
     fiscalYear: string;
-    evaluatorSummary: {
-        grade: number;
-        user_type: string;
-        total: number;
-    }[];
-    evaluateeCountByGrade: {
-        grade: number;
-        user_type: string;
-        total: number;
-        completed: number;
-        remaining: number;
-    }[];
-    part1ScoreYearly: {
-        aspect: string;
-        part_id: number;
-        evaluatee_type: string;
-        evaluatee_grade: number;
-        year: number;
-        average_score: number;
-    }[];
-    part1AspectSummary: {
-        aspect: string;
-        average_score: number;
-        part_id: number;
-        grade: number;
-        user_type: string;
-        answer_count: number;
-        evaluatee_count: number;
-        group: "5-8" | "9-12:internal" | "9-12:external";
-    }[];
-    weightedSummary: {
-        id: number;
-        name: string;
-        position?: string;
-        grade?: number;
-        division?: string;
-        user_type?: string;
-        self?: number;
-        top?: number;
-        bottom?: number;
-        left?: number;
-        right?: number;
-        average: number;
-        rating?: number;
-        rating_text?: string;
-        completion_rate?: number;
-    }[];
-    weightedSummaryForExport: any;
-    summaryStats?: {
-        total_evaluatees: number;
-        total_completed: number;
-        total_remaining: number;
-        completion_rate: number;
-        score_distribution: {
-            excellent: number;
-            very_good: number;
-            good: number;
-            fair: number;
-            poor: number;
-        };
-        avg_scores_by_group: {
-            internal_5_8: number;
-            internal_9_12: number;
-            external_9_12: number;
-        };
-        overall_avg_score: number;
-        highest_score: number;
-        lowest_score: number;
+    
+    dashboardStats: {
+        totalParticipants: number;
+        completedEvaluations: number;
+        pendingEvaluations: number;
+        overallCompletionRate: number;
+        averageScore: number;
+        totalQuestions: number;
+        totalAnswers: number;
+        uniqueEvaluators: number;
+        uniqueEvaluatees: number;
+        evaluationTypes: number;
+        lastUpdated: string;
     };
+    
+    evaluationMetrics: {
+        byGrade: Array<{
+            grade: number;
+            total: number;
+            completed: number;
+            averageScore: number;
+            completionRate: number;
+        }>;
+        byDivision: Array<{
+            division: string;
+            divisionId: number;
+            total: number;
+            completed: number;
+            averageScore: number;
+            completionRate: number;
+        }>;
+        byAngle: Array<{
+            angle: string;
+            total: number;
+            completed: number;
+            averageScore: number;
+        }>;
+        trends: Array<{
+            date: string;
+            completions: number;
+            averageScore: number;
+        }>;
+    };
+    
+    detailedResults: Array<{
+        id: number;
+        evaluateeName: string;
+        evaluateeGrade: number;
+        evaluateeDivision: string;
+        evaluateePosition: string;
+        scores: {
+            self: number;
+            top: number;
+            bottom: number;
+            left: number;
+            right: number;
+            average: number;
+        };
+        completionStatus: {
+            totalAngles: number;
+            completedAngles: number;
+            completionRate: number;
+            lastActivity: string;
+        };
+        evaluators: Array<{
+            name: string;
+            angle: string;
+            completed: boolean;
+            score: number;
+            submittedAt: string;
+        }>;
+        aspectScores: Array<{
+            aspectName: string;
+            score: number;
+            maxScore: number;
+            percentage: number;
+        }>;
+    }>;
 }
 
-// 🎨 Data Status Indicator Component
-const DataStatusIndicator: React.FC<{
-    processedData: any;
-}> = ({ processedData }) => {
-    // แสดงการเปรียบเทียบกับจำนวนที่ completed จริง (ประเมินครบ)
-    const isDataComplete =
-        processedData.totalInExport === processedData.summary.completed;
+interface DashboardConfig {
+    theme: 'light' | 'dark';
+    view: 'dashboard' | 'analytics' | 'reports' | 'exports';
+    layout: 'grid' | 'list';
+    compactMode: boolean;
+    autoRefresh: boolean;
+    refreshInterval: number;
+}
 
-    return (
-        <div
-            className={`flex items-center space-x-3 px-4 py-2 rounded-xl border-2 ${
-                isDataComplete
-                    ? "bg-green-50 border-green-300 text-green-700"
-                    : "bg-orange-50 border-orange-300 text-orange-700"
-            }`}
-        >
-            {isDataComplete ? (
-                <CheckCircle className="w-5 h-5" />
-            ) : (
-                <AlertTriangle className="w-5 h-5" />
-            )}
-            <span className="font-semibold">
-                ข้อมูลส่งออก: {processedData.totalInExport} /{" "}
-                {processedData.summary.completed} คน
-            </span>
-            <span className="text-xs text-gray-600">
-                (เฉพาะคนที่ประเมินครบตามเกณฑ์)
-            </span>
-            {!isDataComplete && (
-                <span className="text-sm">
-                    (ขาด{" "}
-                    {processedData.summary.completed -
-                        processedData.totalInExport}{" "}
-                    คน)
-                </span>
-            )}
-        </div>
-    );
-};
+interface ExportOptions {
+    format: 'excel' | 'pdf' | 'csv';
+    includeCharts: boolean;
+    includeRawData: boolean;
+    dateRange: 'all' | 'current' | 'custom';
+    customDateStart?: string;
+    customDateEnd?: string;
+    divisions: string[];
+    grades: number[];
+    reportType: 'summary' | 'detailed' | 'individual' | 'comparison';
+}
 
-// 🎨 ✨ REVOLUTIONARY EXPORT CONTROL COMPONENT ✨ 🎨
-const RevolutionaryExportControl: React.FC<{
-    selectedYear: string;
-    selectedDivision: string;
-    processedData: any;
-}> = ({ selectedYear, selectedDivision, processedData }) => {
+const AdminEvaluationReport: React.FC = () => {
+    const { props } = usePage<PageProps>();
+    const {
+        filters = {},
+        availableYears = [],
+        availableDivisions = [],
+        availableGrades = [],
+        availableUsers = [],
+        availableDepartments = [],
+        availablePositions = [],
+        fiscalYear = new Date().getFullYear().toString(),
+        dashboardStats = {
+            totalParticipants: 0,
+            completedEvaluations: 0,
+            pendingEvaluations: 0,
+            overallCompletionRate: 0,
+            averageScore: 0,
+            totalQuestions: 0,
+            totalAnswers: 0,
+            uniqueEvaluators: 0,
+            uniqueEvaluatees: 0,
+            evaluationTypes: 0,
+            lastUpdated: new Date().toISOString()
+        },
+        evaluationMetrics = {
+            byGrade: [],
+            byDivision: [],
+            byAngle: [],
+            trends: []
+        },
+        detailedResults = [],
+    } = props;
+
+    // Enhanced State Management
+    const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig>({
+        theme: 'light',
+        view: 'dashboard',
+        layout: 'grid',
+        compactMode: false,
+        autoRefresh: false,
+        refreshInterval: 30000,
+    });
+
+    const [exportOptions, setExportOptions] = useState<ExportOptions>({
+        format: 'excel',
+        includeCharts: true,
+        includeRawData: false,
+        dateRange: 'current',
+        divisions: [],
+        grades: [],
+        reportType: 'summary',
+    });
+
+    const [searchQuery, setSearchQuery] = useState("");
+    const [selectedDivision, setSelectedDivision] = useState("");
+    const [selectedGrade, setSelectedGrade] = useState("");
+    const [viewMode, setViewMode] = useState<'cards' | 'table' | 'charts'>('cards');
+    const [isLoading, setIsLoading] = useState(false);
+    const [selectedUser, setSelectedUser] = useState<number | null>(null);
+    const [showIndividualReport, setShowIndividualReport] = useState(false);
+    const [showEvaluateeDetails, setShowEvaluateeDetails] = useState(false);
+    const [selectedEvaluateeId, setSelectedEvaluateeId] = useState<number | null>(null);
+    const [evaluateeDetailsData, setEvaluateeDetailsData] = useState<any>(null);
+    const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [lastRefresh, setLastRefresh] = useState(new Date());
+    const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['overview', 'grades', 'recent', 'divisions', 'angles']));
 
-    const exportOption = {
-        id: "all",
-        value: "",
-        icon: LayersIcon,
-        title: "🏢 รายงานครบถ้วน (ทุกกลุ่ม)",
-        description: "ส่งออกทุกกลุ่มแยก Sheet พร้อม Executive Summary",
-        color: "from-blue-500 to-purple-600",
-        features: [
-            "พนักงาน C5-C8",
-            "ผู้บริหาร C9-C12 (ภายใน)",
-            "ผู้บริหาร C9-C12 (ภายนอก)",
-            "ผู้บริหาร C9-C12 (รวมทั้งหมด)",
-            "Executive Summary",
-            "Comparative Analysis",
-        ],
-        recommended: true,
+    // Auto-refresh functionality
+    useEffect(() => {
+        if (dashboardConfig.autoRefresh) {
+            const interval = setInterval(() => {
+                refreshData();
+            }, dashboardConfig.refreshInterval);
+            return () => clearInterval(interval);
+        }
+    }, [dashboardConfig.autoRefresh, dashboardConfig.refreshInterval]);
+
+    // Data refresh function
+    const refreshData = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const response = await fetch('/admin/reports/evaluation/api/real-time-data', {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            });
+            
+            if (response.ok) {
+                const newData = await response.json();
+                setLastRefresh(new Date());
+                // Update data would be handled by Inertia in real implementation
+            }
+        } catch (error) {
+            console.error('Failed to refresh data:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    // Fetch evaluatee details
+    const fetchEvaluateeDetails = async (evaluateeId: number) => {
+        setIsLoadingDetails(true);
+        try {
+            const response = await fetch(`/admin/reports/evaluation/api/evaluatee-details/${evaluateeId}?fiscal_year=${fiscalYear}`, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setEvaluateeDetailsData(data);
+            } else {
+                console.error('Failed to fetch evaluatee details');
+            }
+        } catch (error) {
+            console.error('Error fetching evaluatee details:', error);
+        } finally {
+            setIsLoadingDetails(false);
+        }
     };
 
-    const handleExport = async () => {
+    // Show evaluatee details modal
+    const showEvaluateeDetailsModal = (evaluateeId: number) => {
+        setSelectedEvaluateeId(evaluateeId);
+        setShowEvaluateeDetails(true);
+        fetchEvaluateeDetails(evaluateeId);
+    };
+
+    // Comprehensive Export Functions
+    const handleExport = async (type: string) => {
         setIsExporting(true);
+        
         try {
-            const params = new URLSearchParams({
-                fiscal_year: selectedYear,
-                ...(selectedDivision && { division: selectedDivision }),
+            const formData = new FormData();
+            formData.append('fiscal_year', fiscalYear);
+            formData.append('export_type', type);
+            formData.append('format', exportOptions.format);
+            formData.append('include_charts', exportOptions.includeCharts.toString());
+            formData.append('include_raw_data', exportOptions.includeRawData.toString());
+            formData.append('date_range', exportOptions.dateRange);
+            formData.append('report_type', exportOptions.reportType);
+            
+            if (selectedDivision) formData.append('division_id', selectedDivision);
+            if (selectedGrade) formData.append('grade', selectedGrade);
+            
+            // Add evaluation_id for detailed exports
+            if (['detailed-data', 'executives', 'employees', 'self-evaluation'].includes(type)) {
+                const evaluationId = type === 'employees' ? '3' : '1'; // 3 for employees 5-8, 1 for executives 9-12
+                formData.append('evaluation_id', evaluationId);
+            }
+            
+            exportOptions.divisions.forEach(div => formData.append('divisions[]', div));
+            exportOptions.grades.forEach(grade => formData.append('grades[]', grade.toString()));
+            
+            formData.append('_token', document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '');
+
+            // Map type to correct endpoint
+            let endpoint = `/admin/reports/evaluation/export/${type}`;
+            if (type === 'self-evaluation') {
+                endpoint = '/admin/reports/evaluation/export/self-evaluation';
+            }
+            
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
             });
 
-            // แสดงข้อมูลก่อนส่งออก
-            console.log("🚀 กำลังส่งออกข้อมูล:", {
-                ปีงบประมาณ: selectedYear,
-                สายงาน: selectedDivision || "ทุกสายงาน",
-                จำนวนข้อมูลที่จะส่งออก: processedData.totalInExport,
-                แยกตามกลุ่ม: {
-                    "พนักงาน 5-8": processedData.groups.internal_5_8.length,
-                    "ผู้บริหาร 9-12 ภายใน":
-                        processedData.groups.internal_9_12.length,
-                    "ผู้บริหาร 9-12 ภายนอก":
-                        processedData.groups.external_9_12.length,
-                    "ผู้บริหาร 9-12 รวม":
-                        processedData.groups.combined_9_12.length,
-                },
-            });
-
-            const loadingToast = createAdvancedToast(exportOption);
-            document.body.appendChild(loadingToast);
-
-            window.open(
-                route("admin.evaluation.report.export.individual") +
-                    "?" +
-                    params.toString(),
-                "_blank"
-            );
-
-            setTimeout(() => {
-                document.body.removeChild(loadingToast);
-                showSuccessNotification(exportOption);
-            }, 3000);
+            if (response.ok) {
+                const contentType = response.headers.get('content-type');
+                
+                // Check if response is JSON (error response)
+                if (contentType && contentType.includes('application/json')) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'ไม่สามารถส่งออกรายงานได้');
+                }
+                
+                // Handle file download
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                
+                const fileExtension = exportOptions.format === 'excel' ? 'xlsx' : 
+                                    exportOptions.format === 'pdf' ? 'pdf' : 'csv';
+                link.download = `รายงานการประเมิน_${type}_${fiscalYear}.${fileExtension}`;
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+            } else {
+                // Try to get error message from response
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Export failed: ${response.status} ${response.statusText}`);
+                } else {
+                    throw new Error(`Export failed: ${response.status} ${response.statusText}`);
+                }
+            }
         } catch (error) {
-            console.error("❌ เกิดข้อผิดพลาดในการส่งออก:", error);
-            showErrorNotification();
+            console.error('Export error:', error);
+            alert('ไม่สามารถส่งออกรายงานได้ กรุณาลองใหม่อีกครั้ง');
         } finally {
             setIsExporting(false);
+            setShowExportModal(false);
         }
     };
 
-    // 🎨 สร้าง Advanced Loading Toast
-    const createAdvancedToast = (option: any) => {
-        const toast = document.createElement("div");
-        toast.className = `fixed top-4 right-4 bg-gradient-to-r ${option.color} text-white px-6 py-4 rounded-xl shadow-2xl z-50 max-w-sm transform transition-all duration-500 animate-pulse`;
-
-        toast.innerHTML = `
-            <div class="flex items-start space-x-3">
-                <div class="flex-shrink-0">
-                    <svg class="animate-spin h-6 w-6" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" opacity="0.25"></circle>
-                        <path fill="currentColor" opacity="0.75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                    </svg>
-                </div>
-                <div class="flex-1">
-                    <div class="font-semibold">${option.title}</div>
-                    <div class="text-sm opacity-90 mt-1">กำลังสร้างรายงาน...</div>
-                    <div class="text-xs opacity-75 mt-1">${option.description}</div>
-                </div>
-            </div>
-            <div class="mt-3 bg-white/20 rounded-full h-1 overflow-hidden">
-                <div class="h-full bg-white rounded-full animate-pulse" style="width: 60%"></div>
-            </div>
-        `;
-
-        return toast;
-    };
-
-    // 🎉 แสดง Success Notification
-    const showSuccessNotification = (option: any) => {
-        const notification = document.createElement("div");
-        notification.className = `fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-xl shadow-2xl z-50 max-w-sm transform transition-all duration-500`;
-
-        notification.innerHTML = `
-            <div class="flex items-center space-x-3">
-                <svg class="h-6 w-6 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                </svg>
-                <div>
-                    <div class="font-semibold">สร้างรายงานสำเร็จ! 🎉</div>
-                    <div class="text-sm opacity-90">${option.title}</div>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(notification);
-        setTimeout(() => {
-            document.body.removeChild(notification);
-        }, 4000);
-    };
-
-    // ❌ แสดง Error Notification
-    const showErrorNotification = () => {
-        const notification = document.createElement("div");
-        notification.className =
-            "fixed top-4 right-4 bg-red-500 text-white px-6 py-4 rounded-xl shadow-2xl z-50 max-w-sm";
-
-        notification.innerHTML = `
-            <div class="flex items-center space-x-3">
-                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-                <div>
-                    <div class="font-semibold">เกิดข้อผิดพลาด</div>
-                    <div class="text-sm opacity-90">ไม่สามารถสร้างรายงานได้</div>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(notification);
-        setTimeout(() => {
-            document.body.removeChild(notification);
-        }, 4000);
-    };
-
-    return (
-        <div className="space-y-4">
-            {/* Data Status Indicator */}
-            <DataStatusIndicator processedData={processedData} />
-
-            <div className="relative">
-                <button
-                    onClick={handleExport}
-                    disabled={isExporting}
-                    className="group relative inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-700 text-white rounded-xl hover:from-blue-700 hover:via-purple-700 hover:to-indigo-800 transition-all duration-300 shadow-lg hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105"
-                >
-                    <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-400 to-purple-500 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
-                    {isExporting ? (
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    ) : (
-                        <Download className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform duration-200" />
-                    )}
-                    <span className="relative font-semibold">
-                        ส่งออกรายงานครบถ้วน
-                    </span>
-                    <Sparkles className="w-4 h-4 ml-2 opacity-70 group-hover:opacity-100 transition-opacity duration-200" />
-                </button>
-
-                {/* เพิ่มข้อมูลสถิติใต้ปุ่ม */}
-                <div className="mt-2 text-xs text-gray-600 flex items-center space-x-2">
-                    <Info className="w-4 h-4" />
-                    <span>
-                        จะส่งออก {processedData.totalInExport} คน ใน{" "}
-                        {exportOption.features.length} ชีต
-                    </span>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// 🎨 Enhanced Metric Card with 3D Effects
-const UltraMetricCard: React.FC<{
-    title: string;
-    value: string | number;
-    subtitle?: string;
-    icon: React.ComponentType<any>;
-    color: string;
-    trend?: number;
-    onClick?: () => void;
-    className?: string;
-    loading?: boolean;
-    badgeText?: string;
-}> = ({
-    title,
-    value,
-    subtitle,
-    icon: Icon,
-    color,
-    trend,
-    onClick,
-    className = "",
-    loading = false,
-    badgeText,
-}) => (
-    <div
-        className={`group relative bg-white dark:bg-zinc-900 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-500 border border-gray-200 dark:border-gray-700 overflow-hidden transform perspective-1000 ${
-            onClick
-                ? "cursor-pointer hover:scale-105 hover:-translate-y-2 hover:rotate-1"
-                : ""
-        } ${className}`}
-        onClick={onClick}
-        style={{
-            transformStyle: "preserve-3d",
-        }}
-    >
-        {/* 🌟 Background Gradient Animation */}
-        <div className="absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity duration-700">
-            <div
-                className={`absolute inset-0 bg-gradient-to-br ${color} transform rotate-12 scale-150 animate-pulse`}
-            ></div>
-        </div>
-
-        {/* 💎 Floating Particles Effect */}
-        <div className="absolute inset-0 overflow-hidden">
-            <div
-                className="absolute w-2 h-2 bg-white/20 rounded-full animate-bounce"
-                style={{ top: "20%", left: "80%", animationDelay: "0s" }}
-            ></div>
-            <div
-                className="absolute w-1 h-1 bg-white/30 rounded-full animate-bounce"
-                style={{ top: "60%", left: "10%", animationDelay: "1s" }}
-            ></div>
-            <div
-                className="absolute w-1.5 h-1.5 bg-white/25 rounded-full animate-bounce"
-                style={{ top: "80%", left: "70%", animationDelay: "2s" }}
-            ></div>
-        </div>
-
-        {/* 🏷️ Badge */}
-        {badgeText && (
-            <div className="absolute -top-2 -right-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg z-10">
-                {badgeText}
-            </div>
-        )}
-
-        {/* 🌈 Glowing Border Effect */}
-        <div
-            className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-r ${color} p-0.5 rounded-2xl`}
-        >
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl h-full w-full"></div>
-        </div>
-
-        <div className="relative p-8 z-10">
-            <div className="flex items-start justify-between">
-                <div className="flex-1">
-                    <div className="flex items-center space-x-4 mb-6">
-                        <div
-                            className={`p-4 rounded-2xl bg-gradient-to-br ${color} shadow-2xl group-hover:shadow-3xl transition-all duration-300 group-hover:scale-110 group-hover:rotate-12`}
-                        >
-                            {loading ? (
-                                <Loader2 className="w-8 h-8 text-white animate-spin" />
-                            ) : (
-                                <Icon className="w-8 h-8 text-white group-hover:scale-110 transition-transform duration-300" />
-                            )}
-                        </div>
-                    </div>
-
-                    <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 mb-3 group-hover:text-gray-700 dark:group-hover:text-gray-300 transition-colors tracking-wide uppercase">
-                        {title}
-                    </h3>
-
-                    <div className="text-4xl font-black text-gray-900 dark:text-white mb-2 group-hover:scale-110 transition-transform duration-300 tabular-nums">
-                        {loading ? (
-                            <div className="h-10 w-20 bg-gray-200 rounded-lg animate-pulse"></div>
-                        ) : typeof value === "number" ? (
-                            value.toLocaleString()
-                        ) : (
-                            value
-                        )}
-                    </div>
-
-                    {subtitle && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors font-medium">
-                            {subtitle}
-                        </p>
-                    )}
-                </div>
-
-                {/* 📈 Trend Indicator */}
-                {trend !== undefined && (
-                    <div
-                        className={`flex items-center space-x-2 px-4 py-2 rounded-full transition-all duration-300 transform group-hover:scale-110 ${
-                            trend > 0
-                                ? "bg-green-100 text-green-700 group-hover:bg-green-200 shadow-green-500/25"
-                                : trend < 0
-                                ? "bg-red-100 text-red-700 group-hover:bg-red-200 shadow-red-500/25"
-                                : "bg-gray-100 text-gray-700 group-hover:bg-gray-200"
-                        } shadow-lg`}
-                    >
-                        {trend > 0 ? (
-                            <TrendingUp className="w-5 h-5" />
-                        ) : trend < 0 ? (
-                            <TrendingDown className="w-5 h-5" />
-                        ) : (
-                            <Minus className="w-5 h-5" />
-                        )}
-                        <span className="text-sm font-bold">
-                            {Math.abs(trend)}%
-                        </span>
-                    </div>
-                )}
-            </div>
-        </div>
-
-        {/* 🌊 Bottom Wave Effect */}
-        <div
-            className={`absolute inset-x-0 bottom-0 h-2 bg-gradient-to-r ${color} transform scale-x-0 group-hover:scale-x-100 transition-transform duration-700 origin-left`}
-        ></div>
-
-        {/* ✨ Shimmer Effect */}
-        <div className="absolute inset-0 -top-full group-hover:top-full bg-gradient-to-b from-transparent via-white/10 to-transparent transition-all duration-1000 transform -skew-y-12"></div>
-
-        {/* 🎪 Ripple Effect on Click */}
-        {onClick && (
-            <div className="absolute inset-0 overflow-hidden rounded-2xl">
-                <div className="absolute inset-0 transform scale-0 group-active:scale-100 transition-transform duration-200 bg-white opacity-20 rounded-full"></div>
-            </div>
-        )}
-    </div>
-);
-
-// 🎯 Ultra Modern Section Component
-const UltraReportSection: React.FC<{
-    title: string;
-    icon: React.ComponentType<any>;
-    children: React.ReactNode;
-    className?: string;
-    collapsible?: boolean;
-    defaultCollapsed?: boolean;
-    badgeText?: string;
-    badgeColor?: string;
-}> = ({
-    title,
-    icon: Icon,
-    children,
-    className = "",
-    collapsible = false,
-    defaultCollapsed = false,
-    badgeText,
-    badgeColor = "from-blue-500 to-purple-600",
-}) => {
-    const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
-
-    return (
-        <div
-            className={`group bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-500 hover:shadow-2xl hover:-translate-y-1 ${className}`}
-        >
-            <div
-                className={`relative p-8 border-b border-gray-200 dark:border-gray-700 ${
-                    collapsible
-                        ? "cursor-pointer hover:bg-gradient-to-r hover:from-gray-50 hover:to-blue-50 dark:hover:from-zinc-800 dark:hover:to-blue-900/20 transition-all duration-300"
-                        : ""
-                }`}
-                onClick={() => collapsible && setIsCollapsed(!isCollapsed)}
-            >
-                {/* Background Pattern */}
-                <div className="absolute inset-0 opacity-5">
-                    <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 transform rotate-12 scale-150"></div>
-                </div>
-
-                <div className="relative flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                        <div
-                            className={`p-3 rounded-xl bg-gradient-to-br ${badgeColor} shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110 group-hover:rotate-12`}
-                        >
-                            <Icon className="w-6 h-6 text-white" />
-                        </div>
-                        <div>
-                            <h2 className="text-2xl font-bold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors duration-300">
-                                {title}
-                            </h2>
-                            {badgeText && (
-                                <span
-                                    className={`inline-block mt-1 px-3 py-1 bg-gradient-to-r ${badgeColor} text-white text-xs font-bold rounded-full shadow-lg`}
-                                >
-                                    {badgeText}
-                                </span>
-                            )}
-                        </div>
-                    </div>
-
-                    {collapsible && (
-                        <div className="text-gray-400 transition-all duration-300 group-hover:text-blue-500">
-                            <div
-                                className={`transform transition-transform duration-300 ${
-                                    isCollapsed ? "rotate-0" : "rotate-180"
-                                }`}
-                            >
-                                <ChevronDown className="w-6 h-6" />
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            <div
-                className={`transition-all duration-500 ${
-                    !collapsible || !isCollapsed
-                        ? "max-h-none opacity-100 p-8"
-                        : "max-h-0 opacity-0 overflow-hidden"
-                }`}
-            >
-                {(!collapsible || !isCollapsed) && children}
-            </div>
-        </div>
-    );
-};
-
-// 📊 Enhanced Chart Component with 3D Effects
-const UltraEnhancedChart: React.FC<{
-    data: any[];
-    type?: "column" | "line" | "pie" | "bar";
-    title?: string;
-    height?: number;
-    subtitle?: string;
-    colors?: string[];
-    loading?: boolean;
-}> = ({
-    data,
-    type = "column",
-    title,
-    height = 300,
-    subtitle,
-    colors,
-    loading = false,
-}) => {
-    const defaultColors = [
-        "#3B82F6",
-        "#10B981",
-        "#F59E0B",
-        "#EF4444",
-        "#8B5CF6",
-        "#06B6D4",
-        "#F97316",
-        "#84CC16",
-    ];
-
-    if (loading) {
-        return (
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-2xl p-6 border border-gray-200 dark:border-gray-700">
-                <div className="animate-pulse">
-                    <div className="h-4 bg-gradient-to-r from-gray-200 to-gray-300 rounded w-1/4 mb-6"></div>
-                    <div className="h-64 bg-gradient-to-br from-gray-200 to-gray-300 rounded-xl"></div>
-                </div>
-            </div>
-        );
-    }
-
-    const getChartOptions = (): Highcharts.Options => {
-        const baseOptions: Highcharts.Options = {
-            chart: {
-                type: type,
-                height: height,
-                backgroundColor: "transparent",
-                style: { fontFamily: "Inter, system-ui, sans-serif" },
-                animation: { duration: 1200 },
-            },
-            title: {
-                text: title || "",
-                style: {
-                    fontSize: "18px",
-                    fontWeight: "700",
-                    color: "#1F2937",
-                },
-            },
-            subtitle: {
-                text: subtitle || "",
-                style: { fontSize: "14px", color: "#6B7280" },
-            },
-            credits: { enabled: false },
-            colors: colors || defaultColors,
-            tooltip: {
-                backgroundColor: "#1F2937",
-                borderColor: "#374151",
-                style: { color: "#F9FAFB" },
-                borderRadius: 12,
-                shadow: false,
-                animation: true,
-            },
-            legend: {
-                itemStyle: {
-                    color: "#374151",
-                    fontSize: "12px",
-                    fontWeight: "500",
-                },
-            },
-            plotOptions: {
-                series: {
-                    borderRadius: type === "column" || type === "bar" ? 8 : 0,
-                    dataLabels: { enabled: false },
-                    animation: { duration: 1200 },
-                },
-            },
-            responsive: {
-                rules: [
-                    {
-                        condition: { maxWidth: 500 },
-                        chartOptions: { legend: { enabled: false } },
-                    },
-                ],
-            },
-        };
-
-        // Chart-specific configurations
-        switch (type) {
-            case "column":
-            case "bar":
-                return {
-                    ...baseOptions,
-                    xAxis: {
-                        categories: data.map((item) => item.name),
-                        gridLineWidth: 0,
-                        lineColor: "#E5E7EB",
-                        tickColor: "#E5E7EB",
-                        labels: {
-                            style: {
-                                color: "#6B7280",
-                                fontSize: "12px",
-                                fontWeight: "500",
-                            },
-                        },
-                    },
-                    yAxis: {
-                        title: {
-                            text: "คะแนน",
-                            style: { color: "#6B7280", fontWeight: "600" },
-                        },
-                        gridLineColor: "#F3F4F6",
-                        lineColor: "#E5E7EB",
-                        tickColor: "#E5E7EB",
-                        labels: {
-                            style: { color: "#6B7280", fontSize: "12px" },
-                        },
-                        max: 5,
-                        min: 0,
-                    },
-                    series: [
-                        {
-                            name: "คะแนน",
-                            data: data.map((item) => item.value),
-                            color: defaultColors[0],
-                        },
-                    ],
-                };
-
-            case "pie":
-                return {
-                    ...baseOptions,
-                    plotOptions: {
-                        pie: {
-                            allowPointSelect: true,
-                            cursor: "pointer",
-                            dataLabels: {
-                                enabled: true,
-                                format: "<b>{point.name}</b>: {point.percentage:.1f}%",
-                                style: {
-                                    color: "#374151",
-                                    fontSize: "12px",
-                                    fontWeight: "600",
-                                },
-                            },
-                            showInLegend: true,
-                        },
-                    },
-                    series: [
-                        {
-                            type: "pie",
-                            name: "จำนวน",
-                            data: data.map((item, index) => ({
-                                name: item.name,
-                                y: item.value,
-                                color: defaultColors[
-                                    index % defaultColors.length
-                                ],
-                            })),
-                        },
-                    ],
-                };
-
-            default:
-                return baseOptions;
+    // Advanced filtering and search
+    const filteredResults = useMemo(() => {
+        if (!detailedResults || !Array.isArray(detailedResults)) {
+            return [];
         }
-    };
-
-    return (
-        <div className="bg-gradient-to-br from-gray-50 to-blue-50 dark:from-gray-800 dark:to-blue-900 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-all duration-300 group">
-            <div className="transform group-hover:scale-[1.02] transition-transform duration-300">
-                <HighchartsReact
-                    highcharts={Highcharts}
-                    options={getChartOptions()}
-                />
-            </div>
-        </div>
-    );
-};
-
-// 🏆 Ultra Performance Distribution Chart
-const UltraPerformanceDistributionChart: React.FC<{
-    distribution: {
-        excellent: number;
-        very_good: number;
-        good: number;
-        fair: number;
-        poor: number;
-    };
-}> = ({ distribution }) => {
-    const data = [
-        { name: "ดีเยี่ยม", value: distribution.excellent, color: "#10B981" },
-        { name: "ดีมาก", value: distribution.very_good, color: "#3B82F6" },
-        { name: "ดี", value: distribution.good, color: "#F59E0B" },
-        { name: "ควรปรับปรุง", value: distribution.fair, color: "#F97316" },
-        { name: "ต้องปรับปรุงมาก", value: distribution.poor, color: "#EF4444" },
-    ];
-
-    const options: Highcharts.Options = {
-        chart: {
-            type: "pie",
-            height: 450,
-            backgroundColor: "transparent",
-        },
-        title: {
-            text: "🏆 การกระจายผลการประเมิน",
-            style: { fontSize: "20px", fontWeight: "700", color: "#1F2937" },
-        },
-        credits: { enabled: false },
-        tooltip: {
-            backgroundColor: "#1F2937",
-            borderColor: "#374151",
-            style: { color: "#F9FAFB" },
-            borderRadius: 12,
-            shadow: false,
-            pointFormat: "<b>{point.y}</b> คน ({point.percentage:.1f}%)",
-        },
-        plotOptions: {
-            pie: {
-                allowPointSelect: true,
-                cursor: "pointer",
-                dataLabels: {
-                    enabled: true,
-                    format: "<b>{point.name}</b><br/>{point.y} คน ({point.percentage:.1f}%)",
-                    style: {
-                        color: "#374151",
-                        fontSize: "13px",
-                        fontWeight: "600",
-                    },
-                    distance: 25,
-                },
-                showInLegend: true,
-                borderWidth: 3,
-                borderColor: "#ffffff",
-            },
-        },
-        legend: {
-            align: "right",
-            verticalAlign: "middle",
-            layout: "vertical",
-            itemStyle: {
-                color: "#374151",
-                fontSize: "13px",
-                fontWeight: "500",
-            },
-        },
-        series: [
-            {
-                type: "pie",
-                name: "จำนวน",
-                data: data.map((item) => ({
-                    name: item.name,
-                    y: item.value,
-                    color: item.color,
-                })),
-            },
-        ],
-    };
-
-    return (
-        <div className="bg-gradient-to-br from-gray-50 to-purple-50 dark:from-gray-800 dark:to-purple-900 rounded-2xl p-6 border border-gray-200 dark:border-gray-700">
-            <HighchartsReact highcharts={Highcharts} options={options} />
-        </div>
-    );
-};
-
-// 📋 Ultra Enhanced Table Component
-const UltraEnhancedTable: React.FC<{
-    data: any[];
-    title?: string;
-    columns: { key: string; label: string }[];
-}> = ({ data, title, columns }) => {
-    const [sortField, setSortField] = useState("");
-    const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-    const [currentPage, setCurrentPage] = useState(1);
-    const [searchTerm, setSearchTerm] = useState("");
-    const itemsPerPage = 10;
-
-    const filteredData = useMemo(() => {
-        if (!searchTerm) return data;
-        return data.filter((item) =>
-            Object.values(item).some((value) =>
-                String(value).toLowerCase().includes(searchTerm.toLowerCase())
-            )
-        );
-    }, [data, searchTerm]);
-
-    const sortedData = useMemo(() => {
-        if (!sortField) return filteredData;
-
-        return [...filteredData].sort((a, b) => {
-            const aVal = a[sortField];
-            const bVal = b[sortField];
-
-            if (sortDirection === "asc") {
-                return aVal > bVal ? 1 : -1;
-            } else {
-                return aVal < bVal ? 1 : -1;
-            }
+        
+        return detailedResults.filter(result => {
+            const matchesSearch = !searchQuery || 
+                result.evaluateeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                result.evaluateeDivision.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                result.evaluateePosition.toLowerCase().includes(searchQuery.toLowerCase());
+            
+            const matchesDivision = !selectedDivision || result.evaluateeDivision === selectedDivision;
+            const matchesGrade = !selectedGrade || result.evaluateeGrade.toString() === selectedGrade;
+            
+            return matchesSearch && matchesDivision && matchesGrade;
         });
-    }, [filteredData, sortField, sortDirection]);
+    }, [detailedResults, searchQuery, selectedDivision, selectedGrade]);
 
-    const paginatedData = useMemo(() => {
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        return sortedData.slice(startIndex, startIndex + itemsPerPage);
-    }, [sortedData, currentPage]);
-
-    const totalPages = Math.ceil(sortedData.length / itemsPerPage);
-
-    const handleSort = (field: string) => {
-        if (sortField === field) {
-            setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    // Section toggle function
+    const toggleSection = (sectionId: string) => {
+        const newExpanded = new Set(expandedSections);
+        if (newExpanded.has(sectionId)) {
+            newExpanded.delete(sectionId);
         } else {
-            setSortField(field);
-            setSortDirection("asc");
+            newExpanded.add(sectionId);
         }
+        setExpandedSections(newExpanded);
     };
 
+    // Utility functions
     const getScoreColor = (score: number) => {
-        if (score > 4.5) return "text-green-700 bg-green-100 border-green-300";
-        if (score >= 4.0) return "text-blue-700 bg-blue-100 border-blue-300";
-        if (score >= 3.0)
-            return "text-yellow-700 bg-yellow-100 border-yellow-300";
-        if (score >= 2.0)
-            return "text-orange-700 bg-orange-100 border-orange-300";
-        return "text-red-700 bg-red-100 border-red-300";
+        if (score >= 4.5) return dashboardConfig.theme === 'dark' ? 'text-green-400' : 'text-green-600';
+        if (score >= 4.0) return dashboardConfig.theme === 'dark' ? 'text-blue-400' : 'text-blue-600';
+        if (score >= 3.5) return dashboardConfig.theme === 'dark' ? 'text-yellow-400' : 'text-yellow-600';
+        if (score >= 3.0) return dashboardConfig.theme === 'dark' ? 'text-orange-400' : 'text-orange-600';
+        return dashboardConfig.theme === 'dark' ? 'text-red-400' : 'text-red-600';
     };
 
-    const getScoreText = (score: number) => {
-        if (score > 4.5) return "ดีเยี่ยม";
-        if (score >= 4.0) return "ดีมาก";
-        if (score >= 3.0) return "ดี";
-        if (score >= 2.0) return "ควรปรับปรุง";
-        return "ต้องปรับปรุงมาก";
-    };
-
-    const getUserTypeText = (userType: string) => {
-        return userType === "internal" ? "ภายใน" : "ภายนอก";
-    };
-
-    const getUserTypeColor = (userType: string) => {
-        return userType === "internal"
-            ? "bg-blue-100 text-blue-800 border-blue-300"
-            : "bg-purple-100 text-purple-800 border-purple-300";
+    const getCompletionColor = (rate: number) => {
+        if (rate >= 90) return dashboardConfig.theme === 'dark' ? 'text-green-400' : 'text-green-600';
+        if (rate >= 75) return dashboardConfig.theme === 'dark' ? 'text-blue-400' : 'text-blue-600';
+        if (rate >= 50) return dashboardConfig.theme === 'dark' ? 'text-yellow-400' : 'text-yellow-600';
+        return dashboardConfig.theme === 'dark' ? 'text-red-400' : 'text-red-600';
     };
 
     return (
-        <div className="space-y-6">
-            {/* 🎨 Enhanced Header */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                {title && (
-                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
-                        <BarChart2 className="w-6 h-6 mr-2 text-blue-600" />
-                        {title}
-                    </h3>
-                )}
-
-                <div className="flex items-center space-x-4">
-                    {/* 🔍 Enhanced Search */}
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="ค้นหาข้อมูล..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 pr-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 bg-white shadow-sm hover:shadow-md"
-                        />
-                        <Filter className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
-                    </div>
-
-                    {/* 📊 Records Count */}
-                    <div className="flex items-center space-x-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
-                        <DatabaseIcon className="w-5 h-5 text-blue-600" />
-                        <span className="text-sm font-semibold text-blue-700">
-                            {sortedData.length} รายการ
-                        </span>
-                    </div>
-                </div>
-            </div>
-
-            {/* 📊 Enhanced Table */}
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gradient-to-r from-gray-50 to-blue-50">
-                            <tr>
-                                {columns.map((column) => (
-                                    <th
-                                        key={column.key}
-                                        className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-blue-100 transition-colors duration-200 group"
-                                        onClick={() => handleSort(column.key)}
-                                    >
-                                        <div className="flex items-center space-x-2">
-                                            <span className="group-hover:text-blue-700 transition-colors duration-200">
-                                                {column.label}
-                                            </span>
-                                            {sortField === column.key && (
-                                                <span className="text-blue-600 font-bold">
-                                                    {sortDirection === "asc"
-                                                        ? "↑"
-                                                        : "↓"}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {paginatedData.map((item, index) => (
-                                <tr
-                                    key={index}
-                                    className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all duration-300 group"
-                                >
-                                    {columns.map((column) => (
-                                        <td
-                                            key={column.key}
-                                            className="px-6 py-4 whitespace-nowrap text-sm group-hover:scale-105 transition-transform duration-200"
-                                        >
-                                            {column.key === "average" ? (
-                                                <div className="flex items-center space-x-3">
-                                                    <span
-                                                        className={`px-4 py-2 rounded-full text-sm font-bold border-2 ${getScoreColor(
-                                                            item[column.key]
-                                                        )} shadow-sm`}
-                                                    >
-                                                        {item[
-                                                            column.key
-                                                        ]?.toFixed(2)}
-                                                    </span>
-                                                    <span className="text-sm text-gray-600 font-medium">
-                                                        {getScoreText(
-                                                            item[column.key]
-                                                        )}
-                                                    </span>
-                                                </div>
-                                            ) : column.key === "user_type" ? (
-                                                <span
-                                                    className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border-2 ${getUserTypeColor(
-                                                        item[column.key]
-                                                    )} shadow-sm`}
-                                                >
-                                                    {getUserTypeText(
-                                                        item[column.key]
-                                                    )}
-                                                </span>
-                                            ) : column.key === "grade" ? (
-                                                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-800 border-2 border-gray-300 shadow-sm">
-                                                    C{item[column.key]}
-                                                </span>
-                                            ) : column.key.includes("score") ||
-                                              (typeof item[column.key] ===
-                                                  "number" &&
-                                                  column.key !== "grade") ? (
-                                                <span className="font-mono font-bold text-gray-900 bg-gray-100 px-3 py-1 rounded-lg">
-                                                    {item[column.key]?.toFixed(
-                                                        2
-                                                    ) || "0.00"}
-                                                </span>
-                                            ) : (
-                                                <span className="text-gray-900 font-medium">
-                                                    {item[column.key] || "-"}
-                                                </span>
-                                            )}
-                                        </td>
-                                    ))}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-
-                {/* 🎯 Ultra Enhanced Pagination */}
-                {totalPages > 1 && (
-                    <div className="bg-gradient-to-r from-gray-50 to-blue-50 px-6 py-4 border-t border-gray-200">
-                        <div className="flex flex-col sm:flex-row items-center justify-between space-y-3 sm:space-y-0">
-                            <div className="text-sm text-gray-700 font-medium">
-                                แสดง{" "}
-                                <span className="font-bold text-blue-600">
-                                    {(currentPage - 1) * itemsPerPage + 1}
-                                </span>{" "}
-                                -{" "}
-                                <span className="font-bold text-blue-600">
-                                    {Math.min(
-                                        currentPage * itemsPerPage,
-                                        sortedData.length
-                                    )}
-                                </span>{" "}
-                                จาก{" "}
-                                <span className="font-bold text-blue-600">
-                                    {sortedData.length}
-                                </span>{" "}
-                                รายการ
-                            </div>
-
-                            <div className="flex items-center space-x-2">
-                                <button
-                                    onClick={() => setCurrentPage(1)}
-                                    disabled={currentPage === 1}
-                                    className="px-3 py-2 text-sm border-2 border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 font-medium"
-                                >
-                                    แรก
-                                </button>
-
-                                <button
-                                    onClick={() =>
-                                        setCurrentPage((prev) =>
-                                            Math.max(prev - 1, 1)
-                                        )
-                                    }
-                                    disabled={currentPage === 1}
-                                    className="px-3 py-2 text-sm border-2 border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 font-medium"
-                                >
-                                    ก่อนหน้า
-                                </button>
-
-                                {/* Page Numbers */}
-                                {Array.from(
-                                    { length: Math.min(5, totalPages) },
-                                    (_, i) => {
-                                        const pageNumber =
-                                            Math.max(
-                                                1,
-                                                Math.min(
-                                                    totalPages - 4,
-                                                    currentPage - 2
-                                                )
-                                            ) + i;
-                                        if (pageNumber <= totalPages) {
-                                            return (
-                                                <button
-                                                    key={pageNumber}
-                                                    onClick={() =>
-                                                        setCurrentPage(
-                                                            pageNumber
-                                                        )
-                                                    }
-                                                    className={`px-4 py-2 text-sm border-2 rounded-lg transition-all duration-200 font-medium ${
-                                                        currentPage ===
-                                                        pageNumber
-                                                            ? "bg-blue-500 text-white border-blue-500 shadow-lg"
-                                                            : "border-gray-300 hover:bg-blue-50 hover:border-blue-300"
-                                                    }`}
-                                                >
-                                                    {pageNumber}
-                                                </button>
-                                            );
-                                        }
-                                        return null;
-                                    }
-                                )}
-
-                                <button
-                                    onClick={() =>
-                                        setCurrentPage((prev) =>
-                                            Math.min(prev + 1, totalPages)
-                                        )
-                                    }
-                                    disabled={currentPage === totalPages}
-                                    className="px-3 py-2 text-sm border-2 border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 font-medium"
-                                >
-                                    ถัดไป
-                                </button>
-
-                                <button
-                                    onClick={() => setCurrentPage(totalPages)}
-                                    disabled={currentPage === totalPages}
-                                    className="px-3 py-2 text-sm border-2 border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 font-medium"
-                                >
-                                    สุดท้าย
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-// 🎨 Ultra Progress Bar Component
-const UltraProgressBar: React.FC<{
-    label: string;
-    value: number;
-    maxValue?: number;
-    color: string;
-    showPercentage?: boolean;
-}> = ({ label, value, maxValue = 5, color, showPercentage = true }) => {
-    const percentage = (value / maxValue) * 100;
-
-    return (
-        <div className="group p-5 bg-white rounded-2xl shadow-lg border border-gray-200 hover:shadow-xl hover:border-gray-300 transition-all duration-300 transform hover:-translate-y-1">
-            <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-bold text-gray-700 flex-1 pr-3 group-hover:text-gray-900 transition-colors duration-200">
-                    {label}
-                </span>
-                <span
-                    className={`text-lg font-black ${color
-                        .replace("bg-", "text-")
-                        .replace("-500", "-600")} min-w-[4rem] text-right`}
-                >
-                    {showPercentage
-                        ? `${percentage.toFixed(1)}%`
-                        : value.toFixed(2)}
-                </span>
-            </div>
-
-            <div className="relative">
-                <div className="w-full bg-gray-200 rounded-full h-3 shadow-inner">
-                    <div
-                        className={`${color} h-3 rounded-full transition-all duration-1000 ease-out shadow-lg`}
-                        style={{ width: `${Math.min(percentage, 100)}%` }}
-                    >
-                        <div className="h-full w-full bg-gradient-to-r from-white/20 to-transparent rounded-full"></div>
-                    </div>
-                </div>
-
-                {/* Glow Effect */}
-                <div
-                    className={`absolute top-0 h-3 ${color} rounded-full opacity-50 blur-sm transition-all duration-1000 ease-out`}
-                    style={{ width: `${Math.min(percentage, 100)}%` }}
-                ></div>
-            </div>
-        </div>
-    );
-};
-
-// 📊 Ultra Comparison Chart Component
-const UltraComparisonChart: React.FC<{
-    data: any[];
-    title?: string;
-    height?: number;
-}> = ({ data, title, height = 450 }) => {
-    const options: Highcharts.Options = {
-        chart: {
-            type: "column",
-            height: height,
-            backgroundColor: "transparent",
-            style: { fontFamily: "Inter, system-ui, sans-serif" },
-        },
-        title: {
-            text: title || "",
-            style: { fontSize: "20px", fontWeight: "700", color: "#1F2937" },
-        },
-        credits: { enabled: false },
-        colors: ["#3B82F6", "#10B981", "#8B5CF6"],
-        xAxis: {
-            categories: data.map((item) => item.group),
-            gridLineWidth: 0,
-            lineColor: "#E5E7EB",
-            tickColor: "#E5E7EB",
-            labels: {
-                style: {
-                    color: "#6B7280",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                },
-            },
-        },
-        yAxis: {
-            title: {
-                text: "คะแนนเฉลี่ย",
-                style: { color: "#6B7280", fontWeight: "700" },
-            },
-            gridLineColor: "#F3F4F6",
-            lineColor: "#E5E7EB",
-            tickColor: "#E5E7EB",
-            labels: { style: { color: "#6B7280", fontSize: "12px" } },
-            max: 5,
-            min: 0,
-        },
-        series: [
-            {
-                name: "คะแนนเฉลี่ย",
-                data: data.map((item) => item.score),
-                borderRadius: 12,
-                dataLabels: {
-                    enabled: true,
-                    format: "{y:.2f}",
-                    style: {
-                        color: "#374151",
-                        fontSize: "13px",
-                        fontWeight: "700",
-                    },
-                },
-            },
-        ],
-        tooltip: {
-            backgroundColor: "#1F2937",
-            borderColor: "#374151",
-            style: { color: "#F9FAFB" },
-            borderRadius: 12,
-            shadow: false,
-            formatter: function () {
-                return `<b>${this.x}</b><br/>คะแนนเฉลี่ย: <b>${this.y?.toFixed(
-                    2
-                )}</b>`;
-            },
-        },
-        plotOptions: {
-            column: { borderRadius: 12, pointPadding: 0.1, groupPadding: 0.15 },
-        },
-        responsive: {
-            rules: [
-                {
-                    condition: { maxWidth: 500 },
-                    chartOptions: { legend: { enabled: false } },
-                },
-            ],
-        },
-    };
-
-    return (
-        <div className="bg-gradient-to-br from-gray-50 to-indigo-50 dark:from-gray-800 dark:to-indigo-900 rounded-2xl p-6 border border-gray-200 dark:border-gray-700">
-            <HighchartsReact highcharts={Highcharts} options={options} />
-        </div>
-    );
-};
-
-// 🎯 Main Component
-export default function AdminEvaluationReport() {
-    const {
-        filters,
-        availableYears,
-        availableDivisions,
-        availableGrades,
-        evaluateeCountByGrade,
-        part1ScoreYearly,
-        part1AspectSummary,
-        weightedSummary,
-        weightedSummaryForExport,
-        evaluatorSummary,
-        fiscalYear,
-        summaryStats,
-    } = usePage<PageProps>().props;
-
-    const [selectedYear, setSelectedYear] = useState(filters.fiscal_year || "");
-    const [selectedDivision, setSelectedDivision] = useState(
-        filters.division || ""
-    );
-    const [selectedGrade, setSelectedGrade] = useState(filters.grade || "");
-    const [showDialog, setShowDialog] = useState(false);
-    const [dialogTitle, setDialogTitle] = useState("");
-    const [userList, setUserList] = useState([]);
-    const [dialogLoading, setDialogLoading] = useState(false);
-
-    // 🎯 Data Processing
-    const aspectsByGroup = useMemo(() => {
-        const grouped: Record<string, Record<string, number[]>> = {};
-        part1AspectSummary.forEach((item) => {
-            const group = item.group;
-            if (!grouped[group]) grouped[group] = {};
-            if (!grouped[group][item.aspect]) grouped[group][item.aspect] = [];
-            grouped[group][item.aspect].push(Number(item.average_score));
-        });
-
-        const result: Record<string, { aspect: string; score: number }[]> = {};
-        Object.entries(grouped).forEach(([group, aspects]) => {
-            result[group] = Object.entries(aspects).map(([aspect, scores]) => ({
-                aspect,
-                score: scores.reduce((a, b) => a + b, 0) / scores.length,
-            }));
-        });
-        return result;
-    }, [part1AspectSummary]);
-
-    const processedData = useMemo(() => {
-        const summary = {
-            total: evaluateeCountByGrade.reduce(
-                (sum, item) => sum + item.total,
-                0
-            ),
-            completed: evaluateeCountByGrade.reduce(
-                (sum, item) => sum + item.completed,
-                0
-            ),
-            remaining: evaluateeCountByGrade.reduce(
-                (sum, item) => sum + item.remaining,
-                0
-            ),
-        };
-
-        // 🎯 ใช้ weightedSummaryForExport (เฉพาะคนที่มีคะแนน) สำหรับการส่งออก
-        const groups = {
-            internal_5_8: weightedSummaryForExport.filter(
-                (u) => u.grade! >= 5 && u.grade! <= 8
-            ),
-            internal_9_12: weightedSummaryForExport.filter(
-                (u) =>
-                    u.grade! >= 9 &&
-                    u.grade! <= 12 &&
-                    u.user_type === "internal"
-            ),
-            external_9_12: weightedSummaryForExport.filter(
-                (u) =>
-                    u.grade! >= 9 &&
-                    u.grade! <= 12 &&
-                    u.user_type === "external"
-            ),
-            // 🎯 กลุ่มรวมสำหรับระดับ 9-12 ทั้งหมด
-            combined_9_12: weightedSummaryForExport.filter(
-                (u) => u.grade! >= 9 && u.grade! <= 12
-            ),
-        };
-
-        // 🔍 ใช้ weightedSummaryForExport.length ให้ตรงกับ Excel
-        const totalInExport = weightedSummaryForExport.length;
-
-        console.log("🔍 Data Check (Strict Criteria):", {
-            "📊 สรุปจากหน้า Report": summary,
-            "📁 ข้อมูลใน weightedSummary ทั้งหมด": weightedSummary.length,
-            "📊 ข้อมูลที่ประเมินครบจริงๆ (ส่งออก Excel)":
-                weightedSummaryForExport.length,
-            "🏢 พนักงาน 5-8": groups.internal_5_8.length,
-            "👨‍💼 ผู้บริหาร 9-12 ภายใน": groups.internal_9_12.length,
-            "🌟 ผู้บริหาร 9-12 ภายนอก": groups.external_9_12.length,
-            "🎯 ผู้บริหาร 9-12 รวม": groups.combined_9_12.length,
-            "📈 รวมที่จะส่งออก": totalInExport,
-            "✅ ตรงกับ completed ใน summary":
-                totalInExport === summary.completed ? "ใช่" : "ไม่",
-            "🔍 เกณฑ์การนับ": {
-                "พนักงาน 5-8": "ต้องมี self, top, left > 0",
-                "ผู้บริหาร 9-12": "ต้องมี self, top, bottom, left, right > 0",
-            },
-            "🎯 คนที่ยังประเมินไม่ครบ": summary.total - totalInExport + " คน",
-        });
-
-        const chartData = part1ScoreYearly.reduce((acc, item) => {
-            const key = `${item.part_id}_${item.year}`;
-            if (!acc[key]) {
-                acc[key] = {
-                    year: item.year,
-                    part_id: item.part_id,
-                    group:
-                        item.part_id === 7
-                            ? "พนักงานภายใน 5-8"
-                            : item.part_id === 1
-                            ? "ผู้บริหาร 9-12 (ภายใน)"
-                            : "ผู้บริหาร 9-12 (ภายนอก)",
-                    scores: [],
-                };
-            }
-            acc[key].scores.push({
-                aspect: item.aspect,
-                score: parseFloat(item.average_score.toString()),
-            });
-            return acc;
-        }, {} as any);
-
-        return {
-            summary,
-            groups,
-            chartData: Object.values(chartData),
-            aspectsByGroup,
-            totalInExport,
-        };
-    }, [
-        evaluateeCountByGrade,
-        weightedSummary,
-        weightedSummaryForExport, // เพิ่ม dependency ใหม่
-        part1ScoreYearly,
-        aspectsByGroup,
-    ]);
-
-    const handleFilterChange = (key: string, value: string) => {
-        const updated = {
-            fiscal_year: selectedYear,
-            division: selectedDivision,
-            grade: selectedGrade,
-            [key]: value,
-        };
-
-        if (key === "fiscal_year") setSelectedYear(value);
-        if (key === "division") setSelectedDivision(value);
-        if (key === "grade") setSelectedGrade(value);
-
-        router.visit(route("admin.evaluation.report"), {
-            data: updated,
-            preserveState: true,
-        });
-    };
-
-    const handleShowUserList = async ({ grade, user_type, status, label }) => {
-        setDialogTitle(label);
-        setShowDialog(true);
-        setDialogLoading(true);
-        setUserList([]);
-
-        try {
-            const res = await fetch(
-                route("admin.evaluation.report.list-evaluatees") +
-                    `?fiscal_year=${selectedYear}&grade=${grade}&user_type=${user_type}&status=${status}&division=${selectedDivision}`
-            );
-            const data = await res.json();
-            setUserList(data.users ?? []);
-        } catch {
-            setUserList([]);
-        } finally {
-            setDialogLoading(false);
-        }
-    };
-
-    // 🎯 ฟังก์ชันสำหรับสร้างคอลัมน์ตารางแบบสมบูรณ์
-    const getEnhancedTableColumns = (groupType: string) => {
-        const baseColumns = [
-            { key: "name", label: "ชื่อ-นามสกุล" },
-            { key: "position", label: "ตำแหน่ง" },
-            { key: "grade", label: "ระดับ" },
-            { key: "division", label: "สายงาน" },
-        ];
-
-        // เพิ่มคอลัมน์ประเภทสำหรับกลุ่มที่มีทั้งภายในและภายนอก
-        if (groupType === "combined_9_12" || groupType === "external_9_12") {
-            baseColumns.push({ key: "user_type", label: "ประเภท" });
-        }
-
-        baseColumns.push(
-            { key: "self", label: "Self" },
-            { key: "top", label: "Top" }
-        );
-
-        if (groupType !== "internal_5_8") {
-            baseColumns.push({ key: "bottom", label: "Bottom" });
-        }
-
-        baseColumns.push({ key: "left", label: "Left" });
-
-        if (groupType !== "internal_5_8") {
-            baseColumns.push({ key: "right", label: "Right" });
-        }
-
-        baseColumns.push(
-            { key: "average", label: "คะแนนเฉลี่ย" },
-            { key: "completion_rate", label: "ความครบถ้วน (%)" }
-        );
-
-        return baseColumns;
-    };
-
-    return (
-        <MainLayout
-            title="รายงานผลการประเมิน"
-            breadcrumb={
-                <Breadcrumb
-                    items={[
-                        { label: "แดชบอร์ด", href: route("admindashboard") },
-                        { label: "รายงานผลการประเมิน", active: true },
-                    ]}
-                />
-            }
-        >
-            <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-zinc-900 dark:via-zinc-800 dark:to-zinc-900 relative overflow-hidden">
-                {/* 🎨 Background Effects */}
-                <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
-                <div className="absolute top-0 left-0 w-96 h-96 bg-blue-400 rounded-full filter blur-3xl opacity-10 animate-pulse"></div>
-                <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-400 rounded-full filter blur-3xl opacity-10 animate-pulse animation-delay-2000"></div>
-
-                <div className="relative max-w-7xl mx-auto px-6 py-10 space-y-10">
-                    {/* 🎨 Ultra Enhanced Header */}
-                    <div className="relative bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl p-10 border border-gray-200 dark:border-gray-700 backdrop-blur-sm overflow-hidden">
-                        {/* Background Pattern */}
-                        <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5"></div>
-
-                        <div className="relative flex flex-col xl:flex-row justify-between items-start xl:items-center gap-8">
-                            <div className="flex-1">
-                                <div className="flex items-center space-x-4 mb-4">
-                                    <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 shadow-2xl">
-                                        <BarChart3 className="w-10 h-10 text-white" />
-                                    </div>
-                                    <div>
-                                        <h1 className="text-5xl font-black bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent leading-tight">
-                                            รายงานการประเมิน 360°
-                                        </h1>
-                                        <div className="h-1 w-32 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mt-2"></div>
-                                    </div>
+        <MainLayout>
+            <div className={`min-h-screen transition-all duration-300 ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800' 
+                    : 'bg-gradient-to-br from-slate-50 via-white to-gray-50'
+            }`}>
+                
+                {/* Enhanced Header with Theme Toggle and Controls */}
+                <div className={`shadow-xl relative overflow-hidden ${
+                    dashboardConfig.theme === 'dark'
+                        ? 'bg-gradient-to-r from-slate-800 via-gray-900 to-slate-800'
+                        : 'bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600'
+                } text-white`}>
+                    <div className="absolute inset-0 bg-black opacity-10"></div>
+                    <div className="relative px-6 py-8">
+                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-700' : 'bg-white/20'
+                                } backdrop-blur-sm`}>
+                                    <BarChart3 className={`h-8 w-8 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'
+                                    }`} />
                                 </div>
-
-                                <p className="text-gray-600 dark:text-gray-400 text-xl font-medium mb-6">
-                                    🗓️ ปีงบประมาณ {parseInt(fiscalYear) + 543} •
-                                    📊 รายงานข้อมูลการประเมินผลแบบครบถ้วนสมบูรณ์
-                                </p>
-
-                                {/* 🎯 Quick Stats with Animation */}
-                                <div className="flex items-center space-x-8">
-                                    <div className="flex items-center space-x-3 px-4 py-2 bg-green-100 border border-green-300 rounded-xl">
-                                        <CheckCircle className="w-5 h-5 text-green-600" />
-                                        <span className="font-bold text-green-700">
-                                            {processedData.summary.completed}{" "}
-                                            เสร็จแล้ว
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center space-x-3 px-4 py-2 bg-orange-100 border border-orange-300 rounded-xl">
-                                        <Clock className="w-5 h-5 text-orange-600" />
-                                        <span className="font-bold text-orange-700">
-                                            {processedData.summary.remaining}{" "}
-                                            ยังไม่เสร็จ
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center space-x-3 px-4 py-2 bg-blue-100 border border-blue-300 rounded-xl">
-                                        <Activity className="w-5 h-5 text-blue-600" />
-                                        <span className="font-bold text-blue-700">
-                                            {(
-                                                (processedData.summary
-                                                    .completed /
-                                                    processedData.summary
-                                                        .total) *
-                                                100
-                                            ).toFixed(1)}
-                                            % ความสำเร็จ
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* 🎛️ Ultra Enhanced Filters & Export */}
-                            <div className="flex flex-col gap-6">
-                                <div className="flex flex-col sm:flex-row gap-4">
-                                    {/* Year Filter */}
-                                    <div className="flex items-center space-x-3 bg-white border-2 border-gray-300 rounded-xl px-4 py-3 hover:border-blue-400 transition-all duration-300 shadow-lg">
-                                        <Calendar className="w-5 h-5 text-blue-500" />
-                                        <select
-                                            className="bg-transparent border-none focus:ring-0 font-semibold text-gray-700"
-                                            value={selectedYear}
-                                            onChange={(e) =>
-                                                handleFilterChange(
-                                                    "fiscal_year",
-                                                    e.target.value
-                                                )
-                                            }
-                                        >
-                                            {availableYears.map((y) => (
-                                                <option key={y} value={y}>
-                                                    ปีงบ {parseInt(y) + 543}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    {/* Division Filter */}
-                                    <div className="flex items-center space-x-3 bg-white border-2 border-gray-300 rounded-xl px-4 py-3 hover:border-blue-400 transition-all duration-300 shadow-lg">
-                                        <Building2 className="w-5 h-5 text-green-500" />
-                                        <select
-                                            className="bg-transparent border-none focus:ring-0 font-semibold text-gray-700"
-                                            value={selectedDivision}
-                                            onChange={(e) =>
-                                                handleFilterChange(
-                                                    "division",
-                                                    e.target.value
-                                                )
-                                            }
-                                        >
-                                            <option value="">ทุกสายงาน</option>
-                                            {availableDivisions.map((d) => (
-                                                <option key={d.id} value={d.id}>
-                                                    {d.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {/* Revolutionary Export Control */}
-                                <RevolutionaryExportControl
-                                    selectedYear={selectedYear}
-                                    selectedDivision={selectedDivision}
-                                    processedData={processedData}
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 📈 Section 1: Ultra Summary Cards */}
-                    <UltraReportSection
-                        title="สรุปจำนวนผู้ถูกประเมินตามปีงบประมาณ"
-                        icon={Users}
-                        badgeText="ข้อมูลล่าสุด"
-                        badgeColor="from-green-500 to-emerald-600"
-                    >
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
-                            <UltraMetricCard
-                                title="ผู้ถูกประเมินทั้งหมด"
-                                value={processedData.summary.total}
-                                subtitle="คนที่ต้องได้รับการประเมิน"
-                                icon={Users}
-                                color="from-blue-500 to-blue-600"
-                                badgeText="Total"
-                                onClick={() =>
-                                    handleShowUserList({
-                                        grade: selectedGrade,
-                                        user_type: "",
-                                        status: "all",
-                                        label: "รายชื่อผู้ถูกประเมินทั้งหมด",
-                                    })
-                                }
-                            />
-                            <UltraMetricCard
-                                title="ประเมินเสร็จแล้ว"
-                                value={processedData.summary.completed}
-                                subtitle={`${(
-                                    (processedData.summary.completed /
-                                        processedData.summary.total) *
-                                    100
-                                ).toFixed(1)}% ของทั้งหมด`}
-                                icon={CheckCircle}
-                                color="from-green-500 to-green-600"
-                                trend={Math.random() > 0.5 ? 15.3 : -2.7}
-                                badgeText="✓ Done"
-                                onClick={() =>
-                                    handleShowUserList({
-                                        grade: selectedGrade,
-                                        user_type: "",
-                                        status: "completed",
-                                        label: "รายชื่อผู้ประเมินเสร็จแล้ว",
-                                    })
-                                }
-                            />
-                            <UltraMetricCard
-                                title="ยังไม่ได้ประเมิน"
-                                value={processedData.summary.remaining}
-                                subtitle={`${(
-                                    (processedData.summary.remaining /
-                                        processedData.summary.total) *
-                                    100
-                                ).toFixed(1)}% ที่เหลือ`}
-                                icon={Clock}
-                                color="from-orange-500 to-orange-600"
-                                badgeText="Pending"
-                                onClick={() =>
-                                    handleShowUserList({
-                                        grade: selectedGrade,
-                                        user_type: "",
-                                        status: "incomplete",
-                                        label: "รายชื่อผู้ยังไม่ได้ประเมิน",
-                                    })
-                                }
-                            />
-                        </div>
-
-                        {/* 🎨 Ultra Enhanced Table */}
-                        <div className="bg-white rounded-3xl shadow-2xl border border-gray-200 overflow-hidden mb-10">
-                            <div className="bg-gradient-to-r from-blue-50 to-purple-50 px-8 py-6 border-b border-gray-200">
-                                <h3 className="text-2xl font-bold text-gray-900 flex items-center">
-                                    <FileBarChart className="w-6 h-6 mr-3 text-blue-600" />
-                                    📊 สรุปตามเกรดและประเภทผู้ใช้
-                                </h3>
-                                <p className="text-gray-600 mt-1">
-                                    รายละเอียดความก้าวหน้าการประเมินแยกตามกลุ่ม
-                                </p>
-                            </div>
-
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gradient-to-r from-gray-50 to-blue-50">
-                                        <tr>
-                                            <th className="px-8 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                                                เกรด
-                                            </th>
-                                            <th className="px-8 py-5 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                                                ประเภท
-                                            </th>
-                                            <th className="px-8 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider">
-                                                ทั้งหมด
-                                            </th>
-                                            <th className="px-8 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider">
-                                                เสร็จแล้ว
-                                            </th>
-                                            <th className="px-8 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider">
-                                                ยังไม่เสร็จ
-                                            </th>
-                                            <th className="px-8 py-5 text-center text-sm font-bold text-gray-700 uppercase tracking-wider">
-                                                ความสำเร็จ
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {evaluateeCountByGrade
-                                            .slice()
-                                            .sort((a, b) => b.grade - a.grade)
-                                            .map((item, index) => {
-                                                const completionRate =
-                                                    (item.completed /
-                                                        item.total) *
-                                                    100;
-                                                return (
-                                                    <tr
-                                                        key={index}
-                                                        className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all duration-300 group"
-                                                    >
-                                                        <td className="px-8 py-6 whitespace-nowrap">
-                                                            <div className="flex items-center">
-                                                                <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white text-sm font-bold mr-4 shadow-lg group-hover:scale-110 transition-transform duration-200">
-                                                                    {item.grade}
-                                                                </div>
-                                                                <span className="text-lg font-bold text-gray-900">
-                                                                    ระดับ C
-                                                                    {item.grade}
-                                                                </span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-8 py-6 whitespace-nowrap">
-                                                            <span
-                                                                className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-bold ${
-                                                                    item.user_type ===
-                                                                    "internal"
-                                                                        ? "bg-blue-100 text-blue-800 border-2 border-blue-300"
-                                                                        : "bg-purple-100 text-purple-800 border-2 border-purple-300"
-                                                                } shadow-lg`}
-                                                            >
-                                                                {item.user_type ===
-                                                                "internal"
-                                                                    ? "🏢 บุคคลากรภายใน"
-                                                                    : "🌐 บุคคลากรภายนอก"}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-8 py-6 whitespace-nowrap text-center">
-                                                            <span className="text-lg font-black text-gray-900 bg-gray-100 px-4 py-2 rounded-xl">
-                                                                {item.total}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-8 py-6 whitespace-nowrap text-center">
-                                                            <button
-                                                                onClick={() =>
-                                                                    handleShowUserList(
-                                                                        {
-                                                                            grade: item.grade,
-                                                                            user_type:
-                                                                                item.user_type,
-                                                                            status: "completed",
-                                                                            label: `รายชื่อผู้ประเมินเสร็จแล้ว (C${
-                                                                                item.grade
-                                                                            } ${
-                                                                                item.user_type ===
-                                                                                "internal"
-                                                                                    ? "ภายใน"
-                                                                                    : "ภายนอก"
-                                                                            })`,
-                                                                        }
-                                                                    )
-                                                                }
-                                                                className="bg-green-100 text-green-800 font-black px-4 py-2 rounded-xl hover:bg-green-200 hover:scale-110 transition-all duration-200 shadow-lg border-2 border-green-300"
-                                                            >
-                                                                {item.completed}
-                                                            </button>
-                                                        </td>
-                                                        <td className="px-8 py-6 whitespace-nowrap text-center">
-                                                            <button
-                                                                onClick={() =>
-                                                                    handleShowUserList(
-                                                                        {
-                                                                            grade: item.grade,
-                                                                            user_type:
-                                                                                item.user_type,
-                                                                            status: "incomplete",
-                                                                            label: `รายชื่อผู้ยังไม่ได้ประเมิน (C${
-                                                                                item.grade
-                                                                            } ${
-                                                                                item.user_type ===
-                                                                                "internal"
-                                                                                    ? "ภายใน"
-                                                                                    : "ภายนอก"
-                                                                            })`,
-                                                                        }
-                                                                    )
-                                                                }
-                                                                className="bg-orange-100 text-orange-800 font-black px-4 py-2 rounded-xl hover:bg-orange-200 hover:scale-110 transition-all duration-200 shadow-lg border-2 border-orange-300"
-                                                            >
-                                                                {item.remaining}
-                                                            </button>
-                                                        </td>
-                                                        <td className="px-8 py-6 whitespace-nowrap text-center">
-                                                            <div className="flex items-center justify-center space-x-3">
-                                                                <div className="w-16 bg-gray-200 rounded-full h-3 shadow-inner">
-                                                                    <div
-                                                                        className={`h-3 rounded-full transition-all duration-1000 ${
-                                                                            completionRate >=
-                                                                            80
-                                                                                ? "bg-green-500"
-                                                                                : completionRate >=
-                                                                                  60
-                                                                                ? "bg-yellow-500"
-                                                                                : "bg-red-500"
-                                                                        } shadow-lg`}
-                                                                        style={{
-                                                                            width: `${completionRate}%`,
-                                                                        }}
-                                                                    ></div>
-                                                                </div>
-                                                                <span
-                                                                    className={`text-sm font-black px-3 py-1 rounded-full ${
-                                                                        completionRate >=
-                                                                        80
-                                                                            ? "bg-green-100 text-green-700"
-                                                                            : completionRate >=
-                                                                              60
-                                                                            ? "bg-yellow-100 text-yellow-700"
-                                                                            : "bg-red-100 text-red-700"
-                                                                    } shadow-lg border-2 ${
-                                                                        completionRate >=
-                                                                        80
-                                                                            ? "border-green-300"
-                                                                            : completionRate >=
-                                                                              60
-                                                                            ? "border-yellow-300"
-                                                                            : "border-red-300"
-                                                                    }`}
-                                                                >
-                                                                    {completionRate.toFixed(
-                                                                        1
-                                                                    )}
-                                                                    %
-                                                                </span>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* Performance Distribution Chart */}
-                        {summaryStats && (
-                            <div className="mt-8">
-                                <UltraPerformanceDistributionChart
-                                    distribution={
-                                        summaryStats.score_distribution
-                                    }
-                                />
-                            </div>
-                        )}
-                    </UltraReportSection>
-
-                    {/* 📊 Section 2: Ultra Charts */}
-                    <UltraReportSection
-                        title="กราฟแสดงผลการประเมิน Part 1 แยกตามกลุ่ม"
-                        icon={BarChart3}
-                        badgeText="Data Visualization"
-                        badgeColor="from-purple-500 to-pink-600"
-                    >
-                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
-                            <UltraEnhancedChart
-                                type="column"
-                                title="🏢 พนักงานภายใน ระดับ 5-8"
-                                height={350}
-                                data={
-                                    processedData.aspectsByGroup["5-8"]?.map(
-                                        (item: any) => ({
-                                            name:
-                                                item.aspect.length > 15
-                                                    ? item.aspect.substring(
-                                                          0,
-                                                          15
-                                                      ) + "..."
-                                                    : item.aspect,
-                                            value: item.score,
-                                            fullName: item.aspect,
-                                        })
-                                    ) || []
-                                }
-                                colors={["#3B82F6"]}
-                            />
-
-                            <UltraEnhancedChart
-                                type="column"
-                                title="👨‍💼 ผู้บริหาร 9-12 (บุคคลากรภายใน)"
-                                height={350}
-                                data={
-                                    processedData.aspectsByGroup[
-                                        "9-12:internal"
-                                    ]?.map((item: any) => ({
-                                        name:
-                                            item.aspect.length > 15
-                                                ? item.aspect.substring(0, 15) +
-                                                  "..."
-                                                : item.aspect,
-                                        value: item.score,
-                                        fullName: item.aspect,
-                                    })) || []
-                                }
-                                colors={["#10B981"]}
-                            />
-
-                            <UltraEnhancedChart
-                                type="column"
-                                title="🌟 ผู้บริหาร 9-12 (บุคคลากรภายนอก)"
-                                height={350}
-                                data={
-                                    processedData.aspectsByGroup[
-                                        "9-12:external"
-                                    ]?.map((item: any) => ({
-                                        name:
-                                            item.aspect.length > 15
-                                                ? item.aspect.substring(0, 15) +
-                                                  "..."
-                                                : item.aspect,
-                                        value: item.score,
-                                        fullName: item.aspect,
-                                    })) || []
-                                }
-                                colors={["#8B5CF6"]}
-                            />
-                        </div>
-
-                        {/* Ultra Comparison Chart */}
-                        <div className="mt-10">
-                            <UltraComparisonChart
-                                title="📈 เปรียบเทียบคะแนนเฉลี่ยระหว่างกลุ่ม"
-                                height={450}
-                                data={[
-                                    {
-                                        group: "พนักงาน 5-8",
-                                        score:
-                                            processedData.aspectsByGroup[
-                                                "5-8"
-                                            ]?.reduce(
-                                                (sum: number, item: any) =>
-                                                    sum + item.score,
-                                                0
-                                            ) /
-                                                (processedData.aspectsByGroup[
-                                                    "5-8"
-                                                ]?.length || 1) || 0,
-                                    },
-                                    {
-                                        group: "ผู้บริหาร 9-12 (ภายใน)",
-                                        score:
-                                            processedData.aspectsByGroup[
-                                                "9-12:internal"
-                                            ]?.reduce(
-                                                (sum: number, item: any) =>
-                                                    sum + item.score,
-                                                0
-                                            ) /
-                                                (processedData.aspectsByGroup[
-                                                    "9-12:internal"
-                                                ]?.length || 1) || 0,
-                                    },
-                                    {
-                                        group: "ผู้บริหาร 9-12 (ภายนอก)",
-                                        score:
-                                            processedData.aspectsByGroup[
-                                                "9-12:external"
-                                            ]?.reduce(
-                                                (sum: number, item: any) =>
-                                                    sum + item.score,
-                                                0
-                                            ) /
-                                                (processedData.aspectsByGroup[
-                                                    "9-12:external"
-                                                ]?.length || 1) || 0,
-                                    },
-                                ]}
-                            />
-                        </div>
-
-                        {/* Summary Statistics */}
-                        {summaryStats && (
-                            <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-8">
-                                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl p-8 text-center border-2 border-blue-200 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
-                                    <div className="text-4xl font-black text-blue-600 mb-3">
-                                        {summaryStats.avg_scores_by_group.internal_5_8.toFixed(
-                                            2
-                                        )}
-                                    </div>
-                                    <div className="text-lg text-blue-700 font-bold">
-                                        🏢 พนักงาน 5-8
-                                    </div>
-                                </div>
-                                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl p-8 text-center border-2 border-green-200 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
-                                    <div className="text-4xl font-black text-green-600 mb-3">
-                                        {summaryStats.avg_scores_by_group.internal_9_12.toFixed(
-                                            2
-                                        )}
-                                    </div>
-                                    <div className="text-lg text-green-700 font-bold">
-                                        👨‍💼 ผู้บริหาร 9-12 (ภายใน)
-                                    </div>
-                                </div>
-                                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl p-8 text-center border-2 border-purple-200 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
-                                    <div className="text-4xl font-black text-purple-600 mb-3">
-                                        {summaryStats.avg_scores_by_group.external_9_12.toFixed(
-                                            2
-                                        )}
-                                    </div>
-                                    <div className="text-lg text-purple-700 font-bold">
-                                        🌟 ผู้บริหาร 9-12 (ภายนอก)
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </UltraReportSection>
-
-                    {/* 🎯 Section 3: Ultra Progress Bars */}
-                    <UltraReportSection
-                        title="คะแนนเฉลี่ยตามด้านการประเมิน"
-                        icon={Target}
-                        collapsible={true}
-                        badgeText="Detailed Analysis"
-                        badgeColor="from-green-500 to-teal-600"
-                    >
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            {/* พนักงานภายใน 5-8 */}
-                            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-8 border-2 border-blue-200 shadow-xl">
-                                <h4 className="text-2xl font-bold text-blue-900 mb-6 flex items-center">
-                                    <GraduationCap className="w-6 h-6 mr-3" />
-                                    🏢 พนักงานภายใน ระดับ 5-8
-                                </h4>
-                                <div className="space-y-4">
-                                    {processedData.aspectsByGroup["5-8"]?.map(
-                                        (item: any, index: number) => (
-                                            <UltraProgressBar
-                                                key={index}
-                                                label={item.aspect}
-                                                value={item.score}
-                                                color="bg-blue-500"
-                                                showPercentage={false}
-                                            />
-                                        )
-                                    ) || (
-                                        <div className="text-gray-500 text-center py-8 flex flex-col items-center">
-                                            <AlertCircle className="w-8 h-8 mb-2" />
-                                            <span>ไม่มีข้อมูล</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* ผู้บริหาร 9-12 (ภายใน) */}
-                            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-8 border-2 border-green-200 shadow-xl">
-                                <h4 className="text-2xl font-bold text-green-900 mb-6 flex items-center">
-                                    <Trophy className="w-6 h-6 mr-3" />
-                                    👨‍💼 ผู้บริหาร 9-12 (บุคคลากรภายใน)
-                                </h4>
-                                <div className="space-y-4">
-                                    {processedData.aspectsByGroup[
-                                        "9-12:internal"
-                                    ]?.map((item: any, index: number) => (
-                                        <UltraProgressBar
-                                            key={index}
-                                            label={item.aspect}
-                                            value={item.score}
-                                            color="bg-green-500"
-                                            showPercentage={false}
-                                        />
-                                    )) || (
-                                        <div className="text-gray-500 text-center py-8 flex flex-col items-center">
-                                            <AlertCircle className="w-8 h-8 mb-2" />
-                                            <span>ไม่มีข้อมูล</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* ผู้บริหาร 9-12 (ภายนอก) */}
-                            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-8 border-2 border-purple-200 shadow-xl">
-                                <h4 className="text-2xl font-bold text-purple-900 mb-6 flex items-center">
-                                    <Star className="w-6 h-6 mr-3" />
-                                    🌟 ผู้บริหาร 9-12 (บุคคลากรภายนอก)
-                                </h4>
-                                <div className="space-y-4">
-                                    {processedData.aspectsByGroup[
-                                        "9-12:external"
-                                    ]?.map((item: any, index: number) => (
-                                        <UltraProgressBar
-                                            key={index}
-                                            label={item.aspect}
-                                            value={item.score}
-                                            color="bg-purple-500"
-                                            showPercentage={false}
-                                        />
-                                    )) || (
-                                        <div className="text-gray-500 text-center py-8 flex flex-col items-center">
-                                            <AlertCircle className="w-8 h-8 mb-2" />
-                                            <span>ไม่มีข้อมูล</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </UltraReportSection>
-
-                    {/* 📋 Section 4: ตารางผลประเมิน */}
-                    <UltraReportSection
-                        title="ตารางผลการประเมินรายบุคคล"
-                        icon={FileBarChart}
-                        badgeText="Individual Results"
-                        badgeColor="from-indigo-500 to-blue-600"
-                    >
-                        <div className="space-y-10">
-                            {/* พนักงานภายใน 5-8 */}
-                            {processedData.groups.internal_5_8.length > 0 && (
                                 <div>
-                                    <div className="flex items-center space-x-4 mb-8">
-                                        <div className="w-6 h-6 bg-blue-500 rounded-lg shadow-lg"></div>
-                                        <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                                            🏢 พนักงานภายใน ระดับ 5-8
-                                        </h3>
-                                        <span className="bg-blue-100 text-blue-800 text-sm font-bold px-4 py-2 rounded-full border-2 border-blue-300 shadow-lg">
-                                            {
-                                                processedData.groups
-                                                    .internal_5_8.length
-                                            }{" "}
-                                            คน
-                                        </span>
-                                    </div>
-                                    <UltraEnhancedTable
-                                        data={processedData.groups.internal_5_8}
-                                        columns={getEnhancedTableColumns(
-                                            "internal_5_8"
-                                        )}
-                                    />
-                                </div>
-                            )}
-
-                            {/* ผู้บริหาร 9-12 (ภายใน) */}
-                            {processedData.groups.internal_9_12.length > 0 && (
-                                <div>
-                                    <div className="flex items-center space-x-4 mb-8">
-                                        <div className="w-6 h-6 bg-green-500 rounded-lg shadow-lg"></div>
-                                        <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                                            👨‍💼 ผู้บริหาร 9-12 (บุคคลากรภายใน)
-                                        </h3>
-                                        <span className="bg-green-100 text-green-800 text-sm font-bold px-4 py-2 rounded-full border-2 border-green-300 shadow-lg">
-                                            {
-                                                processedData.groups
-                                                    .internal_9_12.length
-                                            }{" "}
-                                            คน
-                                        </span>
-                                    </div>
-                                    <UltraEnhancedTable
-                                        data={
-                                            processedData.groups.internal_9_12
-                                        }
-                                        columns={getEnhancedTableColumns(
-                                            "internal_9_12"
-                                        )}
-                                    />
-                                </div>
-                            )}
-
-                            {/* ผู้บริหาร 9-12 (ภายนอก) */}
-                            {processedData.groups.external_9_12.length > 0 && (
-                                <div>
-                                    <div className="flex items-center space-x-4 mb-8">
-                                        <div className="w-6 h-6 bg-purple-500 rounded-lg shadow-lg"></div>
-                                        <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                                            🌟 ผู้บริหาร 9-12 (บุคคลากรภายนอก)
-                                        </h3>
-                                        <span className="bg-purple-100 text-purple-800 text-sm font-bold px-4 py-2 rounded-full border-2 border-purple-300 shadow-lg">
-                                            {
-                                                processedData.groups
-                                                    .external_9_12.length
-                                            }{" "}
-                                            คน
-                                        </span>
-                                    </div>
-                                    <UltraEnhancedTable
-                                        data={
-                                            processedData.groups.external_9_12
-                                        }
-                                        columns={getEnhancedTableColumns(
-                                            "external_9_12"
-                                        )}
-                                    />
-                                </div>
-                            )}
-
-                            {/* 🎯 ผู้บริหาร 9-12 รวมทั้งหมด (ใหม่) */}
-                            {processedData.groups.combined_9_12.length > 0 && (
-                                <div>
-                                    <div className="flex items-center space-x-4 mb-8">
-                                        <div className="w-6 h-6 bg-gradient-to-r from-green-500 to-purple-500 rounded-lg shadow-lg"></div>
-                                        <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-                                            🎯 ผู้บริหาร 9-12 (รวมทั้งหมด)
-                                        </h3>
-                                        <span className="bg-gradient-to-r from-green-100 to-purple-100 text-gray-800 text-sm font-bold px-4 py-2 rounded-full border-2 border-gray-300 shadow-lg">
-                                            {
-                                                processedData.groups
-                                                    .combined_9_12.length
-                                            }{" "}
-                                            คน
-                                        </span>
-                                        <span className="text-sm text-gray-600 bg-yellow-100 px-3 py-1 rounded-full border border-yellow-300">
-                                            รวมภายใน + ภายนอก
-                                        </span>
-                                    </div>
-                                    <UltraEnhancedTable
-                                        data={
-                                            processedData.groups.combined_9_12
-                                        }
-                                        columns={getEnhancedTableColumns(
-                                            "combined_9_12"
-                                        )}
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    </UltraReportSection>
-
-                    {/* 🎨 Ultra Enhanced Summary Footer */}
-                    {summaryStats && (
-                        <div className="relative bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-3xl shadow-2xl p-10 text-white overflow-hidden">
-                            {/* 🌟 Background Pattern */}
-                            <div className="absolute inset-0 opacity-10">
-                                <div
-                                    className="absolute inset-0"
-                                    style={{
-                                        backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.3'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-                                    }}
-                                ></div>
-                            </div>
-
-                            {/* 💎 Floating Elements */}
-                            <div className="absolute top-4 right-4 w-20 h-20 bg-white/10 rounded-full animate-pulse"></div>
-                            <div className="absolute bottom-4 left-4 w-16 h-16 bg-white/10 rounded-full animate-bounce"></div>
-
-                            <div className="relative z-10">
-                                <div className="text-center mb-10">
-                                    <h3 className="text-4xl font-black mb-4 flex items-center justify-center">
-                                        <Award className="w-10 h-10 mr-4" />
-                                        🎯 สรุปภาพรวมการประเมิน 360°
-                                    </h3>
-                                    <p className="text-white/90 text-xl font-medium">
-                                        ปีงบประมาณ {parseInt(fiscalYear) + 543}{" "}
-                                        • รายงานฉบับสมบูรณ์
+                                    <h1 className="text-3xl font-bold mb-2">
+                                        รายงานการประเมิน 360 องศา
+                                    </h1>
+                                    <p className={`text-lg ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-blue-100'
+                                    }`}>
+                                        ปีงบประมาณ {fiscalYear} • อัปเดตล่าสุด: {lastRefresh.toLocaleTimeString('th-TH')}
                                     </p>
                                 </div>
+                            </div>
+                            
+                            {/* Header Controls */}
+                            <div className="flex items-center gap-3 flex-wrap">
+                                {/* Theme Toggle */}
+                                <button
+                                    onClick={() => setDashboardConfig(prev => ({ 
+                                        ...prev, 
+                                        theme: prev.theme === 'dark' ? 'light' : 'dark' 
+                                    }))}
+                                    className={`p-3 rounded-xl transition-all duration-300 ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-slate-700 hover:bg-slate-600' 
+                                            : 'bg-white/20 hover:bg-white/30'
+                                    } backdrop-blur-sm`}
+                                    title={dashboardConfig.theme === 'dark' ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
+                                >
+                                    {dashboardConfig.theme === 'dark' ? 
+                                        <Sun className="h-5 w-5 text-gray-300" /> : 
+                                        <Moon className="h-5 w-5 text-white" />
+                                    }
+                                </button>
 
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-                                    <div className="text-center bg-white/15 rounded-2xl p-6 backdrop-blur-lg border border-white/20 hover:bg-white/20 transition-all duration-300 transform hover:scale-105">
-                                        <div className="flex items-center justify-center mb-4">
-                                            <Users className="w-8 h-8 mr-3" />
-                                            <span className="text-lg font-bold opacity-90">
-                                                ผู้เข้าร่วมทั้งหมด
-                                            </span>
-                                        </div>
-                                        <div className="text-5xl font-black mb-2">
-                                            {summaryStats.total_evaluatees}
-                                        </div>
-                                        <div className="text-sm opacity-80 font-medium">
-                                            คน
-                                        </div>
-                                    </div>
+                                {/* Auto Refresh Toggle */}
+                                <button
+                                    onClick={() => setDashboardConfig(prev => ({ 
+                                        ...prev, 
+                                        autoRefresh: !prev.autoRefresh 
+                                    }))}
+                                    className={`p-3 rounded-xl transition-all duration-300 ${
+                                        dashboardConfig.autoRefresh 
+                                            ? 'bg-green-500 hover:bg-green-600' 
+                                            : dashboardConfig.theme === 'dark' 
+                                                ? 'bg-slate-700 hover:bg-slate-600' 
+                                                : 'bg-white/20 hover:bg-white/30'
+                                    } backdrop-blur-sm`}
+                                    title={dashboardConfig.autoRefresh ? 'ปิดการอัปเดตอัตโนมัติ' : 'เปิดการอัปเดตอัตโนมัติ'}
+                                >
+                                    {dashboardConfig.autoRefresh ? 
+                                        <Pause className="h-5 w-5 text-white" /> : 
+                                        <Play className="h-5 w-5 text-gray-300" />
+                                    }
+                                </button>
 
-                                    <div className="text-center bg-white/15 rounded-2xl p-6 backdrop-blur-lg border border-white/20 hover:bg-white/20 transition-all duration-300 transform hover:scale-105">
-                                        <div className="flex items-center justify-center mb-4">
-                                            <CheckCircle className="w-8 h-8 mr-3" />
-                                            <span className="text-lg font-bold opacity-90">
-                                                เสร็จสิ้นแล้ว
-                                            </span>
-                                        </div>
-                                        <div className="text-5xl font-black mb-2">
-                                            {summaryStats.total_completed}
-                                        </div>
-                                        <div className="text-sm opacity-80 font-medium">
-                                            {summaryStats.completion_rate.toFixed(
-                                                1
-                                            )}
-                                            %
-                                        </div>
-                                    </div>
+                                {/* Manual Refresh */}
+                                <button
+                                    onClick={refreshData}
+                                    disabled={isLoading}
+                                    className={`p-3 rounded-xl transition-all duration-300 ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-slate-700 hover:bg-slate-600' 
+                                            : 'bg-white/20 hover:bg-white/30'
+                                    } backdrop-blur-sm disabled:opacity-50`}
+                                    title="รีเฟรชข้อมูล"
+                                >
+                                    <RefreshCw className={`h-5 w-5 ${
+                                        isLoading ? 'animate-spin' : ''
+                                    } ${dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'}`} />
+                                </button>
 
-                                    <div className="text-center bg-white/15 rounded-2xl p-6 backdrop-blur-lg border border-white/20 hover:bg-white/20 transition-all duration-300 transform hover:scale-105">
-                                        <div className="flex items-center justify-center mb-4">
-                                            <Clock className="w-8 h-8 mr-3" />
-                                            <span className="text-lg font-bold opacity-90">
-                                                ยังไม่เสร็จ
-                                            </span>
-                                        </div>
-                                        <div className="text-5xl font-black mb-2">
-                                            {summaryStats.total_remaining}
-                                        </div>
-                                        <div className="text-sm opacity-80 font-medium">
-                                            {(
-                                                100 -
-                                                summaryStats.completion_rate
-                                            ).toFixed(1)}
-                                            %
-                                        </div>
-                                    </div>
+                                {/* Export Button */}
+                                <button
+                                    onClick={() => setShowExportModal(true)}
+                                    className="px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-medium transition-all duration-300 shadow-lg flex items-center gap-2"
+                                >
+                                    <Download className="h-5 w-5 text-gray-300" />
+                                    ส่งออกรายงาน
+                                </button>
 
-                                    <div className="text-center bg-white/15 rounded-2xl p-6 backdrop-blur-lg border border-white/20 hover:bg-white/20 transition-all duration-300 transform hover:scale-105">
-                                        <div className="flex items-center justify-center mb-4">
-                                            <Award className="w-8 h-8 mr-3" />
-                                            <span className="text-lg font-bold opacity-90">
-                                                คะแนนเฉลี่ย
-                                            </span>
-                                        </div>
-                                        <div className="text-5xl font-black mb-2">
-                                            {summaryStats.overall_avg_score.toFixed(
-                                                2
-                                            )}
-                                        </div>
-                                        <div className="text-sm opacity-80 font-medium">
-                                            จาก 5.00
-                                        </div>
-                                    </div>
+                                {/* Settings */}
+                                <button
+                                    className={`p-3 rounded-xl transition-all duration-300 ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-slate-700 hover:bg-slate-600' 
+                                            : 'bg-white/20 hover:bg-white/30'
+                                    } backdrop-blur-sm`}
+                                    title="ตั้งค่า"
+                                >
+                                    <Settings className={`h-5 w-5 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'
+                                    }`} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Navigation Tabs */}
+                        <div className="mt-6 flex flex-wrap gap-2">
+                            {[
+                                { id: 'dashboard', label: 'แดชบอร์ด', icon: Grid3X3 },
+                                { id: 'analytics', label: 'วิเคราะห์', icon: TrendingUp },
+                                { id: 'reports', label: 'รายงาน', icon: FileText },
+                                { id: 'exports', label: 'ส่งออก', icon: Download }
+                            ].map((tab) => {
+                                const Icon = tab.icon;
+                                return (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setDashboardConfig(prev => ({ ...prev, view: tab.id as any }))}
+                                        className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 flex items-center gap-2 ${
+                                            dashboardConfig.view === tab.id
+                                                ? 'bg-white text-blue-600 shadow-lg'
+                                                : dashboardConfig.theme === 'dark'
+                                                    ? 'bg-slate-700/50 text-gray-300 hover:bg-slate-600/50'
+                                                    : 'bg-white/10 text-white hover:bg-white/20'
+                                        }`}
+                                    >
+                                        <Icon className="h-4 w-4 text-gray-600" />
+                                        {tab.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Enhanced Search and Filter Bar */}
+                <div className={`sticky top-0 z-40 ${
+                    dashboardConfig.theme === 'dark' 
+                        ? 'bg-slate-800/95 border-slate-700' 
+                        : 'bg-white/95 border-gray-200'
+                } backdrop-blur-sm border-b shadow-sm`}>
+                    <div className="px-6 py-4">
+                        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+                            {/* Search and Filters */}
+                            <div className="flex flex-1 gap-3 flex-wrap items-center">
+                                {/* Search Bar */}
+                                <div className="relative flex-1 min-w-64">
+                                    <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                    }`} />
+                                    <input
+                                        type="text"
+                                        placeholder="ค้นหาชื่อ, หน่วยงาน, ตำแหน่ง..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className={`w-full pl-10 pr-4 py-3 rounded-xl border transition-all duration-300 ${
+                                            dashboardConfig.theme === 'dark'
+                                                ? 'bg-slate-700 border-slate-600 text-gray-300 placeholder-gray-400 focus:border-blue-400'
+                                                : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-blue-500'
+                                        } focus:ring-2 focus:ring-blue-500/20 focus:outline-none`}
+                                    />
                                 </div>
 
-                                {/* 🏆 Performance Highlights */}
-                                <div className="mt-10 pt-8 border-t border-white/20">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div className="bg-white/10 rounded-2xl p-6 backdrop-blur-lg">
-                                            <h4 className="text-2xl font-bold mb-4 flex items-center">
-                                                <Trophy className="w-6 h-6 mr-2" />
-                                                🏆 ผลงานโดดเด่น
-                                            </h4>
-                                            <div className="space-y-3">
-                                                <div className="flex justify-between items-center">
-                                                    <span>คะแนนสูงสุด:</span>
-                                                    <span className="font-black text-xl">
-                                                        {summaryStats.highest_score.toFixed(
-                                                            2
-                                                        )}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between items-center">
-                                                    <span>คะแนนต่ำสุด:</span>
-                                                    <span className="font-black text-xl">
-                                                        {summaryStats.lowest_score.toFixed(
-                                                            2
-                                                        )}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between items-center">
-                                                    <span>ช่วงคะแนน:</span>
-                                                    <span className="font-black text-xl">
-                                                        {(
-                                                            summaryStats.highest_score -
-                                                            summaryStats.lowest_score
-                                                        ).toFixed(2)}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
+                                {/* Division Filter */}
+                                <select
+                                    value={selectedDivision}
+                                    onChange={(e) => setSelectedDivision(e.target.value)}
+                                    className={`px-4 py-3 rounded-xl border transition-all duration-300 ${
+                                        dashboardConfig.theme === 'dark'
+                                            ? 'bg-slate-700 border-slate-600 text-gray-300'
+                                            : 'bg-white border-gray-300 text-gray-900'
+                                    } focus:ring-2 focus:ring-blue-500/20 focus:outline-none`}
+                                >
+                                    <option value="">ทุกหน่วยงาน</option>
+                                    {(availableDivisions || []).map((division) => (
+                                        <option key={division.id} value={division.name}>
+                                            {division.name}
+                                        </option>
+                                    ))}
+                                </select>
 
-                                        <div className="bg-white/10 rounded-2xl p-6 backdrop-blur-lg">
-                                            <h4 className="text-2xl font-bold mb-4 flex items-center">
-                                                <Target className="w-6 h-6 mr-2" />
-                                                🎯 สถิติสำคัญ
-                                            </h4>
-                                            <div className="space-y-3">
-                                                <div className="flex justify-between items-center">
-                                                    <span>ผลงานดีเยี่ยม:</span>
-                                                    <span className="font-black text-xl">
-                                                        {
-                                                            summaryStats
-                                                                .score_distribution
-                                                                .excellent
-                                                        }{" "}
-                                                        คน
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between items-center">
-                                                    <span>ผลงานดีมาก:</span>
-                                                    <span className="font-black text-xl">
-                                                        {
-                                                            summaryStats
-                                                                .score_distribution
-                                                                .very_good
-                                                        }{" "}
-                                                        คน
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between items-center">
-                                                    <span>
-                                                        อัตราความสำเร็จ:
-                                                    </span>
-                                                    <span className="font-black text-xl">
-                                                        {summaryStats.completion_rate.toFixed(
-                                                            1
-                                                        )}
-                                                        %
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                {/* Grade Filter */}
+                                <select
+                                    value={selectedGrade}
+                                    onChange={(e) => setSelectedGrade(e.target.value)}
+                                    className={`px-4 py-3 rounded-xl border transition-all duration-300 ${
+                                        dashboardConfig.theme === 'dark'
+                                            ? 'bg-slate-700 border-slate-600 text-gray-300'
+                                            : 'bg-white border-gray-300 text-gray-900'
+                                    } focus:ring-2 focus:ring-blue-500/20 focus:outline-none`}
+                                >
+                                    <option value="">ทุกระดับ</option>
+                                    {(availableGrades || []).map((grade) => (
+                                        <option key={grade} value={grade.toString()}>
+                                            ระดับ C{grade}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* View Mode Controls */}
+                            <div className="flex items-center gap-2">
+                                <div className={`flex rounded-xl p-1 ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-700' : 'bg-gray-100'
+                                }`}>
+                                    {[
+                                        { mode: 'cards', icon: Grid3X3, label: 'การ์ด' },
+                                        { mode: 'table', icon: List, label: 'ตาราง' },
+                                        { mode: 'charts', icon: BarChart3, label: 'กราฟ' }
+                                    ].map(({ mode, icon: Icon, label }) => (
+                                        <button
+                                            key={mode}
+                                            onClick={() => setViewMode(mode as any)}
+                                            className={`px-3 py-2 rounded-lg transition-all duration-200 flex items-center gap-2 ${
+                                                viewMode === mode
+                                                    ? dashboardConfig.theme === 'dark'
+                                                        ? 'bg-slate-600 text-gray-300'
+                                                        : 'bg-white text-gray-900 shadow-sm'
+                                                    : dashboardConfig.theme === 'dark'
+                                                        ? 'text-gray-400 hover:text-gray-300'
+                                                        : 'text-gray-600 hover:text-gray-800'
+                                            }`}
+                                            title={label}
+                                        >
+                                            <Icon className="h-4 w-4 text-gray-600" />
+                                            <span className="hidden sm:inline text-sm font-medium">{label}</span>
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
                         </div>
+
+                        {/* Active Filters Display */}
+                        {(searchQuery || selectedDivision || selectedGrade) && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                                {searchQuery && (
+                                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-blue-500/20 text-blue-300' 
+                                            : 'bg-blue-100 text-blue-800'
+                                    }`}>
+                                        <Search className="h-3 w-3 text-gray-600" />
+                                        {searchQuery}
+                                        <button 
+                                            onClick={() => setSearchQuery('')}
+                                            className="ml-1 hover:bg-blue-500/30 rounded"
+                                        >
+                                            <X className="h-3 w-3 text-gray-600" />
+                                        </button>
+                                    </span>
+                                )}
+                                {selectedDivision && (
+                                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-green-500/20 text-green-300' 
+                                            : 'bg-green-100 text-green-800'
+                                    }`}>
+                                        <Building className="h-3 w-3 text-gray-600" />
+                                        {selectedDivision}
+                                        <button 
+                                            onClick={() => setSelectedDivision('')}
+                                            className="ml-1 hover:bg-green-500/30 rounded"
+                                        >
+                                            <X className="h-3 w-3 text-gray-600" />
+                                        </button>
+                                    </span>
+                                )}
+                                {selectedGrade && (
+                                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-purple-500/20 text-purple-300' 
+                                            : 'bg-purple-100 text-purple-800'
+                                    }`}>
+                                        <Award className="h-3 w-3 text-gray-600" />
+                                        ระดับ C{selectedGrade}
+                                        <button 
+                                            onClick={() => setSelectedGrade('')}
+                                            className="ml-1 hover:bg-purple-500/30 rounded"
+                                        >
+                                            <X className="h-3 w-3 text-gray-600" />
+                                        </button>
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Main Content */}
+                <div className="px-6 py-8">
+                    {dashboardConfig.view === 'dashboard' && (
+                        <DashboardView 
+                            dashboardStats={dashboardStats}
+                            evaluationMetrics={evaluationMetrics}
+                            filteredResults={filteredResults}
+                            dashboardConfig={dashboardConfig}
+                            viewMode={viewMode}
+                            expandedSections={expandedSections}
+                            toggleSection={toggleSection}
+                            getScoreColor={getScoreColor}
+                            getCompletionColor={getCompletionColor}
+                            setSelectedUser={setSelectedUser}
+                            setShowIndividualReport={setShowIndividualReport}
+                        />
                     )}
+
+                    {dashboardConfig.view === 'analytics' && (
+                        <AnalyticsView 
+                            evaluationMetrics={evaluationMetrics}
+                            dashboardConfig={dashboardConfig}
+                            getScoreColor={getScoreColor}
+                            getCompletionColor={getCompletionColor}
+                        />
+                    )}
+
+                    {dashboardConfig.view === 'reports' && (
+                        <ReportsView 
+                            filteredResults={filteredResults}
+                            dashboardConfig={dashboardConfig}
+                            viewMode={viewMode}
+                            getScoreColor={getScoreColor}
+                            getCompletionColor={getCompletionColor}
+                            setSelectedUser={setSelectedUser}
+                            setShowIndividualReport={setShowIndividualReport}
+                            showEvaluateeDetailsModal={showEvaluateeDetailsModal}
+                        />
+                    )}
+
+                    {dashboardConfig.view === 'exports' && (
+                        <ExportsView 
+                            exportOptions={exportOptions}
+                            setExportOptions={setExportOptions}
+                            handleExport={handleExport}
+                            isExporting={isExporting}
+                            dashboardConfig={dashboardConfig}
+                            availableDivisions={availableDivisions}
+                            availableGrades={availableGrades}
+                        />
+                    )}
+                </div>
+
+                {/* Individual Report Modal */}
+                {showIndividualReport && selectedUser && (
+                    <IndividualDetailedReport
+                        userId={selectedUser}
+                        fiscalYear={parseInt(fiscalYear)}
+                        isOpen={showIndividualReport}
+                        onClose={() => {
+                            setShowIndividualReport(false);
+                            setSelectedUser(null);
+                        }}
+                    />
+                )}
+
+                {/* Export Modal */}
+                {showExportModal && (
+                    <ExportModal
+                        exportOptions={exportOptions}
+                        setExportOptions={setExportOptions}
+                        handleExport={handleExport}
+                        isExporting={isExporting}
+                        onClose={() => setShowExportModal(false)}
+                        dashboardConfig={dashboardConfig}
+                        availableDivisions={availableDivisions}
+                        availableGrades={availableGrades}
+                    />
+                )}
+
+                {/* Evaluatee Details Modal */}
+                {showEvaluateeDetails && selectedEvaluateeId && (
+                    <EvaluateeDetailsModal
+                        evaluateeId={selectedEvaluateeId}
+                        evaluateeData={evaluateeDetailsData}
+                        isLoading={isLoadingDetails}
+                        fiscalYear={fiscalYear}
+                        onClose={() => {
+                            setShowEvaluateeDetails(false);
+                            setSelectedEvaluateeId(null);
+                            setEvaluateeDetailsData(null);
+                        }}
+                        dashboardConfig={dashboardConfig}
+                    />
+                )}
+            </div>
+        </MainLayout>
+    );
+};
+
+// Dashboard View Component
+const DashboardView: React.FC<{
+    dashboardStats: any;
+    evaluationMetrics: any;
+    filteredResults: any[];
+    dashboardConfig: DashboardConfig;
+    viewMode: string;
+    expandedSections: Set<string>;
+    toggleSection: (id: string) => void;
+    getScoreColor: (score: number) => string;
+    getCompletionColor: (rate: number) => string;
+    setSelectedUser: (id: number) => void;
+    setShowIndividualReport: (show: boolean) => void;
+}> = ({ 
+    dashboardStats, 
+    evaluationMetrics, 
+    filteredResults, 
+    dashboardConfig, 
+    viewMode,
+    expandedSections,
+    toggleSection,
+    getScoreColor,
+    getCompletionColor,
+    setSelectedUser,
+    setShowIndividualReport
+}) => {
+    return (
+        <div className="space-y-8">
+            {/* Stats Overview */}
+            <div className={`rounded-2xl p-6 ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800/50 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-xl backdrop-blur-sm`}>
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className={`text-2xl font-bold ${
+                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                    }`}>
+                        ภาพรวมการประเมิน
+                    </h2>
+                    <button
+                        onClick={() => toggleSection('overview')}
+                        className={`p-2 rounded-lg transition-colors ${
+                            dashboardConfig.theme === 'dark' 
+                                ? 'hover:bg-slate-700' 
+                                : 'hover:bg-gray-100'
+                        }`}
+                    >
+                        {expandedSections.has('overview') ? 
+                            <ChevronUp className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} /> : 
+                            <ChevronDown className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} />
+                        }
+                    </button>
+                </div>
+
+                {expandedSections.has('overview') && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 lg:gap-6">
+                        {/* Total Participants */}
+                        <div className={`p-6 rounded-xl transition-all duration-300 hover:scale-105 ${
+                            dashboardConfig.theme === 'dark'
+                                ? 'bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-600'
+                                : 'bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200'
+                        } shadow-lg hover:shadow-xl`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-blue-500'
+                                }`}>
+                                    <Users className={`h-6 w-6 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'
+                                    }`} />
+                                </div>
+                                <div>
+                                    <p className={`text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                    }`}>
+                                        ผู้เข้าร่วม
+                                    </p>
+                                    <p className={`text-2xl font-bold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-blue-600'
+                                    }`}>
+                                        {(dashboardStats?.totalParticipants || 0).toLocaleString()}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Completed Evaluations */}
+                        <div className={`p-6 rounded-xl transition-all duration-300 hover:scale-105 ${
+                            dashboardConfig.theme === 'dark'
+                                ? 'bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-600'
+                                : 'bg-gradient-to-br from-green-50 to-green-100 border border-green-200'
+                        } shadow-lg hover:shadow-xl`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-green-500'
+                                }`}>
+                                    <CheckCircle className={`h-6 w-6 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'
+                                    }`} />
+                                </div>
+                                <div>
+                                    <p className={`text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                    }`}>
+                                        เสร็จสิ้น
+                                    </p>
+                                    <p className={`text-2xl font-bold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-green-600'
+                                    }`}>
+                                        {(dashboardStats?.completedEvaluations || 0).toLocaleString()}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Pending Evaluations */}
+                        <div className={`p-6 rounded-xl transition-all duration-300 hover:scale-105 ${
+                            dashboardConfig.theme === 'dark'
+                                ? 'bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-600'
+                                : 'bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200'
+                        } shadow-lg hover:shadow-xl`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-orange-500'
+                                }`}>
+                                    <Clock className={`h-6 w-6 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'
+                                    }`} />
+                                </div>
+                                <div>
+                                    <p className={`text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                    }`}>
+                                        รอดำเนินการ
+                                    </p>
+                                    <p className={`text-2xl font-bold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-orange-600'
+                                    }`}>
+                                        {(dashboardStats?.pendingEvaluations || 0).toLocaleString()}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Completion Rate */}
+                        <div className={`p-6 rounded-xl transition-all duration-300 hover:scale-105 ${
+                            dashboardConfig.theme === 'dark'
+                                ? 'bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-600'
+                                : 'bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200'
+                        } shadow-lg hover:shadow-xl`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-purple-500'
+                                }`}>
+                                    <TrendingUp className={`h-6 w-6 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'
+                                    }`} />
+                                </div>
+                                <div>
+                                    <p className={`text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                    }`}>
+                                        % ความสำเร็จ
+                                    </p>
+                                    <p className={`text-2xl font-bold ${getCompletionColor(dashboardStats?.overallCompletionRate || 0)}`}>
+                                        {(dashboardStats?.overallCompletionRate || 0).toFixed(1)}%
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Average Score */}
+                        <div className={`p-6 rounded-xl transition-all duration-300 hover:scale-105 ${
+                            dashboardConfig.theme === 'dark'
+                                ? 'bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-600'
+                                : 'bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200'
+                        } shadow-lg hover:shadow-xl`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-indigo-500'
+                                }`}>
+                                    <Star className={`h-6 w-6 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'
+                                    }`} />
+                                </div>
+                                <div>
+                                    <p className={`text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                    }`}>
+                                        คะแนนเฉลี่ย
+                                    </p>
+                                    <p className={`text-2xl font-bold ${getScoreColor(dashboardStats?.averageScore || 0)}`}>
+                                        {(dashboardStats?.averageScore || 0).toFixed(2)}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Total Answers */}
+                        <div className={`p-6 rounded-xl transition-all duration-300 hover:scale-105 ${
+                            dashboardConfig.theme === 'dark'
+                                ? 'bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-600'
+                                : 'bg-gradient-to-br from-pink-50 to-pink-100 border border-pink-200'
+                        } shadow-lg hover:shadow-xl`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-pink-500'
+                                }`}>
+                                    <ClipboardList className={`h-6 w-6 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-white'
+                                    }`} />
+                                </div>
+                                <div>
+                                    <p className={`text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                    }`}>
+                                        คำตอบทั้งหมด
+                                    </p>
+                                    <p className={`text-2xl font-bold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-pink-600'
+                                    }`}>
+                                        {(dashboardStats?.totalAnswers || 0).toLocaleString()}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Performance by Grade */}
+            <div className={`rounded-2xl p-6 ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800/50 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-xl backdrop-blur-sm`}>
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className={`text-2xl font-bold ${
+                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                    }`}>
+                        ผลการประเมินตามระดับตำแหน่ง
+                    </h2>
+                    <button
+                        onClick={() => toggleSection('grades')}
+                        className={`p-2 rounded-lg transition-colors ${
+                            dashboardConfig.theme === 'dark' 
+                                ? 'hover:bg-slate-700' 
+                                : 'hover:bg-gray-100'
+                        }`}
+                    >
+                        {expandedSections.has('grades') ? 
+                            <ChevronUp className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} /> : 
+                            <ChevronDown className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} />
+                        }
+                    </button>
+                </div>
+
+                {expandedSections.has('grades') && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {(evaluationMetrics?.byGrade || []).map((grade) => (
+                            <div
+                                key={grade.grade}
+                                className={`p-6 rounded-xl border transition-all duration-300 hover:scale-105 ${
+                                    dashboardConfig.theme === 'dark'
+                                        ? 'bg-slate-700/50 border-slate-600 hover:bg-slate-700'
+                                        : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                                } shadow-lg hover:shadow-xl`}
+                            >
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className={`text-lg font-bold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        ระดับ C{grade.grade}
+                                    </h3>
+                                    <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-slate-600 text-gray-300' 
+                                            : 'bg-blue-100 text-blue-800'
+                                    }`}>
+                                        {grade.total} คน
+                                    </div>
+                                </div>
+                                
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <span className={`text-sm ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            เสร็จสิ้น
+                                        </span>
+                                        <span className={`font-bold ${getCompletionColor(grade?.completionRate || 0)}`}>
+                                            {grade?.completed || 0}/{grade?.total || 0} ({(grade?.completionRate || 0).toFixed(1)}%)
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-center">
+                                        <span className={`text-sm ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            คะแนนเฉลี่ย
+                                        </span>
+                                        <span className={`font-bold ${getScoreColor(grade?.averageScore || 0)}`}>
+                                            {(grade?.averageScore || 0).toFixed(2)}
+                                        </span>
+                                    </div>
+                                    
+                                    {/* Progress Bar */}
+                                    <div className={`w-full rounded-full h-2 ${
+                                        dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-gray-200'
+                                    }`}>
+                                        <div
+                                            className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+                                            style={{ width: `${grade?.completionRate || 0}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Recent Evaluations */}
+            <div className={`rounded-2xl p-6 ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800/50 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-xl backdrop-blur-sm`}>
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className={`text-2xl font-bold ${
+                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                    }`}>
+                        รายงานล่าสุด
+                    </h2>
+                    <div className="flex items-center gap-2">
+                        <span className={`text-sm ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                        }`}>
+                            แสดง {filteredResults.length} รายการ
+                        </span>
+                        <button
+                            onClick={() => toggleSection('recent')}
+                            className={`p-2 rounded-lg transition-colors ${
+                                dashboardConfig.theme === 'dark' 
+                                    ? 'hover:bg-slate-700' 
+                                    : 'hover:bg-gray-100'
+                            }`}
+                        >
+                            {expandedSections.has('recent') ? 
+                                <ChevronUp className={`h-5 w-5 ${
+                                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                }`} /> : 
+                                <ChevronDown className={`h-5 w-5 ${
+                                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                }`} />
+                            }
+                        </button>
+                    </div>
+                </div>
+
+                {expandedSections.has('recent') && (
+                    <div className="space-y-4">
+                        {filteredResults.slice(0, 10).map((result) => (
+                            <div
+                                key={result.id}
+                                className={`p-4 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${
+                                    dashboardConfig.theme === 'dark'
+                                        ? 'bg-slate-700/30 border-slate-600 hover:bg-slate-700/50'
+                                        : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                                } shadow-sm hover:shadow-md`}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                            dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-blue-100'
+                                        }`}>
+                                            <User className={`h-5 w-5 ${
+                                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-blue-600'
+                                            }`} />
+                                        </div>
+                                        <div>
+                                            <h4 className={`font-semibold ${
+                                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                            }`}>
+                                                {result?.evaluateeName || 'N/A'}
+                                            </h4>
+                                            <p className={`text-sm ${
+                                                dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                            }`}>
+                                                {result?.evaluateePosition || 'N/A'} • {result?.evaluateeDivision || 'N/A'} • ระดับ C{result?.evaluateeGrade || 'N/A'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-4">
+                                        <div className="text-right">
+                                            <div className={`text-lg font-bold ${getScoreColor(result?.scores?.average || 0)}`}>
+                                                {(result?.scores?.average || 0).toFixed(2)}
+                                            </div>
+                                            <div className={`text-sm ${getCompletionColor(result?.completionStatus?.completionRate || 0)}`}>
+                                                {(result?.completionStatus?.completionRate || 0).toFixed(1)}% เสร็จสิ้น
+                                            </div>
+                                        </div>
+                                        
+                                        <button
+                                            onClick={() => {
+                                                setSelectedUser(result.id);
+                                                setShowIndividualReport(true);
+                                            }}
+                                            className={`p-2 rounded-lg transition-colors ${
+                                                dashboardConfig.theme === 'dark'
+                                                    ? 'bg-slate-600 hover:bg-slate-500 text-gray-300'
+                                                    : 'bg-blue-500 hover:bg-blue-600 text-white'
+                                            }`}
+                                            title="ดูรายละเอียด"
+                                        >
+                                            <Eye className="h-4 w-4 text-gray-300" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                        
+                        {filteredResults.length === 0 && (
+                            <div className={`text-center py-12 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                            }`}>
+                                <ClipboardList className={`h-12 w-12 mx-auto mb-4 ${
+                                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-400'
+                                }`} />
+                                <p className="text-lg font-medium">ไม่พบข้อมูลการประเมิน</p>
+                                <p className="text-sm">ลองปรับเปลี่ยนตัวกรองการค้นหา</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Analytics View Component
+const AnalyticsView: React.FC<{
+    evaluationMetrics: any;
+    dashboardConfig: DashboardConfig;
+    getScoreColor: (score: number) => string;
+    getCompletionColor: (rate: number) => string;
+}> = ({ evaluationMetrics, dashboardConfig, getScoreColor, getCompletionColor }) => {
+    const [expandedAnalytics, setExpandedAnalytics] = useState<Set<string>>(new Set(['byDivision', 'byAngle', 'trends']));
+    
+    const toggleAnalyticsSection = (id: string) => {
+        const newSet = new Set(expandedAnalytics);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+        } else {
+            newSet.add(id);
+        }
+        setExpandedAnalytics(newSet);
+    };
+
+    return (
+        <div className="space-y-8">
+            <h2 className={`text-3xl font-bold ${
+                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+            }`}>
+                วิเคราะห์ข้อมูลการประเมิน
+            </h2>
+            
+            {/* Performance by Division */}
+            <div className={`rounded-2xl p-6 ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800/50 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-xl backdrop-blur-sm`}>
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className={`text-2xl font-bold ${
+                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                    }`}>
+                        ผลการประเมินตามหน่วยงาน
+                    </h3>
+                    <button
+                        onClick={() => toggleAnalyticsSection('byDivision')}
+                        className={`p-2 rounded-lg transition-colors ${
+                            dashboardConfig.theme === 'dark' 
+                                ? 'hover:bg-slate-700' 
+                                : 'hover:bg-gray-100'
+                        }`}
+                    >
+                        {expandedAnalytics.has('byDivision') ? 
+                            <ChevronUp className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} /> : 
+                            <ChevronDown className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} />
+                        }
+                    </button>
+                </div>
+
+                {expandedAnalytics.has('byDivision') && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {(evaluationMetrics?.byDivision || []).map((division, index) => (
+                            <div
+                                key={index}
+                                className={`p-6 rounded-xl border transition-all duration-300 hover:scale-105 ${
+                                    dashboardConfig.theme === 'dark'
+                                        ? 'bg-slate-700/50 border-slate-600 hover:bg-slate-700'
+                                        : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                                } shadow-lg hover:shadow-xl`}
+                            >
+                                <div className="flex items-center justify-between mb-4">
+                                    <h4 className={`text-lg font-bold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        {division.division || 'ไม่ระบุหน่วยงาน'}
+                                    </h4>
+                                    <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-slate-600 text-gray-300' 
+                                            : 'bg-green-100 text-green-800'
+                                    }`}>
+                                        {division.total} คน
+                                    </div>
+                                </div>
+                                
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <span className={`text-sm ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            เสร็จสิ้น
+                                        </span>
+                                        <span className={`font-bold ${getCompletionColor(division?.completionRate || 0)}`}>
+                                            {division?.completed || 0}/{division?.total || 0} ({(division?.completionRate || 0).toFixed(1)}%)
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-center">
+                                        <span className={`text-sm ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            คะแนนเฉลี่ย
+                                        </span>
+                                        <span className={`font-bold ${getScoreColor(division?.averageScore || 0)}`}>
+                                            {(division?.averageScore || 0).toFixed(2)}
+                                        </span>
+                                    </div>
+                                    
+                                    {/* Progress Bar */}
+                                    <div className={`w-full rounded-full h-2 ${
+                                        dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-gray-200'
+                                    }`}>
+                                        <div
+                                            className="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full transition-all duration-300"
+                                            style={{ width: `${division?.completionRate || 0}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Performance by Angle */}
+            <div className={`rounded-2xl p-6 ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800/50 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-xl backdrop-blur-sm`}>
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className={`text-2xl font-bold ${
+                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                    }`}>
+                        ผลการประเมินตามมุมมอง
+                    </h3>
+                    <button
+                        onClick={() => toggleAnalyticsSection('byAngle')}
+                        className={`p-2 rounded-lg transition-colors ${
+                            dashboardConfig.theme === 'dark' 
+                                ? 'hover:bg-slate-700' 
+                                : 'hover:bg-gray-100'
+                        }`}
+                    >
+                        {expandedAnalytics.has('byAngle') ? 
+                            <ChevronUp className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} /> : 
+                            <ChevronDown className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} />
+                        }
+                    </button>
+                </div>
+
+                {expandedAnalytics.has('byAngle') && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                        {(evaluationMetrics?.byAngle || []).map((angle, index) => {
+                            const getAngleText = (angleKey: string) => {
+                                switch (angleKey) {
+                                    case 'self': return 'ประเมินตนเอง';
+                                    case 'top': return 'องศาบน';
+                                    case 'bottom': return 'องศาล่าง';
+                                    case 'left': return 'องศาซ้าย';
+                                    case 'right': return 'องศาขวา';
+                                    default: return angleKey;
+                                }
+                            };
+
+                            const getAngleColor = (angleKey: string) => {
+                                switch (angleKey) {
+                                    case 'self': return 'from-gray-500 to-gray-600';
+                                    case 'top': return 'from-blue-500 to-blue-600';
+                                    case 'bottom': return 'from-green-500 to-green-600';
+                                    case 'left': return 'from-yellow-500 to-yellow-600';
+                                    case 'right': return 'from-purple-500 to-purple-600';
+                                    default: return 'from-gray-500 to-gray-600';
+                                }
+                            };
+
+                            return (
+                                <div
+                                    key={index}
+                                    className={`p-4 rounded-xl border transition-all duration-300 hover:scale-105 ${
+                                        dashboardConfig.theme === 'dark'
+                                            ? 'bg-slate-700/50 border-slate-600 hover:bg-slate-700'
+                                            : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                                    } shadow-lg hover:shadow-xl`}
+                                >
+                                    <div className="text-center">
+                                        <div className={`w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-br ${getAngleColor(angle.angle)} flex items-center justify-center`}>
+                                            <span className="text-white font-bold text-lg">
+                                                {angle.angle.charAt(0).toUpperCase()}
+                                            </span>
+                                        </div>
+                                        <h4 className={`text-sm font-bold mb-2 ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            {getAngleText(angle.angle)}
+                                        </h4>
+                                        <div className={`text-2xl font-bold mb-1 ${getScoreColor(angle?.averageScore || 0)}`}>
+                                            {(angle?.averageScore || 0).toFixed(2)}
+                                        </div>
+                                        <div className={`text-xs ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            {angle?.completed || 0}/{angle?.total || 0} คน
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Trends */}
+            <div className={`rounded-2xl p-6 ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800/50 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-xl backdrop-blur-sm`}>
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className={`text-2xl font-bold ${
+                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                    }`}>
+                        แนวโน้มการประเมิน (12 เดือนล่าสุด)
+                    </h3>
+                    <button
+                        onClick={() => toggleAnalyticsSection('trends')}
+                        className={`p-2 rounded-lg transition-colors ${
+                            dashboardConfig.theme === 'dark' 
+                                ? 'hover:bg-slate-700' 
+                                : 'hover:bg-gray-100'
+                        }`}
+                    >
+                        {expandedAnalytics.has('trends') ? 
+                            <ChevronUp className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} /> : 
+                            <ChevronDown className={`h-5 w-5 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} />
+                        }
+                    </button>
+                </div>
+
+                {expandedAnalytics.has('trends') && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                        {(evaluationMetrics?.trends || []).map((trend, index) => (
+                            <div
+                                key={index}
+                                className={`p-4 rounded-xl border transition-all duration-300 hover:scale-105 ${
+                                    dashboardConfig.theme === 'dark'
+                                        ? 'bg-slate-700/50 border-slate-600 hover:bg-slate-700'
+                                        : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                                } shadow-lg hover:shadow-xl`}
+                            >
+                                <div className="text-center">
+                                    <div className={`text-xs font-medium mb-2 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`}>
+                                        {trend.month_name || new Date(trend.date).toLocaleDateString('th-TH', { month: 'short', year: 'numeric' })}
+                                    </div>
+                                    <div className={`text-lg font-bold mb-1 ${getScoreColor(trend?.averageScore || 0)}`}>
+                                        {(trend?.averageScore || 0).toFixed(2)}
+                                    </div>
+                                    <div className={`text-xs ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`}>
+                                        {trend?.completions || 0} การประเมิน
+                                    </div>
+                                    {trend.target && (
+                                        <div className={`text-xs mt-1 ${
+                                            (trend?.averageScore || 0) >= trend.target 
+                                                ? 'text-green-600' 
+                                                : 'text-red-600'
+                                        }`}>
+                                            เป้าหมาย: {trend.target}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Reports View Component
+const ReportsView: React.FC<{
+    filteredResults: any[];
+    dashboardConfig: DashboardConfig;
+    viewMode: string;
+    getScoreColor: (score: number) => string;
+    getCompletionColor: (rate: number) => string;
+    setSelectedUser: (id: number) => void;
+    setShowIndividualReport: (show: boolean) => void;
+    showEvaluateeDetailsModal: (id: number) => void;
+}> = ({ 
+    filteredResults, 
+    dashboardConfig, 
+    viewMode, 
+    getScoreColor, 
+    getCompletionColor,
+    setSelectedUser,
+    setShowIndividualReport,
+    showEvaluateeDetailsModal
+}) => {
+    return (
+        <div className="space-y-8">
+            <h2 className={`text-3xl font-bold ${
+                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+            }`}>
+                รายงานประเมินรายบุคคล
+            </h2>
+
+            {viewMode === 'table' && (
+                <div className={`rounded-2xl overflow-hidden ${
+                    dashboardConfig.theme === 'dark' 
+                        ? 'bg-slate-800/50 border border-slate-700' 
+                        : 'bg-white border border-gray-200'
+                } shadow-xl`}>
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className={`${
+                                dashboardConfig.theme === 'dark' ? 'bg-slate-700' : 'bg-gray-50'
+                            }`}>
+                                <tr>
+                                    <th className={`px-6 py-4 text-left text-sm font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        ชื่อ-นามสกุล
+                                    </th>
+                                    <th className={`px-6 py-4 text-left text-sm font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        ตำแหน่ง
+                                    </th>
+                                    <th className={`px-6 py-4 text-left text-sm font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        หน่วยงาน
+                                    </th>
+                                    <th className={`px-6 py-4 text-center text-sm font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        คะแนนเฉลี่ย
+                                    </th>
+                                    <th className={`px-6 py-4 text-center text-sm font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        ถูกประเมิน
+                                    </th>
+                                    <th className={`px-6 py-4 text-center text-sm font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        ประเมินผู้อื่น
+                                    </th>
+                                    <th className={`px-6 py-4 text-center text-sm font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        จัดการ
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
+                                {filteredResults.map((result) => (
+                                    <tr key={result.id} className={`hover:${
+                                        dashboardConfig.theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-50'
+                                    } transition-colors`}>
+                                        <td className={`px-6 py-4 ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            <div className="font-medium">{result?.evaluateeName || 'N/A'}</div>
+                                            <div className={`text-sm ${
+                                                dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                            }`}>
+                                                ระดับ C{result?.evaluateeGrade || 'N/A'}
+                                            </div>
+                                        </td>
+                                        <td className={`px-6 py-4 text-sm ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            {result?.evaluateePosition || 'N/A'}
+                                        </td>
+                                        <td className={`px-6 py-4 text-sm ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            {result?.evaluateeDivision || 'N/A'}
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`text-lg font-bold ${getScoreColor(result?.scores?.average || 0)}`}>
+                                                {(result?.scores?.average || 0).toFixed(2)}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <div className="space-y-1">
+                                                <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                                    (result?.completionStatus?.completionRate || 0) >= 100 
+                                                        ? 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300'
+                                                        : (result?.completionStatus?.completionRate || 0) >= 75
+                                                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300'
+                                                            : 'bg-orange-100 text-orange-800 dark:bg-orange-500/20 dark:text-orange-300'
+                                                }`}>
+                                                    {(result?.completionStatus?.completionRate || 0).toFixed(1)}%
+                                                </div>
+                                                <div className={`text-xs ${
+                                                    dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                }`}>
+                                                    <div>{result?.completed_angles || 0}/{result?.available_angles || 5} คน</div>
+                                                    <div>{result?.total_answers || 0} คำตอบ</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <div className="space-y-1">
+                                                <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                                    result?.evaluator_progress?.status === 'completed' 
+                                                        ? 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300'
+                                                        : result?.evaluator_progress?.status === 'nearly_complete'
+                                                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300'
+                                                            : result?.evaluator_progress?.status === 'in_progress'
+                                                                ? 'bg-orange-100 text-orange-800 dark:bg-orange-500/20 dark:text-orange-300'
+                                                                : result?.evaluator_progress?.status === 'not_started'
+                                                                    ? 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300'
+                                                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-300'
+                                                }`}>
+                                                    {result?.evaluator_progress?.overall_progress_percentage || 0}%
+                                                </div>
+                                                <div className={`text-xs ${
+                                                    dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                }`}>
+                                                    {result?.evaluator_progress?.completed_assignments || 0}/{result?.evaluator_progress?.total_assignments || 0} รายการ
+                                                </div>
+                                                <div className={`text-xs ${
+                                                    dashboardConfig.theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+                                                }`}>
+                                                    {result?.evaluator_progress?.total_questions_answered || 0}/{result?.evaluator_progress?.total_questions_to_answer || 0} ข้อ
+                                                </div>
+                                                {/* Mini Progress Bar */}
+                                                <div className={`w-16 mx-auto rounded-full h-1 ${
+                                                    dashboardConfig.theme === 'dark' ? 'bg-slate-700' : 'bg-gray-200'
+                                                }`}>
+                                                    <div 
+                                                        className={`h-1 rounded-full transition-all duration-300 ${
+                                                            result?.evaluator_progress?.status === 'completed' 
+                                                                ? 'bg-green-500' 
+                                                                : result?.evaluator_progress?.status === 'nearly_complete'
+                                                                    ? 'bg-blue-500'
+                                                                    : result?.evaluator_progress?.status === 'in_progress'
+                                                                        ? 'bg-orange-500'
+                                                                        : 'bg-red-500'
+                                                        }`}
+                                                        style={{ 
+                                                            width: `${Math.max(result?.evaluator_progress?.overall_progress_percentage || 0, 2)}%` 
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedUser(result.id);
+                                                    setShowIndividualReport(true);
+                                                }}
+                                                className={`p-2 rounded-lg transition-colors ${
+                                                    dashboardConfig.theme === 'dark'
+                                                        ? 'bg-slate-600 hover:bg-slate-500 text-gray-300'
+                                                        : 'bg-blue-500 hover:bg-blue-600 text-white'
+                                                }`}
+                                                title="ดูรายละเอียด"
+                                            >
+                                                <Eye className="h-4 w-4 text-gray-300" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {viewMode === 'cards' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredResults.map((result) => (
+                        <div
+                            key={result.id}
+                            className={`p-6 rounded-xl border transition-all duration-300 hover:scale-105 ${
+                                dashboardConfig.theme === 'dark'
+                                    ? 'bg-slate-800/50 border-slate-700 hover:bg-slate-800'
+                                    : 'bg-white border-gray-200 hover:bg-gray-50'
+                            } shadow-lg hover:shadow-xl`}
+                        >
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-700' : 'bg-blue-100'
+                                }`}>
+                                    <User className={`h-6 w-6 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-blue-600'
+                                    }`} />
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className={`font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        {result?.evaluateeName || 'N/A'}
+                                    </h3>
+                                    <p className={`text-sm ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`}>
+                                        {result?.evaluateePosition || 'N/A'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3 mb-4">
+                                <div className="flex justify-between items-center">
+                                    <span className={`text-sm ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`}>
+                                        คะแนนเฉลี่ย
+                                    </span>
+                                    <span className={`font-bold text-lg ${getScoreColor(result?.scores?.average || 0)}`}>
+                                        {(result?.scores?.average || 0).toFixed(2)}
+                                    </span>
+                                </div>
+                                
+                                <div className="flex justify-between items-center">
+                                    <span className={`text-sm ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`}>
+                                        ถูกประเมิน
+                                    </span>
+                                    <div className="text-right">
+                                        <span className={`font-bold ${getCompletionColor(result?.completionStatus?.completionRate || 0)}`}>
+                                            {(result?.completionStatus?.completionRate || 0).toFixed(1)}%
+                                        </span>
+                                        <div className={`text-xs ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                                        }`}>
+                                            <div>{result?.completed_angles || 0}/{result?.available_angles || 5} คน</div>
+                                            <div>{result?.total_answers || 0} คำตอบ</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className={`w-full rounded-full h-2 ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-gray-200'
+                                }`}>
+                                    <div
+                                        className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+                                        style={{ width: `${result?.completionStatus?.completionRate || 0}%` }}
+                                    />
+                                </div>
+
+                                <div className="flex justify-between items-center">
+                                    <span className={`text-sm ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`}>
+                                        ประเมินผู้อื่น
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`font-bold ${
+                                            result?.evaluator_progress?.status === 'completed' 
+                                                ? 'text-green-600 dark:text-green-400'
+                                                : result?.evaluator_progress?.status === 'nearly_complete'
+                                                    ? 'text-blue-600 dark:text-blue-400'
+                                                    : result?.evaluator_progress?.status === 'in_progress'
+                                                        ? 'text-orange-600 dark:text-orange-400'
+                                                        : 'text-red-600 dark:text-red-400'
+                                        }`}>
+                                            {result?.evaluator_progress?.overall_progress_percentage || 0}%
+                                        </span>
+                                        <div className={`text-xs ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                                        }`}>
+                                            <div>{result?.evaluator_progress?.completed_assignments || 0}/{result?.evaluator_progress?.total_assignments || 0} รายการ</div>
+                                            <div>{result?.evaluator_progress?.total_questions_answered || 0}/{result?.evaluator_progress?.total_questions_to_answer || 0} ข้อ</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className={`w-full rounded-full h-2 ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-gray-200'
+                                }`}>
+                                    <div
+                                        className={`h-2 rounded-full transition-all duration-300 ${
+                                            result?.evaluator_progress?.status === 'completed' 
+                                                ? 'bg-gradient-to-r from-green-500 to-emerald-500' 
+                                                : result?.evaluator_progress?.status === 'nearly_complete'
+                                                    ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                                                    : result?.evaluator_progress?.status === 'in_progress'
+                                                        ? 'bg-gradient-to-r from-orange-500 to-yellow-500'
+                                                        : 'bg-gradient-to-r from-red-500 to-pink-500'
+                                        }`}
+                                        style={{ width: `${Math.max(result?.evaluator_progress?.overall_progress_percentage || 0, 2)}%` }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        setSelectedUser(result.id);
+                                        setShowIndividualReport(true);
+                                    }}
+                                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+                                        dashboardConfig.theme === 'dark'
+                                            ? 'bg-slate-700 hover:bg-slate-600 text-gray-300'
+                                            : 'bg-blue-500 hover:bg-blue-600 text-white'
+                                    }`}
+                                >
+                                    ดูรายงาน
+                                </button>
+                                <button
+                                    onClick={() => showEvaluateeDetailsModal(result.id)}
+                                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+                                        dashboardConfig.theme === 'dark'
+                                            ? 'bg-purple-700 hover:bg-purple-600 text-gray-300'
+                                            : 'bg-purple-500 hover:bg-purple-600 text-white'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <User className="h-4 w-4" />
+                                        รายละเอียด
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Exports View Component
+const ExportsView: React.FC<{
+    exportOptions: ExportOptions;
+    setExportOptions: React.Dispatch<React.SetStateAction<ExportOptions>>;
+    handleExport: (type: string) => Promise<void>;
+    isExporting: boolean;
+    dashboardConfig: DashboardConfig;
+    availableDivisions: any[];
+    availableGrades: number[];
+}> = ({ 
+    exportOptions, 
+    setExportOptions, 
+    handleExport, 
+    isExporting, 
+    dashboardConfig,
+    availableDivisions,
+    availableGrades
+}) => {
+    const exportTypes = [
+        {
+            id: 'comprehensive',
+            title: 'รายงานรวมผู้บริหารและพนักงาน',
+            description: 'รายงานครบถ้วนทั้งระดับ 9-12 และ 5-8 พร้อม Option Mapping',
+            icon: Building,
+            color: 'emerald'
+        },
+        {
+            id: 'executives',
+            title: 'รายงานผู้บริหารระดับ 9-12',
+            description: 'รายงานเฉพาะผู้บริหารระดับ 9-12 พร้อมคำถามและคะแนน',
+            icon: Crown,
+            color: 'amber'
+        },
+        {
+            id: 'employees', 
+            title: 'รายงานพนักงานระดับ 5-8',
+            description: 'รายงานเฉพาะพนักงานระดับ 5-8 พร้อมคำถามและคะแนน',
+            icon: Users,
+            color: 'cyan'
+        },
+        {
+            id: 'self-evaluation',
+            title: 'การประเมินตนเอง',
+            description: 'รายงานการประเมินตนเองของทุกระดับพร้อมคำถามและคะแนน',
+            icon: User,
+            color: 'indigo'
+        },
+        {
+            id: 'detailed-data',
+            title: 'รายงานรายละเอียดครบถ้วน',
+            description: 'ข้อมูลรายละเอียดทุกคำถาม ผู้ประเมิน และผู้ถูกประเมิน',
+            icon: Database,
+            color: 'violet'
+        }
+    ];
+
+    return (
+        <div className="space-y-8">
+            <div className="flex items-center justify-between">
+                <h2 className={`text-3xl font-bold ${
+                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                }`}>
+                    ส่งออกรายงาน
+                </h2>
+                
+                <div className={`px-4 py-2 rounded-xl ${
+                    dashboardConfig.theme === 'dark' 
+                        ? 'bg-slate-700 text-gray-300' 
+                        : 'bg-blue-100 text-blue-800'
+                }`}>
+                    <span className="text-sm font-medium">
+                        รูปแบบ: {exportOptions.format.toUpperCase()}
+                    </span>
                 </div>
             </div>
 
-            {/* 🎨 Ultra Enhanced Dialog */}
-            <Dialog open={showDialog} onOpenChange={setShowDialog}>
-                <DialogContent className="max-w-4xl w-full max-h-[90vh] overflow-hidden bg-white rounded-3xl shadow-2xl">
-                    <DialogHeader className="bg-gradient-to-r from-blue-50 to-purple-50 p-8 border-b border-gray-200">
-                        <DialogTitle className="text-2xl font-bold flex items-center text-gray-900">
-                            <Eye className="w-6 h-6 mr-3 text-blue-600" />
-                            {dialogTitle}
-                        </DialogTitle>
-                    </DialogHeader>
+            {/* Export Options */}
+            <div className={`rounded-2xl p-6 ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800/50 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-xl`}>
+                <h3 className={`text-xl font-bold mb-6 ${
+                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                }`}>
+                    ตั้งค่าการส่งออก
+                </h3>
 
-                    <DialogDescription asChild>
-                        <div className="p-8">
-                            {dialogLoading ? (
-                                <div className="flex flex-col items-center justify-center py-16">
-                                    <Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4" />
-                                    <span className="text-gray-600 text-lg font-medium">
-                                        กำลังโหลดข้อมูล...
-                                    </span>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Format Selection */}
+                    <div>
+                        <label className={`block text-sm font-medium mb-2 ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                            รูปแบบไฟล์
+                        </label>
+                        <select
+                            value={exportOptions.format}
+                            onChange={(e) => setExportOptions(prev => ({ 
+                                ...prev, 
+                                format: e.target.value as 'excel' | 'pdf' | 'csv' 
+                            }))}
+                            className={`w-full px-3 py-2 rounded-lg border ${
+                                dashboardConfig.theme === 'dark'
+                                    ? 'bg-slate-700 border-slate-600 text-gray-300'
+                                    : 'bg-white border-gray-300 text-gray-900'
+                            } focus:ring-2 focus:ring-blue-500/20 focus:outline-none`}
+                        >
+                            <option value="excel">Excel (.xlsx)</option>
+                            <option value="pdf">PDF (.pdf)</option>
+                            <option value="csv">CSV (.csv)</option>
+                        </select>
+                    </div>
+
+                    {/* Date Range */}
+                    <div>
+                        <label className={`block text-sm font-medium mb-2 ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                            ช่วงเวลา
+                        </label>
+                        <select
+                            value={exportOptions.dateRange}
+                            onChange={(e) => setExportOptions(prev => ({ 
+                                ...prev, 
+                                dateRange: e.target.value as 'all' | 'current' | 'custom' 
+                            }))}
+                            className={`w-full px-3 py-2 rounded-lg border ${
+                                dashboardConfig.theme === 'dark'
+                                    ? 'bg-slate-700 border-slate-600 text-gray-300'
+                                    : 'bg-white border-gray-300 text-gray-900'
+                            } focus:ring-2 focus:ring-blue-500/20 focus:outline-none`}
+                        >
+                            <option value="current">ปีงบประมาณปัจจุบัน</option>
+                            <option value="all">ทั้งหมด</option>
+                            <option value="custom">กำหนดเอง</option>
+                        </select>
+                    </div>
+
+                    {/* Report Type */}
+                    <div>
+                        <label className={`block text-sm font-medium mb-2 ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                            ประเภทรายงาน
+                        </label>
+                        <select
+                            value={exportOptions.reportType}
+                            onChange={(e) => setExportOptions(prev => ({ 
+                                ...prev, 
+                                reportType: e.target.value as 'summary' | 'detailed' | 'individual' | 'comparison' 
+                            }))}
+                            className={`w-full px-3 py-2 rounded-lg border ${
+                                dashboardConfig.theme === 'dark'
+                                    ? 'bg-slate-700 border-slate-600 text-gray-300'
+                                    : 'bg-white border-gray-300 text-gray-900'
+                            } focus:ring-2 focus:ring-blue-500/20 focus:outline-none`}
+                        >
+                            <option value="summary">สรุปภาพรวม</option>
+                            <option value="detailed">รายละเอียดแบบเต็ม</option>
+                            <option value="individual">รายบุคคล</option>
+                            <option value="comparison">เปรียบเทียบ</option>
+                        </select>
+                    </div>
+                </div>
+
+                {/* Additional Options */}
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="flex items-center gap-3">
+                        <input
+                            type="checkbox"
+                            checked={exportOptions.includeCharts}
+                            onChange={(e) => setExportOptions(prev => ({ 
+                                ...prev, 
+                                includeCharts: e.target.checked 
+                            }))}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className={`text-sm ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                            รวมกราฟและแผนภูมิ
+                        </span>
+                    </label>
+
+                    <label className="flex items-center gap-3">
+                        <input
+                            type="checkbox"
+                            checked={exportOptions.includeRawData}
+                            onChange={(e) => setExportOptions(prev => ({ 
+                                ...prev, 
+                                includeRawData: e.target.checked 
+                            }))}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className={`text-sm ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                            รวมข้อมูลดิบ
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            {/* Export Templates */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {exportTypes.map((type) => {
+                    const Icon = type.icon;
+                    return (
+                        <div
+                            key={type.id}
+                            className={`p-6 rounded-xl border transition-all duration-300 hover:scale-105 ${
+                                dashboardConfig.theme === 'dark'
+                                    ? 'bg-slate-800/50 border-slate-700 hover:bg-slate-800'
+                                    : 'bg-white border-gray-200 hover:bg-gray-50'
+                            } shadow-lg hover:shadow-xl`}
+                        >
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center bg-${type.color}-100`}>
+                                    <Icon className={`h-6 w-6 text-${type.color}-600 text-gray-600`} />
                                 </div>
-                            ) : userList.length === 0 ? (
-                                <div className="text-center py-16">
-                                    <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-6" />
-                                    <div className="text-gray-500 text-xl font-medium">
-                                        ไม่พบข้อมูล
+                                <div className="flex-1">
+                                    <h3 className={`font-semibold ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        {type.title}
+                                    </h3>
+                                </div>
+                            </div>
+
+                            <p className={`text-sm mb-4 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                            }`}>
+                                {type.description}
+                            </p>
+
+                            <button
+                                onClick={() => handleExport(type.id)}
+                                disabled={isExporting}
+                                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors disabled:opacity-50 ${
+                                    dashboardConfig.theme === 'dark'
+                                        ? 'bg-slate-700 hover:bg-slate-600 text-gray-300'
+                                        : `bg-${type.color}-500 hover:bg-${type.color}-600 text-white`
+                                } bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center gap-2`}
+                            >
+                                {isExporting ? (
+                                    <Loader2 className="h-4 w-4 animate-spin text-gray-300" />
+                                ) : (
+                                    <Download className="h-4 w-4 text-gray-300" />
+                                )}
+                                {isExporting ? 'กำลังส่งออก...' : 'ส่งออก'}
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+// Export Modal Component
+const ExportModal: React.FC<{
+    exportOptions: ExportOptions;
+    setExportOptions: React.Dispatch<React.SetStateAction<ExportOptions>>;
+    handleExport: (type: string) => Promise<void>;
+    isExporting: boolean;
+    onClose: () => void;
+    dashboardConfig: DashboardConfig;
+    availableDivisions: any[];
+    availableGrades: number[];
+}> = ({ 
+    exportOptions, 
+    setExportOptions, 
+    handleExport, 
+    isExporting, 
+    onClose, 
+    dashboardConfig,
+    availableDivisions,
+    availableGrades
+}) => {
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className={`rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-2xl`}>
+                <div className="p-6">
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className={`text-2xl font-bold ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                        }`}>
+                            ตั้งค่าการส่งออกรายงาน
+                        </h2>
+                        <button
+                            onClick={onClose}
+                            className={`p-2 rounded-lg transition-colors ${
+                                dashboardConfig.theme === 'dark' 
+                                    ? 'hover:bg-slate-700 text-gray-300' 
+                                    : 'hover:bg-gray-100 text-gray-600'
+                            }`}
+                        >
+                            <X className="h-5 w-5 text-gray-600" />
+                        </button>
+                    </div>
+
+                    {/* Export options form would go here */}
+                    <div className="space-y-6">
+                        {/* Format Selection */}
+                        <div>
+                            <label className={`block text-sm font-medium mb-2 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                            }`}>
+                                รูปแบบไฟล์
+                            </label>
+                            <div className="grid grid-cols-3 gap-3">
+                                {['excel', 'pdf', 'csv'].map((format) => (
+                                    <button
+                                        key={format}
+                                        onClick={() => setExportOptions(prev => ({ 
+                                            ...prev, 
+                                            format: format as 'excel' | 'pdf' | 'csv' 
+                                        }))}
+                                        className={`p-3 rounded-lg border transition-colors ${
+                                            exportOptions.format === format
+                                                ? dashboardConfig.theme === 'dark'
+                                                    ? 'bg-blue-500/20 border-blue-400 text-blue-300'
+                                                    : 'bg-blue-100 border-blue-500 text-blue-700'
+                                                : dashboardConfig.theme === 'dark'
+                                                    ? 'bg-slate-700 border-slate-600 text-gray-300 hover:bg-slate-600'
+                                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        {format.toUpperCase()}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-3 pt-4">
+                            <button
+                                onClick={() => handleExport('advanced')}
+                                disabled={isExporting}
+                                className="flex-1 py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {isExporting ? (
+                                    <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+                                ) : (
+                                    <Download className="h-5 w-5 text-gray-300" />
+                                )}
+                                {isExporting ? 'กำลังส่งออก...' : 'ส่งออกรายงาน'}
+                            </button>
+                            
+                            <button
+                                onClick={onClose}
+                                className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+                                    dashboardConfig.theme === 'dark'
+                                        ? 'bg-slate-700 hover:bg-slate-600 text-gray-300'
+                                        : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                                }`}
+                            >
+                                ยกเลิก
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Evaluatee Details Modal Component
+const EvaluateeDetailsModal: React.FC<{
+    evaluateeId: number;
+    evaluateeData: any;
+    isLoading: boolean;
+    fiscalYear: string;
+    onClose: () => void;
+    dashboardConfig: DashboardConfig;
+}> = ({ evaluateeId, evaluateeData, isLoading, fiscalYear, onClose, dashboardConfig }) => {
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className={`rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto ${
+                dashboardConfig.theme === 'dark' 
+                    ? 'bg-slate-800 border border-slate-700' 
+                    : 'bg-white border border-gray-200'
+            } shadow-2xl`}>
+                <div className="p-6">
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className={`text-2xl font-bold ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                        }`}>
+                            รายละเอียดผู้ถูกประเมิน
+                        </h2>
+                        <button
+                            onClick={onClose}
+                            className={`p-2 rounded-lg hover:${
+                                dashboardConfig.theme === 'dark' ? 'bg-slate-700' : 'bg-gray-100'
+                            } transition-colors`}
+                        >
+                            <X className={`h-6 w-6 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`} />
+                        </button>
+                    </div>
+
+                    {isLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                            <Loader2 className={`h-8 w-8 animate-spin ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-blue-600'
+                            }`} />
+                            <span className={`ml-3 ${
+                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                            }`}>
+                                กำลังโหลดข้อมูล...
+                            </span>
+                        </div>
+                    ) : evaluateeData ? (
+                        <div className="space-y-6">
+                            {/* Personal Information */}
+                            <div className={`p-4 rounded-xl ${
+                                dashboardConfig.theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-50'
+                            }`}>
+                                <h3 className={`text-lg font-semibold mb-4 ${
+                                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                }`}>
+                                    ข้อมูลส่วนตัว
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className={`text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            รหัสพนักงาน
+                                        </label>
+                                        <p className={`text-lg ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            {evaluateeData.user?.emid || 'N/A'}
+                                        </p>
                                     </div>
-                                    <div className="text-gray-400 text-sm mt-2">
-                                        ไม่มีรายการในกลุ่มนี้
+                                    <div>
+                                        <label className={`text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            ชื่อ-นามสกุล
+                                        </label>
+                                        <p className={`text-lg ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            {evaluateeData.user?.name || 'N/A'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label className={`text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            ระดับ
+                                        </label>
+                                        <p className={`text-lg ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            C{evaluateeData.user?.grade || 'N/A'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label className={`text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            หน่วยงาน
+                                        </label>
+                                        <p className={`text-lg ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            {evaluateeData.user?.division || 'N/A'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label className={`text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            ตำแหน่ง
+                                        </label>
+                                        <p className={`text-lg ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            {evaluateeData.user?.position || 'N/A'}
+                                        </p>
                                     </div>
                                 </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between bg-blue-50 p-4 rounded-xl border border-blue-200">
-                                        <div className="flex items-center space-x-3">
-                                            <DatabaseIcon className="w-5 h-5 text-blue-600" />
-                                            <span className="text-sm font-semibold text-blue-700">
-                                                พบทั้งหมด {userList.length}{" "}
-                                                รายการ
-                                            </span>
+                            </div>
+
+                            {/* Evaluation Progress */}
+                            <div className={`p-4 rounded-xl ${
+                                dashboardConfig.theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-50'
+                            }`}>
+                                <h3 className={`text-lg font-semibold mb-4 ${
+                                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                }`}>
+                                    สถานะการประเมิน
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="text-center">
+                                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center ${
+                                            dashboardConfig.theme === 'dark' ? 'bg-green-900' : 'bg-green-100'
+                                        }`}>
+                                            <CheckCircle className={`h-8 w-8 ${
+                                                dashboardConfig.theme === 'dark' ? 'text-green-400' : 'text-green-600'
+                                            }`} />
                                         </div>
+                                        <p className={`mt-2 text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            เสร็จสิ้น
+                                        </p>
+                                        <p className={`text-2xl font-bold ${
+                                            dashboardConfig.theme === 'dark' ? 'text-green-400' : 'text-green-600'
+                                        }`}>
+                                            {evaluateeData.completion_data?.completed_angles || 0}
+                                        </p>
                                     </div>
+                                    <div className="text-center">
+                                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center ${
+                                            dashboardConfig.theme === 'dark' ? 'bg-orange-900' : 'bg-orange-100'
+                                        }`}>
+                                            <Clock className={`h-8 w-8 ${
+                                                dashboardConfig.theme === 'dark' ? 'text-orange-400' : 'text-orange-600'
+                                            }`} />
+                                        </div>
+                                        <p className={`mt-2 text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            คงเหลือ
+                                        </p>
+                                        <p className={`text-2xl font-bold ${
+                                            dashboardConfig.theme === 'dark' ? 'text-orange-400' : 'text-orange-600'
+                                        }`}>
+                                            {(evaluateeData.completion_data?.total_angles || 5) - (evaluateeData.completion_data?.completed_angles || 0)}
+                                        </p>
+                                        <p className={`text-xs mt-1 ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                                        }`}>
+                                            มุมการประเมิน
+                                        </p>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center ${
+                                            dashboardConfig.theme === 'dark' ? 'bg-blue-900' : 'bg-blue-100'
+                                        }`}>
+                                            <Target className={`h-8 w-8 ${
+                                                dashboardConfig.theme === 'dark' ? 'text-blue-400' : 'text-blue-600'
+                                            }`} />
+                                        </div>
+                                        <p className={`mt-2 text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            ความสำเร็จ
+                                        </p>
+                                        <p className={`text-2xl font-bold ${
+                                            dashboardConfig.theme === 'dark' ? 'text-blue-400' : 'text-blue-600'
+                                        }`}>
+                                            {Math.round(evaluateeData.completion_data?.completion_rate || 0)}%
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
 
-                                    <div className="gap-4 max-h-96 overflow-y-auto pr-2">
-                                        {userList.map((u, idx) => (
-                                            <div
-                                                key={u.id || idx}
-                                                className="flex items-center p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl hover:from-blue-50 hover:to-purple-50 transition-all duration-300 border border-gray-200 hover:border-blue-300 hover:shadow-lg transform hover:-translate-y-1 mb-2"
-                                            >
-                                                <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold mr-4 shadow-lg">
-                                                    {u.fname?.charAt(0) || "?"}
+                            {/* Remaining Evaluations as Evaluator */}
+                            <div className={`p-4 rounded-xl ${
+                                dashboardConfig.theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-50'
+                            }`}>
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className={`p-2 rounded-lg ${
+                                        dashboardConfig.theme === 'dark' ? 'bg-red-900' : 'bg-red-100'
+                                    }`}>
+                                        <FileText className={`h-5 w-5 ${
+                                            dashboardConfig.theme === 'dark' ? 'text-red-400' : 'text-red-600'
+                                        }`} />
+                                    </div>
+                                    <div>
+                                        <h3 className={`text-lg font-semibold ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                        }`}>
+                                            การประเมินที่ต้องทำ
+                                        </h3>
+                                        <p className={`text-sm ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            รายการการประเมินที่บุคคลนี้ต้องทำในฐานะผู้ประเมิน
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Summary */}
+                                <div className="mb-4 text-center">
+                                    <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
+                                        (evaluateeData.completion_data?.remaining_evaluations || 0) > 0
+                                            ? (dashboardConfig.theme === 'dark' ? 'bg-red-900 text-red-400' : 'bg-red-100 text-red-700')
+                                            : (dashboardConfig.theme === 'dark' ? 'bg-green-900 text-green-400' : 'bg-green-100 text-green-700')
+                                    }`}>
+                                        <span className="text-2xl font-bold">
+                                            {evaluateeData.remaining_evaluations_detail?.filter((item: any) => !item.is_completed).length || 0}
+                                        </span>
+                                        <span className="text-sm font-medium">
+                                            {(evaluateeData.remaining_evaluations_detail?.filter((item: any) => !item.is_completed).length || 0) === 0 ? 'เสร็จแล้ว' : 'ยังไม่เสร็จ'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Detailed List */}
+                                {evaluateeData.remaining_evaluations_detail && evaluateeData.remaining_evaluations_detail.length > 0 && (
+                                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                                        {evaluateeData.remaining_evaluations_detail.map((evaluation: any, index: number) => (
+                                            <div key={index} className={`p-3 rounded-lg border ${
+                                                evaluation.is_completed 
+                                                    ? (dashboardConfig.theme === 'dark' ? 'bg-green-900/20 border-green-700' : 'bg-green-50 border-green-200')
+                                                    : (dashboardConfig.theme === 'dark' ? 'bg-slate-600 border-slate-500' : 'bg-white border-gray-200')
+                                            }`}>
+                                                <div className="flex items-start justify-between mb-2">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <h4 className={`font-medium ${
+                                                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                                            }`}>
+                                                                {evaluation.evaluatee_name}
+                                                            </h4>
+                                                            <span className={`text-xs px-2 py-1 rounded-full ${
+                                                                evaluation.angle === 'self' ? 'bg-gray-500 text-white' :
+                                                                evaluation.angle === 'top' ? 'bg-blue-500 text-white' :
+                                                                evaluation.angle === 'bottom' ? 'bg-green-500 text-white' :
+                                                                evaluation.angle === 'left' ? 'bg-yellow-500 text-white' :
+                                                                'bg-purple-500 text-white'
+                                                            }`}>
+                                                                {evaluation.angle === 'self' ? 'ตนเอง' :
+                                                                 evaluation.angle === 'top' ? 'บน' :
+                                                                 evaluation.angle === 'bottom' ? 'ล่าง' :
+                                                                 evaluation.angle === 'left' ? 'ซ้าย' : 'ขวา'}
+                                                            </span>
+                                                        </div>
+                                                        <p className={`text-sm ${
+                                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                                        }`}>
+                                                            {evaluation.position} • {evaluation.division}
+                                                        </p>
+                                                        <p className={`text-xs mt-1 ${
+                                                            dashboardConfig.theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                                                        }`}>
+                                                            รหัส: {evaluation.evaluatee_emid}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className={`text-lg font-bold ${
+                                                            evaluation.is_completed 
+                                                                ? (dashboardConfig.theme === 'dark' ? 'text-green-400' : 'text-green-600')
+                                                                : (dashboardConfig.theme === 'dark' ? 'text-orange-400' : 'text-orange-600')
+                                                        }`}>
+                                                            {evaluation.completion_percentage}%
+                                                        </div>
+                                                        <div className={`text-xs ${
+                                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                        }`}>
+                                                            {evaluation.answered_questions}/{evaluation.total_questions} ข้อ
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="flex-1">
-                                                    <div className="font-bold text-gray-900 text-lg">
-                                                        {u.fname} {u.lname}
+                                                
+                                                {/* Progress Bar */}
+                                                <div className="mt-2">
+                                                    <div className={`w-full rounded-full h-2 ${
+                                                        dashboardConfig.theme === 'dark' ? 'bg-slate-700' : 'bg-gray-200'
+                                                    }`}>
+                                                        <div 
+                                                            className={`h-2 rounded-full transition-all duration-300 ${
+                                                                evaluation.is_completed 
+                                                                    ? 'bg-green-500' 
+                                                                    : evaluation.completion_percentage > 0 
+                                                                        ? 'bg-orange-500' 
+                                                                        : 'bg-red-500'
+                                                            }`}
+                                                            style={{ width: `${Math.max(evaluation.completion_percentage, 2)}%` }}
+                                                        />
                                                     </div>
-                                                    <div className="text-sm text-gray-600 font-medium">
-                                                        {u.position_name &&
-                                                            `${u.position_name} • `}
-                                                        {u.division_name &&
-                                                            u.division_name}
+                                                    <div className={`text-xs mt-1 ${
+                                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                    }`}>
+                                                        ความคืบหน้าในการประเมิน: {evaluation.completion_percentage}%
                                                     </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* No evaluations message */}
+                                {(!evaluateeData.remaining_evaluations_detail || evaluateeData.remaining_evaluations_detail.length === 0) && (
+                                    <div className={`text-center py-4 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                    }`}>
+                                        ไม่มีการประเมินที่ต้องทำ
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Evaluation Scores */}
+                            <div className={`p-4 rounded-xl ${
+                                dashboardConfig.theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-50'
+                            }`}>
+                                <h3 className={`text-lg font-semibold mb-4 ${
+                                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                }`}>
+                                    คะแนนการประเมิน
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {Object.entries({
+                                        'self': 'ประเมินตนเอง',
+                                        'top': 'ผู้บังคับบัญชา',
+                                        'bottom': 'ผู้ใต้บังคับบัญชา',
+                                        'left': 'เพื่อนร่วมงาน (ซ้าย)',
+                                        'right': 'เพื่อนร่วมงาน (ขวา)'
+                                    }).map(([key, label]) => (
+                                        <div key={key} className={`p-3 rounded-lg ${
+                                            dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-white'
+                                        }`}>
+                                            <p className={`text-sm font-medium ${
+                                                dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                            }`}>
+                                                {label}
+                                            </p>
+                                            <p className={`text-xl font-bold ${
+                                                dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                            }`}>
+                                                {evaluateeData.scores?.[key]?.toFixed(2) || 'N/A'}
+                                            </p>
+                                        </div>
+                                    ))}
+                                    <div className={`p-3 rounded-lg border-2 ${
+                                        dashboardConfig.theme === 'dark' 
+                                            ? 'bg-slate-600 border-purple-500' 
+                                            : 'bg-purple-50 border-purple-200'
+                                    }`}>
+                                        <p className={`text-sm font-medium ${
+                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            คะแนนเฉลี่ย
+                                        </p>
+                                        <p className={`text-xl font-bold ${
+                                            dashboardConfig.theme === 'dark' ? 'text-purple-400' : 'text-purple-600'
+                                        }`}>
+                                            {evaluateeData.scores?.average?.toFixed(2) || 'N/A'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Evaluators List */}
+                            {evaluateeData.evaluators && evaluateeData.evaluators.length > 0 && (
+                                <div className={`p-4 rounded-xl ${
+                                    dashboardConfig.theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-50'
+                                }`}>
+                                    <h3 className={`text-lg font-semibold mb-4 ${
+                                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                    }`}>
+                                        รายชื่อผู้ประเมิน
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {evaluateeData.evaluators.map((evaluator: any, index: number) => (
+                                            <div key={index} className={`flex items-center justify-between p-3 rounded-lg ${
+                                                dashboardConfig.theme === 'dark' ? 'bg-slate-600' : 'bg-white'
+                                            }`}>
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                                                        evaluator.completed 
+                                                            ? (dashboardConfig.theme === 'dark' ? 'bg-green-900 text-green-400' : 'bg-green-100 text-green-700')
+                                                            : (dashboardConfig.theme === 'dark' ? 'bg-orange-900 text-orange-400' : 'bg-orange-100 text-orange-700')
+                                                    }`}>
+                                                        {evaluator.completed ? '✓' : '!'}
+                                                    </div>
+                                                    <div>
+                                                        <p className={`font-medium ${
+                                                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                                                        }`}>
+                                                            {evaluator.name}
+                                                        </p>
+                                                        <p className={`text-sm ${
+                                                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                                        }`}>
+                                                            มุม: {evaluator.angle === 'self' ? 'ประเมินตนเอง' :
+                                                                evaluator.angle === 'top' ? 'ผู้บังคับบัญชา' :
+                                                                evaluator.angle === 'bottom' ? 'ผู้ใต้บังคับบัญชา' :
+                                                                evaluator.angle === 'left' ? 'เพื่อนร่วมงาน (ซ้าย)' :
+                                                                'เพื่อนร่วมงาน (ขวา)'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    {evaluator.completed ? (
+                                                        <>
+                                                            <p className={`font-bold ${
+                                                                dashboardConfig.theme === 'dark' ? 'text-green-400' : 'text-green-600'
+                                                            }`}>
+                                                                {evaluator.score?.toFixed(2) || 'N/A'}
+                                                            </p>
+                                                            <p className={`text-xs ${
+                                                                dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                            }`}>
+                                                                {evaluator.submittedAt ? new Date(evaluator.submittedAt).toLocaleDateString('th-TH') : ''}
+                                                            </p>
+                                                        </>
+                                                    ) : (
+                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                                            dashboardConfig.theme === 'dark' 
+                                                                ? 'bg-orange-900 text-orange-400' 
+                                                                : 'bg-orange-100 text-orange-700'
+                                                        }`}>
+                                                            ยังไม่ประเมิน
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
@@ -2564,17 +2773,17 @@ export default function AdminEvaluationReport() {
                                 </div>
                             )}
                         </div>
-                    </DialogDescription>
-
-                    <div className="flex justify-end p-8 bg-gray-50 border-t border-gray-200">
-                        <DialogClose asChild>
-                            <button className="px-8 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 transition-colors font-semibold shadow-lg hover:shadow-xl">
-                                ปิด
-                            </button>
-                        </DialogClose>
-                    </div>
-                </DialogContent>
-            </Dialog>
-        </MainLayout>
+                    ) : (
+                        <div className={`text-center py-12 ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                        }`}>
+                            ไม่พบข้อมูลผู้ถูกประเมิน
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
     );
-}
+};
+
+export default AdminEvaluationReport;
