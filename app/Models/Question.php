@@ -8,7 +8,7 @@ class Question extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['title', 'type', 'part_id', 'aspect_id', 'sub_aspect_id'];
+    protected $fillable = ['title', 'type', 'part_id', 'aspect_id', 'sub_aspect_id', 'order'];
 
 
     public function part()

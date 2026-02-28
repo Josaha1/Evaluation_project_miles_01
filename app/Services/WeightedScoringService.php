@@ -22,6 +22,22 @@ class WeightedScoringService
     ];
 
     /**
+     * Grade 5-8 Stakeholder Weights (น้ำหนักตามกลุ่มผู้ประเมิน สำหรับพนักงานระดับ 5-8)
+     * ตามเอกสารหลักเกณฑ์การประเมิน กนอ.:
+     * - ประเมินตนเอง (self)   : 50%
+     * - ผู้บังคับบัญชา (top)  : 20%
+     * - เพื่อนร่วมงาน (left)  : 30%
+     * ไม่มี bottom (ผู้ใต้บังคับบัญชา) และ right (ภายนอก) สำหรับพนักงาน 5-8
+     */
+    private const GRADE_5_8_STAKEHOLDER_WEIGHTS = [
+        'self'   => 0.50,  // ประเมินตนเอง
+        'top'    => 0.20,  // ผู้บังคับบัญชา
+        'left'   => 0.30,  // เพื่อนร่วมงาน
+        'bottom' => 0.0,   // ไม่ใช้
+        'right'  => 0.0,   // ไม่ใช้
+    ];
+
+    /**
      * Grade 9-10 Management Evaluation Criteria Weights
      * 1. ด้านความเป็นผู้นำ/ความสามารถในการบริหารจัดการ - 25%
      * 2. ด้านวิสัยทัศนและกลยุทธ - 15%
@@ -58,29 +74,55 @@ class WeightedScoringService
     ];
 
     /**
-     * Stakeholder Group Weights (น้ำหนักคะแนนการประเมินจากกลุ่มผู้มีส่วนในการประเมิน)
-     * 1. ประเมินตนเอง - 20%
-     * 2. ประเมินโดยผู้บังคับบังชา - 50%
-     * 3. ประเมินโดยผู้ร่วมงาน - 30%
+     * Governor (Grade 13) Evaluation Criteria Weights
+     * ผู้ว่าการ กนอ. — น้ำหนักเน้นภาวะผู้นำและวิสัยทัศน์สูงสุด
+     * 1. ด้านความเป็นผู้นำ/ความสามารถในการบริหารจัดการ - 30%
+     * 2. ด้านวิสัยทัศนและกลยุทธ - 25%
+     * 3. ด้านความสามารถในการสื่อสาร - 15%
+     * 4. ด้านกรอบความคิด ความคิด สร้างสรรค์และนวัตกรรม - 10%
+     * 5. ด้านจริยธรรมในการปฏิบัติงาน - 10%
+     * 6. ด้านความสัมพันธ์และการทำงานร่วมกับผูอื่น - 10%
      */
-    private const STAKEHOLDER_WEIGHTS = [
-        'self' => 0.20,    // ประเมินตนเอง
-        'top' => 0.50,     // ประเมินโดยผู้บังคับบังชา (Superior)
-        'left' => 0.30,    // ประเมินโดยผู้ร่วมงาน (Peer)
-        'bottom' => 0.0,   // Not used for grades 5-8
-        'right' => 0.0,    // External stakeholders (if applicable)
+    private const GOVERNOR_CRITERIA_WEIGHTS = [
+        'leadership_management' => 0.30,    // ความเป็นผู้นำ/ความสามารถในการบริหารจัดการ
+        'vision_strategy' => 0.25,          // วิสัยทัศนและกลยุทธ
+        'communication' => 0.15,            // ความสามารถในการสื่อสาร
+        'creativity_innovation' => 0.10,    // กรอบความคิด ความคิด สร้างสรรค์และนวัตกรรม
+        'ethics' => 0.10,                   // จริยธรรมในการปฏิบัติงาน
+        'relationships_teamwork' => 0.10,   // ความสัมพันธ์และการทำงานร่วมกับผูอื่น
     ];
 
     /**
-     * Enhanced Stakeholder Weights for Management Levels (9-12)
-     * Including additional evaluation angles
+     * Management Stakeholder Weights (น้ำหนักตามกลุ่มผู้ประเมิน สำหรับผู้บริหารระดับ 9-12)
+     * ตามเอกสารหลักเกณฑ์การประเมิน กนอ.:
+     * - ผู้บังคับบัญชา (top)          : 25%
+     * - ผู้ใต้บังคับบัญชา (bottom)    : 25%
+     * - ประเมินตนเอง (self)            : 10%
+     * - เพื่อนร่วมงาน (left)           : 20%
+     * - องค์กรภายนอก (right)          : 20%
      */
     private const MANAGEMENT_STAKEHOLDER_WEIGHTS = [
-        'self' => 0.15,    // ประเมินตนเอง
-        'top' => 0.35,     // ประเมินโดยผู้บังคับบังชา
-        'bottom' => 0.25,  // ประเมินโดยผู้ใต้บังคับบัญชา
-        'left' => 0.20,    // ประเมินโดยผู้ร่วมงาน
-        'right' => 0.05,   // ประเมินโดยผู้มีส่วนได้ส่วนเสียภายนอก
+        'self'   => 0.10,  // ประเมินตนเอง
+        'top'    => 0.25,  // ผู้บังคับบัญชา
+        'bottom' => 0.25,  // ผู้ใต้บังคับบัญชา
+        'left'   => 0.20,  // เพื่อนร่วมงาน
+        'right'  => 0.20,  // องค์กรภายนอก
+    ];
+
+    /**
+     * Governor Stakeholder Weights (น้ำหนักตามกลุ่มผู้ประเมิน สำหรับผู้ว่าการ ระดับ 13)
+     * - คณะกรรมการ/ผู้บังคับบัญชา (top) : 25%
+     * - ผู้ใต้บังคับบัญชา (bottom)         : 25%
+     * - ประเมินตนเอง (self)               : 10%
+     * - เพื่อนร่วมงาน (left)              : 20%
+     * - องค์กรภายนอก (right)             : 20%
+     */
+    private const GOVERNOR_STAKEHOLDER_WEIGHTS = [
+        'self'   => 0.10,  // ประเมินตนเอง
+        'top'    => 0.25,  // คณะกรรมการ/ผู้บังคับบัญชา
+        'bottom' => 0.25,  // ผู้ใต้บังคับบัญชา
+        'left'   => 0.20,  // เพื่อนร่วมงาน
+        'right'  => 0.20,  // องค์กรภายนอก
     ];
 
     /**
@@ -187,6 +229,7 @@ class WeightedScoringService
             $grade >= 5 && $grade <= 8 => '5-8',
             $grade >= 9 && $grade <= 10 => '9-10',
             $grade >= 11 && $grade <= 12 => '11-12',
+            $grade >= 13 => 'governor',
             default => 'other',
         };
     }
@@ -200,6 +243,7 @@ class WeightedScoringService
             '5-8' => self::GRADE_5_8_CRITERIA_WEIGHTS,
             '9-10' => self::GRADE_9_10_CRITERIA_WEIGHTS,
             '11-12' => self::GRADE_11_12_CRITERIA_WEIGHTS,
+            'governor' => self::GOVERNOR_CRITERIA_WEIGHTS,
             default => self::GRADE_5_8_CRITERIA_WEIGHTS, // fallback
         };
     }
@@ -210,9 +254,10 @@ class WeightedScoringService
     private function getStakeholderWeights(string $level): array
     {
         return match ($level) {
-            '5-8' => self::STAKEHOLDER_WEIGHTS,
+            '5-8' => self::GRADE_5_8_STAKEHOLDER_WEIGHTS,
             '9-10', '11-12' => self::MANAGEMENT_STAKEHOLDER_WEIGHTS,
-            default => self::STAKEHOLDER_WEIGHTS, // fallback
+            'governor' => self::GOVERNOR_STAKEHOLDER_WEIGHTS,
+            default => self::GRADE_5_8_STAKEHOLDER_WEIGHTS, // fallback
         };
     }
 
@@ -323,7 +368,7 @@ class WeightedScoringService
             'aq_tq' => 'ด้านเก่งงาน (Adversity & Technology Quotient)',
             'sustainability' => 'ด้านการปฏิบัติงานบนฐานความยั่งยืน',
             
-            // Management criteria (9-12)
+            // Management criteria (9-12) and Governor (13)
             'leadership_management' => 'ด้านความเป็นผู้นำ/ความสามารถในการบริหารจัดการ',
             'vision_strategy' => 'ด้านวิสัยทัศนและกลยุทธ',
             'communication' => 'ด้านความสามารถในการสื่อสาร',
@@ -623,13 +668,35 @@ class WeightedScoringService
      */
     private function getAngleWeights($grade)
     {
-        // Default weights for 360-degree evaluation
+        // Grade 5-8: self=50%, top=20%, left=30%, bottom=0%, right=0%
+        if ($grade >= 5 && $grade <= 8) {
+            return [
+                'top'    => 20,  // ผู้บังคับบัญชา
+                'bottom' => 0,   // ไม่ใช้
+                'self'   => 50,  // ประเมินตนเอง
+                'left'   => 30,  // เพื่อนร่วมงาน
+                'right'  => 0,   // ไม่ใช้
+            ];
+        }
+
+        // Governor (Grade 13): top=25%, bottom=25%, self=10%, left=20%, right=20%
+        if ($grade >= 13) {
+            return [
+                'top'    => 25,  // คณะกรรมการ/ผู้บังคับบัญชา
+                'bottom' => 25,  // ผู้ใต้บังคับบัญชา
+                'self'   => 10,  // ประเมินตนเอง
+                'left'   => 20,  // เพื่อนร่วมงาน
+                'right'  => 20,  // องค์กรภายนอก
+            ];
+        }
+
+        // Grade 9-12: top=25%, bottom=25%, self=10%, left=20%, right=20%
         return [
-            'top' => 25,     // องศาบน
-            'bottom' => 25,  // องศาล่าง  
-            'self' => 10,    // ประเมินตนเอง
-            'left' => 20,    // องศาซ้าย
-            'right' => 20    // องศาขวา
+            'top'    => 25,  // ผู้บังคับบัญชา
+            'bottom' => 25,  // ผู้ใต้บังคับบัญชา
+            'self'   => 10,  // ประเมินตนเอง
+            'left'   => 20,  // เพื่อนร่วมงาน
+            'right'  => 20,  // องค์กรภายนอก
         ];
     }
     
@@ -660,17 +727,30 @@ class WeightedScoringService
         // This would typically come from your aspect configuration
         // For now, return equal weight for all aspects
         $baseWeight = $grade >= 9 ? 16.67 : 25; // 6 aspects for grade 9+ vs 4 for grade 5-8
-        
-        // You can customize weights per aspect here
+
+        // Governor (grade 13) — เน้นภาวะผู้นำสูงสุด
+        if ($grade >= 13) {
+            $governorWeights = [
+                'ด้านความเป็นผู้นำ' => 30,
+                'ด้านการมีวิสัยทัศน์' => 25,
+                'ด้านการติดต่อสื่อสาร' => 15,
+                'ด้านความสามารถในการคิดและนวัตกรรม' => 10,
+                'ด้านจริยธรรมในการปฏิบัติงาน' => 10,
+                'ด้านทักษะระหว่างบุคคลและความร่วมมือ' => 10,
+            ];
+            return $governorWeights[$aspectName] ?? $baseWeight;
+        }
+
+        // Grade 9-12 management
         $aspectWeights = [
             'ด้านความเป็นผู้นำ' => 25,
-            'ด้านการมีวิสัยทัศน์' => 15, 
+            'ด้านการมีวิสัยทัศน์' => 15,
             'ด้านการติดต่อสื่อสาร' => 15,
             'ด้านความสามารถในการคิดและนวัตกรรม' => 15,
             'ด้านจริยธรรมในการปฏิบัติงาน' => 10,
             'ด้านทักษะระหว่างบุคคลและความร่วมมือ' => 20
         ];
-        
+
         return $aspectWeights[$aspectName] ?? $baseWeight;
     }
 }

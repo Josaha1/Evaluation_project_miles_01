@@ -12,6 +12,16 @@ class Departments extends Model
 
     public function users()
     {
-        return $this->hasMany(User::class); 
+        return $this->hasMany(User::class);
+    }
+
+    public function division()
+    {
+        return $this->belongsTo(Divisions::class);
+    }
+
+    public function positions()
+    {
+        return $this->hasMany(Position::class, 'department_id');
     }
 }

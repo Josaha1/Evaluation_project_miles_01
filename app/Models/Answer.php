@@ -12,7 +12,8 @@ class Answer extends Model
         'evaluatee_id',
         'question_id',
         'value',
-        'other_text'
+        'other_text',
+        'external_access_code_id',
     ];
 
     public function user(): BelongsTo
@@ -33,5 +34,10 @@ class Answer extends Model
     public function question(): BelongsTo
     {
         return $this->belongsTo(Question::class);
+    }
+
+    public function externalAccessCode(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\ExternalAccessCode::class);
     }
 }

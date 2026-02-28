@@ -1,8 +1,15 @@
 <?php
 
+use App\Http\Controllers\AdminAccessCodeController;
+use App\Http\Controllers\AdminDepartmentController;
+use App\Http\Controllers\AdminDivisionController;
 use App\Http\Controllers\AdminEvaluationAssignmentController;
 use App\Http\Controllers\AdminEvaluationReportController;
+use App\Http\Controllers\AdminExternalOrganizationController;
+use App\Http\Controllers\AdminFactionController;
+use App\Http\Controllers\AdminPositionController;
 use App\Http\Controllers\AdminUserController;
+use App\Http\Controllers\ExternalEvaluatorController;
 use App\Http\Controllers\AspectController;
 use App\Http\Controllers\AssignedEvaluationController;
 use App\Http\Controllers\Auth\LoginController;
@@ -18,6 +25,26 @@ use App\Http\Controllers\SatisfactionEvaluationController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+
+/*
+|--------------------------------------------------------------------------
+| เส้นทางสำหรับผู้ประเมินภายนอก (External Evaluator Routes)
+|--------------------------------------------------------------------------
+*/
+
+// Guest external routes (ไม่ต้อง auth)
+Route::prefix('external')->name('external.')->group(function () {
+    Route::get('/login', [ExternalEvaluatorController::class, 'showLogin'])->name('login');
+    Route::post('/login', [ExternalEvaluatorController::class, 'login'])->name('login.submit')->middleware('throttle:5,1');
+    Route::post('/logout', [ExternalEvaluatorController::class, 'logout'])->name('logout');
+    Route::get('/thank-you', [ExternalEvaluatorController::class, 'showThankYou'])->name('thank-you');
+});
+
+// External auth routes (ต้องมี external session)
+Route::prefix('external')->name('external.')->middleware('external')->group(function () {
+    Route::get('/evaluate', [ExternalEvaluatorController::class, 'showEvaluation'])->name('evaluate');
+    Route::post('/evaluate', [ExternalEvaluatorController::class, 'submitEvaluation'])->name('evaluate.submit');
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -43,49 +70,6 @@ Route::get('/cookie-policy', function () {
 */
 
 Route::middleware('auth')->group(function () {
-    // Debug routes for Cross-Angle Evaluation - REMOVE AFTER DEBUGGING
-    Route::get('/debug/evaluation-assignments/{evaluatorId}', function ($evaluatorId) {
-        $assignments = \App\Models\EvaluationAssignment::with(['evaluatee'])
-            ->where('evaluator_id', $evaluatorId)
-            ->get();
-
-        $result = [
-            'total_assignments' => $assignments->count(),
-            'by_angle'          => $assignments->groupBy('angle')->map(function ($group) {
-                return [
-                    'count'          => $group->count(),
-                    'evaluatee_ids'  => $group->pluck('evaluatee_id')->toArray(),
-                    'evaluation_ids' => $group->pluck('evaluation_id')->unique()->toArray(),
-                    'details'        => $group->map(function ($assignment) {
-                        return [
-                            'id'             => $assignment->id,
-                            'evaluatee_id'   => $assignment->evaluatee_id,
-                            'evaluation_id'  => $assignment->evaluation_id,
-                            'evaluatee_name' => $assignment->evaluatee ?
-                            $assignment->evaluatee->fname . ' ' . $assignment->evaluatee->lname : 'NOT_FOUND',
-                        ];
-                    })->toArray(),
-                ];
-            }),
-            'by_evaluation'     => $assignments->groupBy('evaluation_id')->map(function ($group, $evalId) {
-                return [
-                    'evaluation_id' => $evalId,
-                    'count'         => $group->count(),
-                    'angles'        => $group->groupBy('angle')->map(function ($angleGroup) {
-                        return [
-                            'count'         => $angleGroup->count(),
-                            'evaluatee_ids' => $angleGroup->pluck('evaluatee_id')->toArray(),
-                        ];
-                    }),
-                ];
-            }),
-        ];
-
-        return response()->json($result, 200, [], JSON_PRETTY_PRINT);
-    });
-
-    Route::get('/debug/cross-angle-evaluation/{evaluatorId}', [AssignedEvaluationController::class, 'debugCrossAngleEvaluation']);
-
     Route::get('/profile', [ProfileController::class, 'show'])->name('profile.show');
     Route::get('/profile/edit', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -178,10 +162,51 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::delete('/{user}', [AdminUserController::class, 'destroy'])->name('destroy');
     });
 
-    // Helper routes สำหรับสร้างข้อมูลใหม่ใน Admin Form
-    Route::post('/admin/departments', [AdminUserController::class, 'storeDepartment'])->name('admin.departments.store');
-    Route::post('/admin/factions/store', [AdminUserController::class, 'storeFaction'])->name('admin.factions.store');
-    Route::post('/admin/positions', [AdminUserController::class, 'storePosition'])->name('admin.positions.store');
+    // Helper routes สำหรับสร้างข้อมูลใหม่ใน Admin Form (inline create)
+    Route::post('/admin/departments/quick', [AdminUserController::class, 'storeDepartment'])->name('admin.departments.quick-store');
+    Route::post('/admin/factions/quick', [AdminUserController::class, 'storeFaction'])->name('admin.factions.quick-store');
+    Route::post('/admin/positions/quick', [AdminUserController::class, 'storePosition'])->name('admin.positions.quick-store');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Organizational Structure Management (CRUD)
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('admin/divisions')->name('admin.divisions.')->group(function () {
+        Route::get('/', [AdminDivisionController::class, 'index'])->name('index');
+        Route::get('/create', [AdminDivisionController::class, 'create'])->name('create');
+        Route::post('/', [AdminDivisionController::class, 'store'])->name('store');
+        Route::get('/{division}/edit', [AdminDivisionController::class, 'edit'])->name('edit');
+        Route::put('/{division}', [AdminDivisionController::class, 'update'])->name('update');
+        Route::delete('/{division}', [AdminDivisionController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::prefix('admin/departments')->name('admin.departments.')->group(function () {
+        Route::get('/', [AdminDepartmentController::class, 'index'])->name('index');
+        Route::get('/create', [AdminDepartmentController::class, 'create'])->name('create');
+        Route::post('/', [AdminDepartmentController::class, 'store'])->name('store');
+        Route::get('/{department}/edit', [AdminDepartmentController::class, 'edit'])->name('edit');
+        Route::put('/{department}', [AdminDepartmentController::class, 'update'])->name('update');
+        Route::delete('/{department}', [AdminDepartmentController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::prefix('admin/positions')->name('admin.positions.')->group(function () {
+        Route::get('/', [AdminPositionController::class, 'index'])->name('index');
+        Route::get('/create', [AdminPositionController::class, 'create'])->name('create');
+        Route::post('/', [AdminPositionController::class, 'store'])->name('store');
+        Route::get('/{position}/edit', [AdminPositionController::class, 'edit'])->name('edit');
+        Route::put('/{position}', [AdminPositionController::class, 'update'])->name('update');
+        Route::delete('/{position}', [AdminPositionController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::prefix('admin/factions')->name('admin.factions.')->group(function () {
+        Route::get('/', [AdminFactionController::class, 'index'])->name('index');
+        Route::get('/create', [AdminFactionController::class, 'create'])->name('create');
+        Route::post('/', [AdminFactionController::class, 'store'])->name('store');
+        Route::get('/{faction}/edit', [AdminFactionController::class, 'edit'])->name('edit');
+        Route::put('/{faction}', [AdminFactionController::class, 'update'])->name('update');
+        Route::delete('/{faction}', [AdminFactionController::class, 'destroy'])->name('destroy');
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -352,16 +377,6 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::get('/api/system-health', [AdminEvaluationReportController::class, 'getSystemHealth'])
             ->name('api.system-health');
         
-        // Debug API
-        Route::get('/api/debug-completion', [AdminEvaluationReportController::class, 'debugCompletionData'])
-            ->name('api.debug-completion');
-        Route::get('/api/debug-data', [AdminEvaluationReportController::class, 'debugDataAvailability'])
-            ->name('api.debug-data');
-        Route::get('/api/quick-debug', [AdminEvaluationReportController::class, 'quickDebug'])
-            ->name('api.quick-debug');
-        Route::get('/api/debug-participant-count', [AdminEvaluationReportController::class, 'debugParticipantCount'])
-            ->name('api.debug-participant-count');
-        
         // Individual angle report API
         Route::get('/api/individual-angle-report', [AdminEvaluationReportController::class, 'getIndividualAngleReport'])
             ->name('api.individual-angle-report');
@@ -381,5 +396,35 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     // Admin Satisfaction Evaluation Results
     Route::get('/admin/satisfaction-evaluation/{evaluationId}/results', [SatisfactionEvaluationController::class, 'results'])
         ->name('admin.satisfaction.results');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin External Organization Management
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('admin/external-organizations')->name('admin.external-organizations.')->group(function () {
+        Route::get('/', [AdminExternalOrganizationController::class, 'index'])->name('index');
+        Route::get('/create', [AdminExternalOrganizationController::class, 'create'])->name('create');
+        Route::post('/', [AdminExternalOrganizationController::class, 'store'])->name('store');
+        Route::get('/{external_organization}/edit', [AdminExternalOrganizationController::class, 'edit'])->name('edit');
+        Route::put('/{external_organization}', [AdminExternalOrganizationController::class, 'update'])->name('update');
+        Route::delete('/{external_organization}', [AdminExternalOrganizationController::class, 'destroy'])->name('destroy');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin Access Code Management
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('admin/access-codes')->name('admin.access-codes.')->group(function () {
+        Route::get('/', [AdminAccessCodeController::class, 'index'])->name('index');
+        Route::get('/create', [AdminAccessCodeController::class, 'create'])->name('create');
+        Route::post('/generate', [AdminAccessCodeController::class, 'generate'])->name('generate');
+        Route::get('/export', [AdminAccessCodeController::class, 'exportCodes'])->name('export');
+        Route::post('/print-cards', [AdminAccessCodeController::class, 'printCards'])->name('print-cards');
+        Route::get('/{accessCode}', [AdminAccessCodeController::class, 'show'])->name('show');
+        Route::put('/{accessCode}/revoke', [AdminAccessCodeController::class, 'revoke'])->name('revoke');
+        Route::delete('/{accessCode}', [AdminAccessCodeController::class, 'destroy'])->name('destroy');
+    });
 
 });

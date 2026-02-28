@@ -113,6 +113,17 @@ class HandleInertiaRequests extends Middleware
                     }),
                 ];
             },
+
+            // External session info (for external evaluators)
+            'externalSession' => function () use ($request) {
+                if ($request->session()->has('external_session_token')) {
+                    return [
+                        'active' => true,
+                        'session_id' => $request->session()->get('external_session_id'),
+                    ];
+                }
+                return null;
+            },
         ]);
     }
 }

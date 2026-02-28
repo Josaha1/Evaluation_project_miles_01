@@ -98,7 +98,7 @@ export default function AdminUserForm() {
 
     const handleCreateDepartment = (inputValue: string) => {
         router.post(
-            route("admin.departments.store"),
+            route("admin.departments.quick-store"),
             { name: inputValue, division_id: data.division_id },
             {
                 onSuccess: () => {
@@ -111,7 +111,7 @@ export default function AdminUserForm() {
     };
     const handleCreateFaction = (inputValue: string) => {
         router.post(
-            route("admin.factions.store"),
+            route("admin.factions.quick-store"),
             { name: inputValue },
             {
                 onSuccess: () => {
@@ -124,7 +124,7 @@ export default function AdminUserForm() {
     };
     const handleCreatePosition = (inputValue: string) => {
         router.post(
-            route("admin.positions.store"),
+            route("admin.positions.quick-store"),
             { title: inputValue },
             {
                 onSuccess: () => {

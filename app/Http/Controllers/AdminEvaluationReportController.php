@@ -288,168 +288,6 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
-     * Quick debug method to check database state
-     */
-    public function quickDebug(Request $request): JsonResponse
-    {
-        try {
-            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
-            
-            $debug = [
-                'current_fiscal_year' => $fiscalYear,
-                'database_counts' => [
-                    'evaluation_assignments' => DB::table('evaluation_assignments')->count(),
-                    'answers' => DB::table('answers')->count(),
-                    'users' => DB::table('users')->where('role', 'user')->count(),
-                    'evaluations' => DB::table('evaluations')->count(),
-                ],
-                'fiscal_years_in_assignments' => DB::table('evaluation_assignments')
-                    ->select('fiscal_year', DB::raw('COUNT(*) as count'))
-                    ->groupBy('fiscal_year')
-                    ->orderBy('fiscal_year', 'desc')
-                    ->get(),
-                'sample_assignments' => DB::table('evaluation_assignments as ea')
-                    ->join('users as evaluator', 'ea.evaluator_id', '=', 'evaluator.id')
-                    ->join('users as evaluatee', 'ea.evaluatee_id', '=', 'evaluatee.id')
-                    ->select([
-                        'ea.fiscal_year',
-                        'ea.angle',
-                        'evaluator.fname as evaluator_name',
-                        'evaluatee.fname as evaluatee_name'
-                    ])
-                    ->limit(10)
-                    ->get(),
-                'sample_answers' => DB::table('answers as a')
-                    ->join('evaluation_assignments as ea', function($join) {
-                        $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                             ->on('a.user_id', '=', 'ea.evaluator_id')
-                             ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                    })
-                    ->select([
-                        'ea.fiscal_year',
-                        'ea.angle',
-                        'a.value',
-                        DB::raw('COUNT(*) as answer_count')
-                    ])
-                    ->groupBy('ea.fiscal_year', 'ea.angle', 'a.value')
-                    ->limit(10)
-                    ->get()
-            ];
-            
-            return response()->json($debug);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * Debug method to check data availability
-     */
-    public function debugDataAvailability(Request $request): JsonResponse
-    {
-        try {
-            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
-            
-            $debug = [
-                'fiscal_year' => $fiscalYear,
-                'raw_counts' => [
-                    'total_answers' => DB::table('answers')->count(),
-                    'answers_this_year' => DB::table('answers')
-                        ->whereYear('created_at', $fiscalYear)->count(),
-                    'total_assignments' => DB::table('evaluation_assignments')->count(),
-                    'assignments_this_year' => DB::table('evaluation_assignments')
-                        ->where('fiscal_year', $fiscalYear)->count(),
-                    'total_users' => DB::table('users')->where('role', 'user')->count(),
-                    'total_evaluations' => DB::table('evaluations')->count(),
-                    'total_questions' => DB::table('questions')->count(),
-                    'total_options' => DB::table('options')->count(),
-                ],
-                'assignments_breakdown' => [
-                    'all_fiscal_years' => DB::table('evaluation_assignments')
-                        ->select('fiscal_year', DB::raw('COUNT(*) as count'))
-                        ->groupBy('fiscal_year')
-                        ->orderBy('fiscal_year', 'desc')
-                        ->get(),
-                    'current_year_by_angle' => DB::table('evaluation_assignments')
-                        ->where('fiscal_year', $fiscalYear)
-                        ->select('angle', DB::raw('COUNT(*) as count'))
-                        ->groupBy('angle')
-                        ->get(),
-                    'unique_evaluatees_current_year' => DB::table('evaluation_assignments')
-                        ->where('fiscal_year', $fiscalYear)
-                        ->distinct('evaluatee_id')
-                        ->count(),
-                    'unique_evaluators_current_year' => DB::table('evaluation_assignments')
-                        ->where('fiscal_year', $fiscalYear)
-                        ->distinct('evaluator_id')
-                        ->count(),
-                ],
-                'answers_breakdown' => [
-                    'unique_users_with_answers' => DB::table('answers as a')
-                        ->join('evaluation_assignments as ea', function($join) {
-                            $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                                 ->on('a.user_id', '=', 'ea.evaluator_id')
-                                 ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                        })
-                        ->where('ea.fiscal_year', $fiscalYear)
-                        ->distinct('a.user_id')
-                        ->count(),
-                    'unique_evaluatees_with_answers' => DB::table('answers as a')
-                        ->join('evaluation_assignments as ea', function($join) {
-                            $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                                 ->on('a.user_id', '=', 'ea.evaluator_id')
-                                 ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                        })
-                        ->where('ea.fiscal_year', $fiscalYear)
-                        ->distinct('a.evaluatee_id')
-                        ->count(),
-                    'answers_by_fiscal_year' => DB::table('answers as a')
-                        ->join('evaluation_assignments as ea', function($join) {
-                            $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                                 ->on('a.user_id', '=', 'ea.evaluator_id')
-                                 ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                        })
-                        ->select('ea.fiscal_year', DB::raw('COUNT(DISTINCT a.user_id) as unique_users'), DB::raw('COUNT(*) as total_answers'))
-                        ->groupBy('ea.fiscal_year')
-                        ->orderBy('ea.fiscal_year', 'desc')
-                        ->get(),
-                ],
-                'sample_data' => [
-                    'recent_answers' => DB::table('answers as a')
-                        ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
-                        ->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
-                        ->select([
-                            DB::raw("CONCAT(evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
-                            DB::raw("CONCAT(evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
-                            'a.value',
-                            'a.created_at'
-                        ])
-                        ->orderBy('a.created_at', 'desc')
-                        ->limit(5)
-                        ->get(),
-                    'fiscal_year_assignments' => DB::table('evaluation_assignments as ea')
-                        ->join('users as evaluatee', 'ea.evaluatee_id', '=', 'evaluatee.id')
-                        ->join('users as evaluator', 'ea.evaluator_id', '=', 'evaluator.id')
-                        ->where('ea.fiscal_year', $fiscalYear)
-                        ->select([
-                            DB::raw("CONCAT(evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
-                            DB::raw("CONCAT(evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
-                            'ea.angle',
-                            'ea.evaluation_id',
-                            'ea.fiscal_year'
-                        ])
-                        ->limit(10)
-                        ->get()
-                ]
-            ];
-            
-            return response()->json($debug);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
      * Calculate dashboard statistics with correct business logic
      */
     private function calculateDashboardStats(Collection $rawScores, Collection $users, Collection $assignments): array
@@ -1474,7 +1312,8 @@ class AdminEvaluationReportController extends Controller
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division_id' => $request->input('division_id'),
-                'user_id' => $request->input('user_id')
+                'user_id' => $request->input('user_id'),
+                'only_completed' => $request->input('only_completed')
             ];
 
             $filePath = $this->evaluationExportService->exportComprehensiveEvaluationReport($filters);
@@ -1496,11 +1335,18 @@ class AdminEvaluationReportController extends Controller
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division_id' => $request->input('division_id'),
-                'user_id' => $request->input('user_id')
+                'user_id' => $request->input('user_id'),
+                'only_completed' => $request->input('only_completed')
             ];
 
-            // Evaluation ID 1 is for internal executives 9-12
-            $filePath = $this->evaluationExportService->exportByEvaluationType(1, $filters);
+            // Dynamic lookup: find 360 internal evaluation for grades 9-12
+            $evaluation = Evaluation::where('user_type', 'internal')
+                ->where('grade_min', 9)->where('grade_max', 12)
+                ->where('title', 'like', '%360%')
+                ->where('status', 'published')
+                ->firstOrFail();
+
+            $filePath = $this->evaluationExportService->exportByEvaluationType($evaluation->id, $filters);
             $filename = basename($filePath);
 
             return response()->download($filePath, $filename)->deleteFileAfterSend(true);
@@ -1519,11 +1365,18 @@ class AdminEvaluationReportController extends Controller
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division_id' => $request->input('division_id'),
-                'user_id' => $request->input('user_id')
+                'user_id' => $request->input('user_id'),
+                'only_completed' => $request->input('only_completed')
             ];
 
-            // Evaluation ID 3 is for employees 5-8
-            $filePath = $this->evaluationExportService->exportByEvaluationType(3, $filters);
+            // Dynamic lookup: find 360 internal evaluation for grades 5-8
+            $evaluation = Evaluation::where('user_type', 'internal')
+                ->where('grade_min', 5)->where('grade_max', 8)
+                ->where('title', 'like', '%360%')
+                ->where('status', 'published')
+                ->firstOrFail();
+
+            $filePath = $this->evaluationExportService->exportByEvaluationType($evaluation->id, $filters);
             $filename = basename($filePath);
 
             return response()->download($filePath, $filename)->deleteFileAfterSend(true);
@@ -1938,71 +1791,6 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
-     * Clear cache and get fresh participant count for debugging
-     */
-    public function debugParticipantCount(Request $request)
-    {
-        try {
-            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
-            
-            // Clear all evaluation report caches
-            Cache::forget("evaluation_report_{$fiscalYear}_null_null_null");
-            Cache::forget("evaluation_report_{$fiscalYear}____");
-            
-            // Get fresh counts using GROUP BY method (user's preferred method)
-            $totalWithFilterGroupBy = DB::select("
-                SELECT COUNT(*) as total 
-                FROM (
-                    SELECT evaluator_id 
-                    FROM evaluation_assignments 
-                    WHERE fiscal_year = ? 
-                    GROUP BY evaluator_id
-                ) as grouped
-            ", [$fiscalYear])[0]->total;
-                
-            $totalWithFilterDistinct = DB::table('evaluation_assignments')
-                ->where('fiscal_year', $fiscalYear)
-                ->distinct('evaluator_id')
-                ->count();
-                
-            $totalWithoutFilterGroupBy = DB::select("
-                SELECT COUNT(*) as total 
-                FROM (
-                    SELECT evaluator_id 
-                    FROM evaluation_assignments 
-                    GROUP BY evaluator_id
-                ) as grouped
-            ")[0]->total;
-                
-            $fiscalYearBreakdown = DB::table('evaluation_assignments')
-                ->select('fiscal_year', DB::raw('COUNT(DISTINCT evaluator_id) as count'))
-                ->groupBy('fiscal_year')
-                ->orderBy('fiscal_year', 'desc')
-                ->get();
-            
-            return response()->json([
-                'current_fiscal_year' => $fiscalYear,
-                'counting_methods' => [
-                    'group_by_with_fiscal_filter' => $totalWithFilterGroupBy,
-                    'distinct_with_fiscal_filter' => $totalWithFilterDistinct,
-                    'group_by_without_filter' => $totalWithoutFilterGroupBy,
-                ],
-                'now_using_method' => 'GROUP BY evaluator_id (user preferred)',
-                'new_displayed_count' => $totalWithFilterGroupBy,
-                'user_reported_count' => 607,
-                'old_displayed_count' => 620,
-                'fiscal_year_breakdown' => $fiscalYearBreakdown,
-                'cache_cleared' => true,
-                'debug_timestamp' => now()->toISOString()
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('Debug participant count error: ' . $e->getMessage());
-            return response()->json(['error' => 'Debug failed'], 500);
-        }
-    }
-
-    /**
      * Export self-evaluation report
      */
     public function exportSelfEvaluationReport(Request $request)
@@ -2034,7 +1822,8 @@ class AdminEvaluationReportController extends Controller
             // Get self-evaluation data (where user_id = evaluatee_id)
             $filters = [
                 'fiscal_year' => $fiscalYear,
-                'self_evaluation' => true  // Custom flag to indicate self-evaluation filtering
+                'self_evaluation' => true,  // Custom flag to indicate self-evaluation filtering
+                'only_completed' => $request->input('only_completed')
             ];
             
             if ($request->filled('division_id')) {
@@ -2044,6 +1833,8 @@ class AdminEvaluationReportController extends Controller
             if ($request->filled('grade')) {
                 $filters['grade'] = $request->input('grade');
             }
+            
+            Log::info('Self-evaluation export filters (all parts):', $filters);
             
             $filePath = $this->evaluationExportService->exportSelfEvaluationReport($filters);
             
@@ -2164,51 +1955,6 @@ class AdminEvaluationReportController extends Controller
                 'success' => false,
                 'error' => 'Failed to fetch completion stats',
             ], 500);
-        }
-    }
-
-    /**
-     * Debug completion data
-     */
-    public function debugCompletionData(Request $request): JsonResponse
-    {
-        try {
-            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
-            
-            $debugData = [
-                'fiscal_year' => $fiscalYear,
-                'total_answers' => DB::table('answers')->whereYear('created_at', $fiscalYear)->count(),
-                'total_assignments' => DB::table('evaluation_assignments')->where('fiscal_year', $fiscalYear)->count(),
-                'unique_evaluators' => DB::table('answers')->whereYear('created_at', $fiscalYear)->distinct('user_id')->count(),
-                'unique_evaluatees' => DB::table('answers')->whereYear('created_at', $fiscalYear)->distinct('evaluatee_id')->count(),
-                'completion_by_angle' => DB::table('evaluation_assignments as ea')
-                    ->leftJoin('answers as a', function($join) {
-                        $join->on('ea.evaluation_id', '=', 'a.evaluation_id')
-                             ->on('ea.evaluator_id', '=', 'a.user_id')
-                             ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
-                    })
-                    ->where('ea.fiscal_year', $fiscalYear)
-                    ->select('ea.angle', DB::raw('COUNT(DISTINCT ea.id) as total'), DB::raw('COUNT(DISTINCT a.evaluatee_id) as completed'))
-                    ->groupBy('ea.angle')
-                    ->get(),
-                'recent_activity' => DB::table('answers as a')
-                    ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
-                    ->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
-                    ->whereYear('a.created_at', $fiscalYear)
-                    ->select([
-                        DB::raw("CONCAT(evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
-                        DB::raw("CONCAT(evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
-                        'a.created_at'
-                    ])
-                    ->orderBy('a.created_at', 'desc')
-                    ->limit(10)
-                    ->get(),
-            ];
-            
-            return response()->json($debugData);
-        } catch (\Exception $e) {
-            Log::error('Debug completion data error: ' . $e->getMessage());
-            return response()->json(['error' => 'Debug failed'], 500);
         }
     }
 

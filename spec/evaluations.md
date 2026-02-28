@@ -49,3 +49,22 @@ Main evaluation form template table defining evaluation criteria and target grou
 - Status controls evaluation availability
 - user_type determines target audience (internal vs external staff)
 - Forms can have multiple parts with different evaluation criteria
+
+### Governor Evaluations (Grade 13)
+
+Governor evaluations were added via `GovernorEvaluationSeeder`:
+
+| Evaluation | user_type | grade_min | grade_max | Description |
+|------------|-----------|-----------|-----------|-------------|
+| Internal Governor 360 | internal | 13 | 13 | บุคลากรภายในประเมินผู้ว่าการ |
+| External Governor 360 | external | 13 | 13 | บุคลากรภายนอกประเมินผู้ว่าการ |
+| Self Governor | internal | 13 | 13 | ผู้ว่าการประเมินตนเอง |
+
+**Structure per evaluation:**
+- Part 1: 6 aspects (Leadership 30%, Vision 25%, Communication 15%, Innovation 10%, Ethics 10%, Teamwork 10%)
+- Part 2: Organizational Culture (I-EA-T values)
+- Part 3 (Self only): Open-ended questions
+
+**Weighted Scoring (Governor — WeightedScoringService):**
+- Stakeholder weights: top 25%, bottom 25%, self 10%, left 20%, right 20%
+- Criteria weights: Leadership 30%, Vision 25%, Communication 15%, Innovation 10%, Ethics 10%, Teamwork 10%

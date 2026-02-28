@@ -190,6 +190,7 @@ interface ExportOptions {
     divisions: string[];
     grades: number[];
     reportType: 'summary' | 'detailed' | 'individual' | 'comparison';
+    onlyCompleted: boolean;
 }
 
 const AdminEvaluationReport: React.FC = () => {
@@ -243,6 +244,7 @@ const AdminEvaluationReport: React.FC = () => {
         divisions: [],
         grades: [],
         reportType: 'summary',
+        onlyCompleted: false,
     });
 
     const [searchQuery, setSearchQuery] = useState("");
@@ -339,14 +341,18 @@ const AdminEvaluationReport: React.FC = () => {
             formData.append('include_raw_data', exportOptions.includeRawData.toString());
             formData.append('date_range', exportOptions.dateRange);
             formData.append('report_type', exportOptions.reportType);
+            formData.append('only_completed', exportOptions.onlyCompleted.toString());
             
             if (selectedDivision) formData.append('division_id', selectedDivision);
             if (selectedGrade) formData.append('grade', selectedGrade);
             
-            // Add evaluation_id for detailed exports
-            if (['detailed-data', 'executives', 'employees', 'self-evaluation'].includes(type)) {
-                const evaluationId = type === 'employees' ? '3' : '1'; // 3 for employees 5-8, 1 for executives 9-12
-                formData.append('evaluation_id', evaluationId);
+            // Add evaluation_id only for detailed-data export (user selects specific evaluation)
+            // executives, employees, self-evaluation use dynamic lookup on backend
+            if (type === 'detailed-data') {
+                const evaluationId = formData.get('evaluation_id');
+                if (!evaluationId) {
+                    formData.append('evaluation_id', '1');
+                }
             }
             
             exportOptions.divisions.forEach(div => formData.append('divisions[]', div));
@@ -1970,7 +1976,7 @@ const ExportsView: React.FC<{
         {
             id: 'comprehensive',
             title: 'รายงานรวมผู้บริหารและพนักงาน',
-            description: 'รายงานครบถ้วนทั้งระดับ 9-12 และ 5-8 พร้อม Option Mapping',
+            description: 'รายงานครบถ้วนทั้งผู้ว่าการ ระดับ 9-12 และ 5-8 พร้อม Option Mapping',
             icon: Building,
             color: 'emerald'
         },
@@ -2147,6 +2153,23 @@ const ExportsView: React.FC<{
                             dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
                         }`}>
                             รวมข้อมูลดิบ
+                        </span>
+                    </label>
+
+                    <label className="flex items-center gap-3">
+                        <input
+                            type="checkbox"
+                            checked={exportOptions.onlyCompleted}
+                            onChange={(e) => setExportOptions(prev => ({ 
+                                ...prev, 
+                                onlyCompleted: e.target.checked 
+                            }))}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className={`text-sm ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                            เฉพาะผู้ทำครบแล้ว
                         </span>
                     </label>
                 </div>

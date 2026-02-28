@@ -8,7 +8,7 @@ class Position extends Model
 {
     use HasFactory;
     protected $table = 'positions'; 
-    protected $fillable = ['title'];
+    protected $fillable = ['title', 'department_id'];
 
     public function department()
     {
