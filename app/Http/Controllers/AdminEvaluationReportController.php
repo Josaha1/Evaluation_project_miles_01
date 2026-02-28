@@ -100,17 +100,13 @@ class AdminEvaluationReportController extends Controller
      */
     private function fetchComprehensiveData(int $fiscalYear, $divisionId, $grade, $userId): array
     {
-        $cacheKey = "evaluation_report_{$fiscalYear}_{$divisionId}_{$grade}_{$userId}";
-        
-        // DEBUG: Log cache key and check if cached
-        $isCached = Cache::has($cacheKey);
-        Log::info('fetchComprehensiveData cache info:', [
-            'cache_key' => $cacheKey,
-            'is_cached' => $isCached,
-            'cache_ttl_hours' => self::CACHE_TTL / 3600,
-            'fiscal_year' => $fiscalYear
-        ]);
-        
+        $cacheKey = "evaluation_report_" . md5(json_encode([
+            'fy' => $fiscalYear,
+            'div' => $divisionId,
+            'grade' => $grade,
+            'user' => $userId,
+        ]));
+
         return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($fiscalYear, $divisionId, $grade, $userId) {
             Log::info('Cache miss - generating fresh data for fiscal year: ' . $fiscalYear);
             // Get basic data
@@ -293,40 +289,12 @@ class AdminEvaluationReportController extends Controller
     private function calculateDashboardStats(Collection $rawScores, Collection $users, Collection $assignments): array
     {
         $fiscalYear = $this->getCurrentFiscalYear();
-        
-        // DEBUG: Log fiscal year being used
-        Log::info('calculateDashboardStats - Fiscal Year being used: ' . $fiscalYear);
-        
-        // ผู้เข้าร่วม: ใช้ GROUP BY evaluator_id แบบที่ผู้ใช้ต้องการ สำหรับปีงบประมาณปัจจุบัน
-        // ใช้ subquery เพื่อให้ได้ผลลัพธ์ที่ถูกต้องเหมือน SQL: SELECT evaluator_id FROM evaluation_assignments WHERE fiscal_year = 2025 GROUP BY evaluator_id
-        $participantsByGroupBy = DB::select("
-            SELECT COUNT(*) as total 
-            FROM (
-                SELECT evaluator_id 
-                FROM evaluation_assignments 
-                WHERE fiscal_year = ? 
-                GROUP BY evaluator_id
-            ) as grouped
-        ", [$fiscalYear])[0]->total;
-        
-        // เปรียบเทียบกับวิธีเดิม
-        $totalParticipantsDistinct = DB::table('evaluation_assignments')
+
+        // ผู้เข้าร่วม: GROUP BY evaluator_id สำหรับปีงบประมาณปัจจุบัน
+        $totalParticipants = DB::table('evaluation_assignments')
             ->where('fiscal_year', $fiscalYear)
             ->distinct('evaluator_id')
             ->count();
-            
-        // ใช้วิธี GROUP BY ตามที่ผู้ใช้ต้องการ
-        $totalParticipants = $participantsByGroupBy;
-        
-        // DEBUG: Log comparison
-        Log::info('Participant Count Comparison (Using Raw SQL GROUP BY):', [
-            'group_by_raw_sql_method' => $participantsByGroupBy,
-            'distinct_method' => $totalParticipantsDistinct,
-            'fiscal_year_used' => $fiscalYear,
-            'method_used' => 'Raw SQL: SELECT COUNT(*) FROM (SELECT evaluator_id FROM evaluation_assignments WHERE fiscal_year = ? GROUP BY evaluator_id)',
-            'should_match_user_query_607' => $participantsByGroupBy == 607 ? 'YES' : 'NO',
-            'difference_between_methods' => $totalParticipantsDistinct - $participantsByGroupBy
-        ]);
             
         // Count unique evaluatees who have assignments
         $uniqueEvaluatees = DB::table('evaluation_assignments')
@@ -929,16 +897,8 @@ class AdminEvaluationReportController extends Controller
     {
         $now = now();
         $fiscalYear = $now->month >= 10 ? $now->year + 1 : $now->year;
-        
-        // DEBUG: Log fiscal year calculation
-        Log::info('getCurrentFiscalYear calculation:', [
-            'current_date' => $now->toDateString(),
-            'current_month' => $now->month,
-            'calculated_fiscal_year' => $fiscalYear,
-            'logic' => $now->month >= 10 ? 'month >= 10, so year + 1' : 'month < 10, so current year'
-        ]);
-        
-        // Check if current fiscal year has any data, if not try to find the most recent year with data
+
+        // Fallback to most recent year with data if current year is empty
         $hasCurrentYearData = DB::table('evaluation_assignments')
             ->where('fiscal_year', $fiscalYear)
             ->exists();

@@ -496,13 +496,6 @@ class AdminEvaluationAssignmentController extends Controller
                 $angle         = $assignment['angle'];
                 $assignmentKey = "{$evaluateeId}_{$angle}";
 
-                Log::debug("🔄 Processing assignment", [
-                    'index' => $index + 1,
-                    'total' => count($validated['assignments']),
-                    'evaluatee_id' => $evaluateeId,
-                    'angle' => $angle,
-                ]);
-
                 $evaluatee = $evaluatees->get($evaluateeId);
                 if (! $evaluatee) {
                     $invalidCount++;
@@ -514,24 +507,9 @@ class AdminEvaluationAssignmentController extends Controller
                     continue;
                 }
 
-                // เก็บข้อมูลเกรดสำหรับ logging แต่ไม่ตรวจสอบข้อจำกัด
                 $evaluateeGrade = (int) $evaluatee->grade;
-                Log::debug("🔍 Grade info (no restriction)", [
-                    'index' => $index + 1,
-                    'evaluatee' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                    'grade' => $evaluateeGrade,
-                    'angle' => $angle,
-                ]);
 
                 // ตรวจสอบการซ้ำ
-                Log::debug("🔍 Duplicate check", [
-                    'index' => $index + 1,
-                    'evaluatee' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                    'assignment_key' => $assignmentKey,
-                    'is_duplicate' => isset($existingAssignments[$assignmentKey]),
-                    'existing_assignments_count' => count($existingAssignments),
-                ]);
-                
                 if (isset($existingAssignments[$assignmentKey])) {
                     $duplicateCount++;
                     $duplicateDetails[] = "{$evaluatee->fname} {$evaluatee->lname} (องศา{$this->translateAngleToThai($angle)})";
@@ -548,14 +526,7 @@ class AdminEvaluationAssignmentController extends Controller
                     ? $evaluatee->user_type->value
                     : $evaluatee->user_type;
 
-                Log::debug("🔍 Evaluation lookup (no grade restriction)", [
-                    'index' => $index + 1,
-                    'evaluatee' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                    'user_type' => $evaluateeUserType,
-                    'grade' => $evaluateeGrade,
-                ]);
-
-                // ค้นหาแบบประเมินตาม user_type เท่านั้น (ไม่ตรวจสอบ grade)
+                // ค้นหาแบบประเมินตาม user_type
                 $evaluation = Evaluation::where('user_type', $evaluateeUserType)
                     ->where('status', 'published')
                     ->latest()
@@ -580,13 +551,6 @@ class AdminEvaluationAssignmentController extends Controller
                     ]);
                     continue;
                 }
-
-                Log::debug("✅ Using evaluation", [
-                    'index' => $index + 1,
-                    'evaluatee' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                    'evaluation_id' => $evaluation->id,
-                    'evaluation_title' => $evaluation->title,
-                ]);
 
                 // สร้างความสัมพันธ์ใหม่
                 try {

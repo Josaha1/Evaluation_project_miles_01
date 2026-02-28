@@ -986,9 +986,6 @@ class EvaluationExportService
             $rawValue = $result->raw_value;
             $questionId = $result->question_id;
             
-            Log::debug("Resolving option value for question $questionId, type: $questionType, raw_value: " . 
-                      (is_array($rawValue) ? json_encode($rawValue) : $rawValue));
-
             switch ($questionType) {
                 case 'rating':
                     // สำหรับ rating: value เป็น score โดยตรง

@@ -1216,34 +1216,13 @@ class AssignedEvaluationController extends Controller
      */
     private function getEvaluateesInSameAngle($evaluatorId, $evaluateeId, $evaluationId)
     {
-        \Log::info("=== getEvaluateesInSameAngle DEBUG START ===", [
-            'evaluator_id' => $evaluatorId,
-            'evaluatee_id' => $evaluateeId,
-            'evaluation_id' => $evaluationId
-        ]);
-
-        // หาการมอบหมายของ evaluatee ที่กำลังประเมิน - ไม่ filter evaluation_id ก่อน
         $currentAssignment = EvaluationAssignment::where('evaluator_id', $evaluatorId)
             ->where('evaluatee_id', $evaluateeId)
             ->first();
 
-        \Log::info("Current assignment search result:", [
-            'assignment' => $currentAssignment ? [
-                'id' => $currentAssignment->id,
-                'evaluator_id' => $currentAssignment->evaluator_id,
-                'evaluatee_id' => $currentAssignment->evaluatee_id,
-                'angle' => $currentAssignment->angle,
-                'evaluation_id' => $currentAssignment->evaluation_id,
-                'matches_target_evaluation' => $currentAssignment->evaluation_id == $evaluationId
-            ] : null
-        ]);
-
         if (!$currentAssignment) {
-            \Log::warning("No assignment found, returning single evaluatee");
-            // ถ้าไม่พบการมอบหมาย ให้คืนค่าเฉพาะคนที่กำลังประเมิน
             $evaluatee = User::with(['position', 'department', 'division'])->find($evaluateeId);
             if (!$evaluatee) {
-                \Log::error("Evaluatee not found", ['evaluatee_id' => $evaluateeId]);
                 return [];
             }
 
@@ -1258,119 +1237,33 @@ class AssignedEvaluationController extends Controller
             ]];
         }
 
-        \Log::info("Found current assignment, searching for same angle evaluatees:", [
-            'current_angle' => $currentAssignment->angle,
-            'current_evaluation_id' => $currentAssignment->evaluation_id,
-            'target_evaluation_id' => $evaluationId
-        ]);
-
-        // ขั้นตอนที่ 1: โหลดข้อมูล evaluatees ทั้งหมดในองศาเดียวกัน (ไม่ filter evaluation_id ก่อน)
+        // โหลด evaluatees ทั้งหมดในองศาเดียวกัน
         $allSameAngleAssignments = EvaluationAssignment::with(['evaluatee.position', 'evaluatee.department', 'evaluatee.division'])
             ->where('evaluator_id', $evaluatorId)
             ->where('angle', $currentAssignment->angle)
             ->get();
 
-        \Log::info("ALL assignments in same angle (no evaluation_id filter):", [
-            'count' => $allSameAngleAssignments->count(),
-            'angle' => $currentAssignment->angle,
-            'assignments' => $allSameAngleAssignments->map(function($a) {
-                return [
-                    'id' => $a->id,
-                    'evaluatee_id' => $a->evaluatee_id,
-                    'evaluation_id' => $a->evaluation_id,
-                    'evaluatee_name' => $a->evaluatee ? $a->evaluatee->fname . ' ' . $a->evaluatee->lname : 'NULL'
-                ];
-            })->toArray()
-        ]);
-
-        // ขั้นตอนที่ 2: Filter ด้วย evaluation_id ที่เป็นเป้าหมาย
+        // Filter ด้วย evaluation_id
         $exactMatchAssignments = $allSameAngleAssignments->where('evaluation_id', $evaluationId);
-
-        \Log::info("EXACT MATCH assignments (WITH evaluation_id filter):", [
-            'count' => $exactMatchAssignments->count(),
-            'evaluation_id_filter' => $evaluationId,
-            'assignments' => $exactMatchAssignments->map(function($a) {
-                return [
-                    'evaluatee_id' => $a->evaluatee_id,
-                    'evaluation_id' => $a->evaluation_id,
-                    'evaluatee_name' => $a->evaluatee ? $a->evaluatee->fname . ' ' . $a->evaluatee->lname : 'NULL'
-                ];
-            })->toArray()
-        ]);
-
-        // ขั้นตอนที่ 3: ถ้าไม่พบ exact match หรือพบน้อยกว่าที่คาดหวัง ให้ใช้ compatibility check
         $finalAssignments = $exactMatchAssignments;
 
+        // ถ้าพบน้อยกว่าที่มี ให้ใช้ compatibility check
         if ($exactMatchAssignments->count() < $allSameAngleAssignments->count()) {
-            \Log::warning("Exact match found fewer evaluatees than all same angle assignments. Attempting compatibility check.", [
-                'exact_match_count' => $exactMatchAssignments->count(),
-                'all_same_angle_count' => $allSameAngleAssignments->count(),
-                'missing_count' => $allSameAngleAssignments->count() - $exactMatchAssignments->count()
-            ]);
-
-            // โหลดข้อมูล evaluation ที่เป็นเป้าหมาย
             $targetEvaluation = Evaluation::find($evaluationId);
-            
-            if ($targetEvaluation) {
-                \Log::info("Target evaluation details:", [
-                    'id' => $targetEvaluation->id,
-                    'user_type' => $targetEvaluation->user_type,
-                    'grade_min' => $targetEvaluation->grade_min,
-                    'grade_max' => $targetEvaluation->grade_max,
-                    'status' => $targetEvaluation->status
-                ]);
 
-                // ตรวจสอบ evaluatees ที่มี evaluation_id ต่างกัน แต่ compatible
-                $compatibleAssignments = $allSameAngleAssignments->filter(function($assignment) use ($targetEvaluation, $evaluationId) {
-                    // ถ้า evaluation_id ตรงกันอยู่แล้ว ให้ผ่าน
+            if ($targetEvaluation) {
+                $finalAssignments = $allSameAngleAssignments->filter(function($assignment) use ($targetEvaluation, $evaluationId) {
                     if ($assignment->evaluation_id == $evaluationId) {
                         return true;
                     }
-
-                    // ตรวจสอบ compatibility ของ evaluation อื่น
                     if (!$assignment->evaluatee) {
-                        \Log::warning("Assignment without evaluatee", ['assignment_id' => $assignment->id]);
                         return false;
                     }
-
                     $evaluatee = $assignment->evaluatee;
-                    
-                    // ตรวจสอบว่า evaluatee นี้เข้าเงื่อนไข target evaluation หรือไม่
-                    $isCompatible = (
-                        $targetEvaluation->user_type == $evaluatee->user_type &&
-                        $targetEvaluation->grade_min <= $evaluatee->grade &&
-                        $targetEvaluation->grade_max >= $evaluatee->grade
-                    );
-
-                    \Log::info("Compatibility check for evaluatee:", [
-                        'evaluatee_id' => $evaluatee->id,
-                        'evaluatee_name' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                        'evaluatee_user_type' => $evaluatee->user_type,
-                        'evaluatee_grade' => $evaluatee->grade,
-                        'target_user_type' => $targetEvaluation->user_type,
-                        'target_grade_range' => $targetEvaluation->grade_min . '-' . $targetEvaluation->grade_max,
-                        'is_compatible' => $isCompatible,
-                        'original_evaluation_id' => $assignment->evaluation_id,
-                        'target_evaluation_id' => $evaluationId
-                    ]);
-
-                    return $isCompatible;
+                    return $targetEvaluation->user_type == $evaluatee->user_type
+                        && $targetEvaluation->grade_min <= $evaluatee->grade
+                        && $targetEvaluation->grade_max >= $evaluatee->grade;
                 });
-
-                $finalAssignments = $compatibleAssignments;
-
-                \Log::info("COMPATIBLE assignments (after compatibility check):", [
-                    'count' => $compatibleAssignments->count(),
-                    'assignments' => $compatibleAssignments->map(function($a) {
-                        return [
-                            'evaluatee_id' => $a->evaluatee_id,
-                            'evaluation_id' => $a->evaluation_id,
-                            'evaluatee_name' => $a->evaluatee ? $a->evaluatee->fname . ' ' . $a->evaluatee->lname : 'NULL'
-                        ];
-                    })->toArray()
-                ]);
-            } else {
-                \Log::error("Target evaluation not found", ['evaluation_id' => $evaluationId]);
             }
         }
 
@@ -1378,10 +1271,9 @@ class AssignedEvaluationController extends Controller
         $evaluatees = [];
         foreach ($finalAssignments as $assignment) {
             if (!$assignment->evaluatee) {
-                \Log::warning("Assignment without evaluatee relationship", ['assignment_id' => $assignment->id]);
                 continue;
             }
-            
+
             $evaluatees[] = [
                 'id' => $assignment->evaluatee->id,
                 'name' => $assignment->evaluatee->fname . ' ' . $assignment->evaluatee->lname,
@@ -1393,19 +1285,8 @@ class AssignedEvaluationController extends Controller
             ];
         }
 
-        \Log::info("Final evaluatees result:", [
-            'count' => count($evaluatees),
-            'angle' => $currentAssignment->angle,
-            'evaluatees' => collect($evaluatees)->map(function($e) {
-                return ['id' => $e['id'], 'name' => $e['name']];
-            })->toArray()
-        ]);
-
         // ถ้าไม่มีคนอื่นในองศาเดียวกัน ให้คืนค่าเฉพาะคนที่กำลังประเมิน
         if (empty($evaluatees)) {
-            \Log::warning("No evaluatees found in same angle, falling back to single evaluatee", [
-                'angle' => $currentAssignment->angle
-            ]);
             $evaluatee = User::with(['position', 'department', 'division'])->find($evaluateeId);
             if ($evaluatee) {
                 return [[
@@ -1420,7 +1301,6 @@ class AssignedEvaluationController extends Controller
             }
         }
 
-        \Log::info("=== getEvaluateesInSameAngle DEBUG END ===");
         return $evaluatees;
     }
 
@@ -1429,148 +1309,64 @@ class AssignedEvaluationController extends Controller
      */
     private function getEvaluateeIdsInSameAngle($evaluatorId, $evaluateeId, $evaluationId)
     {
-        \Log::info("=== getEvaluateeIdsInSameAngle DEBUG START ===", [
-            'evaluator_id' => $evaluatorId,
-            'evaluatee_id' => $evaluateeId,
-            'evaluation_id' => $evaluationId
-        ]);
-
-        // หาการมอบหมายของ evaluatee ที่กำลังประเมิน - ไม่ filter evaluation_id ก่อน
         $currentAssignment = EvaluationAssignment::where('evaluator_id', $evaluatorId)
             ->where('evaluatee_id', $evaluateeId)
             ->first();
 
-        \Log::info("Current assignment for IDs:", [
-            'assignment' => $currentAssignment ? [
-                'id' => $currentAssignment->id,
-                'evaluator_id' => $currentAssignment->evaluator_id,
-                'evaluatee_id' => $currentAssignment->evaluatee_id,
-                'angle' => $currentAssignment->angle,
-                'evaluation_id' => $currentAssignment->evaluation_id,
-                'matches_target_evaluation' => $currentAssignment->evaluation_id == $evaluationId
-            ] : null
-        ]);
-
         if (!$currentAssignment) {
-            \Log::warning("No assignment found for IDs, returning single evaluatee ID");
             return [$evaluateeId];
         }
 
-        \Log::info("Searching for same angle evaluatee IDs:", [
-            'current_angle' => $currentAssignment->angle,
-            'current_evaluation_id' => $currentAssignment->evaluation_id,
-            'target_evaluation_id' => $evaluationId
-        ]);
-
-        // ขั้นตอนที่ 1: ดึง IDs ทั้งหมดในองศาเดียวกัน (ไม่ filter evaluation_id ก่อน)
+        // ดึง IDs ทั้งหมดในองศาเดียวกัน
         $allSameAngleIds = EvaluationAssignment::where('evaluator_id', $evaluatorId)
             ->where('angle', $currentAssignment->angle)
             ->pluck('evaluatee_id')
             ->toArray();
 
-        \Log::info("ALL evaluatee IDs in same angle (no evaluation_id filter):", [
-            'count' => count($allSameAngleIds),
-            'angle' => $currentAssignment->angle,
-            'evaluatee_ids' => $allSameAngleIds
-        ]);
-
-        // ขั้นตอนที่ 2: Filter ด้วย evaluation_id ที่เป็นเป้าหมาย
+        // Filter ด้วย evaluation_id
         $exactMatchIds = EvaluationAssignment::where('evaluator_id', $evaluatorId)
             ->where('angle', $currentAssignment->angle)
             ->where('evaluation_id', $evaluationId)
             ->pluck('evaluatee_id')
             ->toArray();
 
-        \Log::info("EXACT MATCH evaluatee IDs (WITH evaluation_id filter):", [
-            'count' => count($exactMatchIds),
-            'evaluation_id_filter' => $evaluationId,
-            'evaluatee_ids' => $exactMatchIds
-        ]);
-
-        // ขั้นตอนที่ 3: ถ้าไม่พบ exact match หรือพบน้อยกว่าที่คาดหวัง ให้ใช้ compatibility check
         $finalIds = $exactMatchIds;
 
+        // ถ้าพบน้อยกว่าที่มี ให้ใช้ compatibility check
         if (count($exactMatchIds) < count($allSameAngleIds)) {
-            \Log::warning("Exact match found fewer IDs than all same angle IDs. Attempting compatibility check.", [
-                'exact_match_count' => count($exactMatchIds),
-                'all_same_angle_count' => count($allSameAngleIds),
-                'missing_count' => count($allSameAngleIds) - count($exactMatchIds)
-            ]);
-
-            // โหลดข้อมูล evaluation ที่เป็นเป้าหมายและ assignments ทั้งหมด
             $targetEvaluation = Evaluation::find($evaluationId);
-            
+
             if ($targetEvaluation) {
                 $allSameAngleAssignments = EvaluationAssignment::with(['evaluatee'])
                     ->where('evaluator_id', $evaluatorId)
                     ->where('angle', $currentAssignment->angle)
                     ->get();
 
-                // ตรวจสอบ compatibility ของแต่ละ assignment
                 $compatibleIds = [];
                 foreach ($allSameAngleAssignments as $assignment) {
-                    // ถ้า evaluation_id ตรงกันอยู่แล้ว ให้ผ่าน
                     if ($assignment->evaluation_id == $evaluationId) {
                         $compatibleIds[] = $assignment->evaluatee_id;
                         continue;
                     }
-
-                    // ตรวจสอบ compatibility ของ evaluation อื่น
                     if (!$assignment->evaluatee) {
-                        \Log::warning("Assignment without evaluatee for ID check", ['assignment_id' => $assignment->id]);
                         continue;
                     }
-
                     $evaluatee = $assignment->evaluatee;
-                    
-                    // ตรวจสอบว่า evaluatee นี้เข้าเงื่อนไข target evaluation หรือไม่
-                    $isCompatible = (
-                        $targetEvaluation->user_type == $evaluatee->user_type &&
-                        $targetEvaluation->grade_min <= $evaluatee->grade &&
-                        $targetEvaluation->grade_max >= $evaluatee->grade
-                    );
-
-                    \Log::info("Compatibility check for evaluatee ID:", [
-                        'evaluatee_id' => $evaluatee->id,
-                        'evaluatee_name' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                        'evaluatee_user_type' => $evaluatee->user_type,
-                        'evaluatee_grade' => $evaluatee->grade,
-                        'target_user_type' => $targetEvaluation->user_type,
-                        'target_grade_range' => $targetEvaluation->grade_min . '-' . $targetEvaluation->grade_max,
-                        'is_compatible' => $isCompatible,
-                        'original_evaluation_id' => $assignment->evaluation_id,
-                        'target_evaluation_id' => $evaluationId
-                    ]);
-
-                    if ($isCompatible) {
+                    if ($targetEvaluation->user_type == $evaluatee->user_type
+                        && $targetEvaluation->grade_min <= $evaluatee->grade
+                        && $targetEvaluation->grade_max >= $evaluatee->grade) {
                         $compatibleIds[] = $assignment->evaluatee_id;
                     }
                 }
 
                 $finalIds = $compatibleIds;
-
-                \Log::info("COMPATIBLE evaluatee IDs (after compatibility check):", [
-                    'count' => count($compatibleIds),
-                    'evaluatee_ids' => $compatibleIds
-                ]);
-            } else {
-                \Log::error("Target evaluation not found for ID check", ['evaluation_id' => $evaluationId]);
             }
         }
 
-        \Log::info("Final evaluatee IDs result:", [
-            'count' => count($finalIds),
-            'angle' => $currentAssignment->angle,
-            'evaluatee_ids' => $finalIds
-        ]);
-
-        // ถ้าไม่มีคนในองศาเดียวกัน ให้ใช้แค่คนที่กำลังประเมิน
         if (empty($finalIds)) {
-            \Log::warning("No evaluatee IDs found in same angle, falling back to single ID");
             return [$evaluateeId];
         }
 
-        \Log::info("=== getEvaluateeIdsInSameAngle DEBUG END ===");
         return $finalIds;
     }
 
