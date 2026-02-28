@@ -82,17 +82,15 @@ class EvaluationAssignmentController extends Controller
                         return $query->where(function($q) {
                             $q->where('title', 'LIKE', '%9-12%')
                               ->orWhere('title', 'LIKE', '%ผู้บริหาร%')
-                              ->orWhere('title', 'LIKE', '%บริหาร%')
-                              ->orWhere('id', 1); // Force include evaluation_id = 1 for C9-12
+                              ->orWhere('title', 'LIKE', '%บริหาร%');
                         });
                     })
                     ->orderByRaw('
-                        CASE 
-                            WHEN id = 1 THEN 1
-                            WHEN title LIKE "%9-12%" THEN 2
-                            WHEN title LIKE "%ผู้บริหาร%" THEN 3  
-                            WHEN title LIKE "%บริหาร%" THEN 4
-                            ELSE 5 
+                        CASE
+                            WHEN title LIKE "%9-12%" THEN 1
+                            WHEN title LIKE "%ผู้บริหาร%" THEN 2
+                            WHEN title LIKE "%บริหาร%" THEN 3
+                            ELSE 4
                         END
                     ')
                     ->latest()
@@ -483,22 +481,19 @@ class EvaluationAssignmentController extends Controller
                 ->where('grade_min', '<=', $grade)
                 ->where('grade_max', '>=', $grade)
                 ->where('status', 'published')
-                // For C9-12, prefer evaluations that have title containing "9-12" or "ผู้บริหาร"
                 ->when($grade >= 9 && $grade <= 12, function($query) {
                     return $query->where(function($q) {
                         $q->where('title', 'LIKE', '%9-12%')
                           ->orWhere('title', 'LIKE', '%ผู้บริหาร%')
-                          ->orWhere('title', 'LIKE', '%บริหาร%')
-                          ->orWhere('id', 1); // Force include evaluation_id = 1 for C9-12
+                          ->orWhere('title', 'LIKE', '%บริหาร%');
                     });
                 })
                 ->orderByRaw('
-                    CASE 
-                        WHEN id = 1 THEN 1
-                        WHEN title LIKE "%9-12%" THEN 2
-                        WHEN title LIKE "%ผู้บริหาร%" THEN 3  
-                        WHEN title LIKE "%บริหาร%" THEN 4
-                        ELSE 5 
+                    CASE
+                        WHEN title LIKE "%9-12%" THEN 1
+                        WHEN title LIKE "%ผู้บริหาร%" THEN 2
+                        WHEN title LIKE "%บริหาร%" THEN 3
+                        ELSE 4
                     END
                 ')
                 ->latest()

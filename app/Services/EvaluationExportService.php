@@ -942,24 +942,6 @@ class EvaluationExportService
 
             if ($results->isEmpty()) {
                 Log::warning('No self-evaluation data found with filters: ' . json_encode($filters));
-                
-                // Debug: Check if there's any self-evaluation data
-                $debugQuery1 = DB::table('answers as a')
-                    ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
-                    ->where('a.user_id', '=', DB::raw('a.evaluatee_id'))
-                    ->select('a.evaluation_id', DB::raw('COUNT(*) as count'))
-                    ->groupBy('a.evaluation_id')
-                    ->get();
-              
-                // Debug: Check available parts for self-evaluation forms
-                $debugQuery2 = DB::table('parts as p')
-                    ->join('evaluations as e', 'p.evaluation_id', '=', 'e.id')
-                    ->whereIn('p.id', [10, 11, 12, 63, 64, 65])
-                    ->select('p.id as part_id', 'p.evaluation_id', 'e.title as evaluation_title', 'p.order', 'p.title as part_title')
-                    ->orderBy('p.evaluation_id')
-                    ->orderBy('p.order')
-                    ->get();
-             
                 return [];
             }
 

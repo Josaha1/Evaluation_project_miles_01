@@ -858,6 +858,26 @@ class AdminEvaluationAssignmentController extends Controller
             // Get evaluatee
             $evaluatee = User::findOrFail($evaluateeId);
 
+            // Find appropriate evaluation based on evaluatee's grade and user_type
+            $grade = (int) $evaluatee->grade;
+            $userType = $evaluatee->user_type instanceof \BackedEnum
+                ? $evaluatee->user_type->value
+                : $evaluatee->user_type;
+
+            $evaluation = Evaluation::where('user_type', $userType)
+                ->where('grade_min', '<=', $grade)
+                ->where('grade_max', '>=', $grade)
+                ->where('status', 'published')
+                ->latest()
+                ->first();
+
+            if (!$evaluation) {
+                DB::rollBack();
+                return redirect()->back()->withErrors([
+                    'error' => 'ไม่พบแบบประเมินที่ตรงกับประเภทและระดับของผู้ถูกประเมิน (ระดับ ' . $grade . ')',
+                ]);
+            }
+
             // Delete existing assignments for this evaluatee
             EvaluationAssignment::where('evaluatee_id', $evaluateeId)->delete();
 
@@ -872,7 +892,7 @@ class AdminEvaluationAssignmentController extends Controller
 
                 // Check for duplicate assignments (same evaluator and angle)
                 $duplicate = collect($createdAssignments)->first(function ($item) use ($assignmentData) {
-                    return $item['evaluator_id'] == $assignmentData['evaluator_id'] 
+                    return $item['evaluator_id'] == $assignmentData['evaluator_id']
                         && $item['angle'] == $assignmentData['angle'];
                 });
 
@@ -889,7 +909,7 @@ class AdminEvaluationAssignmentController extends Controller
                 $assignment = EvaluationAssignment::create([
                     'evaluator_id' => $assignmentData['evaluator_id'],
                     'evaluatee_id' => $evaluateeId,
-                    'evaluation_id' => 1, // Default evaluation ID
+                    'evaluation_id' => $evaluation->id,
                     'angle' => $assignmentData['angle'],
                     'fiscal_year' => $currentFiscalYear,
                 ]);

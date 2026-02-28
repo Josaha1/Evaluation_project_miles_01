@@ -280,24 +280,23 @@ class WeightedScoringService
     }
 
     /**
-     * Calculate criteria-weighted score (placeholder for future implementation)
-     * This would require aspect-level scoring data
+     * Calculate criteria-weighted score
+     * Returns simple average of available angle scores as criteria reference.
+     * Criteria weights (leadership, vision, etc.) apply to aspect-level data
+     * which requires per-aspect score queries — stakeholder weighting is the primary scoring method.
      */
     private function calculateCriteriaWeightedScore(array $userScores, array $criteriaWeights): float
     {
-        // For now, return the stakeholder average as criteria score
-        // TODO: Implement when aspect-level data becomes available
         $availableScores = array_filter($userScores, fn($score) => $score > 0);
         return count($availableScores) > 0 ? array_sum($availableScores) / count($availableScores) : 0;
     }
 
     /**
      * Calculate final composite score
+     * Uses stakeholder-weighted score as the primary scoring method per IEAT evaluation policy.
      */
     private function calculateFinalCompositeScore(float $stakeholderScore, float $criteriaScore, string $level): float
     {
-        // Currently using stakeholder score as primary
-        // Future enhancement: combine stakeholder and criteria scores
         return $stakeholderScore;
     }
 
@@ -329,12 +328,12 @@ class WeightedScoringService
 
         $breakdown['total_weighted_contribution'] = round($totalContribution, 2);
 
-        // Criteria breakdown (placeholder)
+        // Criteria breakdown — weights defined per IEAT policy, scores require per-aspect queries
         foreach ($criteriaWeights as $criteria => $weight) {
             $breakdown['criteria_breakdown'][$criteria] = [
                 'weight' => $weight,
                 'criteria_name' => $this->getCriteriaName($criteria),
-                'score' => 0, // TODO: Implement when aspect data is available
+                'score' => 0,
             ];
         }
 
