@@ -360,6 +360,8 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
             ->name('export-employees');
         Route::post('/export/self-evaluation', [AdminEvaluationReportController::class, 'exportSelfEvaluationReport'])
             ->name('export-self-evaluation');
+        Route::post('/export/governors', [AdminEvaluationReportController::class, 'exportGovernorReport'])
+            ->name('export-governors');
         Route::post('/export/detailed-data', [AdminEvaluationReportController::class, 'exportDetailedEvaluationData'])
             ->name('export-detailed-data');
 

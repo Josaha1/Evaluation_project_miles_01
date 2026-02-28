@@ -250,6 +250,14 @@ const AdminEvaluationReport: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedDivision, setSelectedDivision] = useState("");
     const [selectedGrade, setSelectedGrade] = useState("");
+
+    // Helper: display grade label with Thai name for special grades
+    const getGradeLabel = (grade: number | string): string => {
+        const g = Number(grade);
+        if (g >= 13) return `ผู้ว่าการ (ระดับ ${g})`;
+        if (g >= 9) return `ผู้บริหาร (ระดับ ${g})`;
+        return `พนักงาน (ระดับ ${g})`;
+    };
     const [viewMode, setViewMode] = useState<'cards' | 'table' | 'charts'>('cards');
     const [isLoading, setIsLoading] = useState(false);
     const [selectedUser, setSelectedUser] = useState<number | null>(null);
@@ -671,7 +679,7 @@ const AdminEvaluationReport: React.FC = () => {
                                     <option value="">ทุกระดับ</option>
                                     {(availableGrades || []).map((grade) => (
                                         <option key={grade} value={grade.toString()}>
-                                            ระดับ C{grade}
+                                            {getGradeLabel(grade)}
                                         </option>
                                     ))}
                                 </select>
@@ -751,7 +759,7 @@ const AdminEvaluationReport: React.FC = () => {
                                             : 'bg-purple-100 text-purple-800'
                                     }`}>
                                         <Award className="h-3 w-3 text-gray-600" />
-                                        ระดับ C{selectedGrade}
+                                        {getGradeLabel(selectedGrade)}
                                         <button 
                                             onClick={() => setSelectedGrade('')}
                                             className="ml-1 hover:bg-purple-500/30 rounded"
@@ -1145,7 +1153,7 @@ const DashboardView: React.FC<{
                                     <h3 className={`text-lg font-bold ${
                                         dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
                                     }`}>
-                                        ระดับ C{grade.grade}
+                                        {getGradeLabel(grade.grade)}
                                     </h3>
                                     <div className={`px-3 py-1 rounded-full text-sm font-medium ${
                                         dashboardConfig.theme === 'dark' 
@@ -1262,7 +1270,7 @@ const DashboardView: React.FC<{
                                             <p className={`text-sm ${
                                                 dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
                                             }`}>
-                                                {result?.evaluateePosition || 'N/A'} • {result?.evaluateeDivision || 'N/A'} • ระดับ C{result?.evaluateeGrade || 'N/A'}
+                                                {result?.evaluateePosition || 'N/A'} • {result?.evaluateeDivision || 'N/A'} • {result?.evaluateeGrade ? getGradeLabel(result.evaluateeGrade) : 'N/A'}
                                             </p>
                                         </div>
                                     </div>
@@ -1693,7 +1701,7 @@ const ReportsView: React.FC<{
                                             <div className={`text-sm ${
                                                 dashboardConfig.theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
                                             }`}>
-                                                ระดับ C{result?.evaluateeGrade || 'N/A'}
+                                                {result?.evaluateeGrade ? getGradeLabel(result.evaluateeGrade) : 'N/A'}
                                             </div>
                                         </td>
                                         <td className={`px-6 py-4 text-sm ${
@@ -1979,6 +1987,13 @@ const ExportsView: React.FC<{
             description: 'รายงานครบถ้วนทั้งผู้ว่าการ ระดับ 9-12 และ 5-8 พร้อม Option Mapping',
             icon: Building,
             color: 'emerald'
+        },
+        {
+            id: 'governors',
+            title: 'รายงานผู้ว่าการ กนอ. (ระดับ 13)',
+            description: 'รายงานเฉพาะผู้ว่าการ ระดับ 13 พร้อมคะแนนถ่วงน้ำหนัก 360 องศา',
+            icon: Shield,
+            color: 'rose'
         },
         {
             id: 'executives',

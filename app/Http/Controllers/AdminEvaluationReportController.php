@@ -1387,6 +1387,36 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
+     * Export governor level report (grade 13)
+     */
+    public function exportGovernorReport(Request $request)
+    {
+        try {
+            $filters = [
+                'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
+                'division_id' => $request->input('division_id'),
+                'user_id' => $request->input('user_id'),
+                'only_completed' => $request->input('only_completed')
+            ];
+
+            // Dynamic lookup: find 360 internal evaluation for grade 13
+            $evaluation = Evaluation::where('user_type', 'internal')
+                ->where('grade_min', 13)->where('grade_max', 13)
+                ->where('title', 'like', '%360%')
+                ->where('status', 'published')
+                ->firstOrFail();
+
+            $filePath = $this->evaluationExportService->exportByEvaluationType($evaluation->id, $filters);
+            $filename = basename($filePath);
+
+            return response()->download($filePath, $filename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            Log::error('Export governor report error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกรายงานผู้ว่าการล้มเหลว กรุณาตรวจสอบว่ามีแบบประเมินผู้ว่าการในระบบ'], 500);
+        }
+    }
+
+    /**
      * Export detailed evaluation data with questions and evaluators
      */
     public function exportDetailedEvaluationData(Request $request)

@@ -142,10 +142,15 @@ class EvaluationExportService
             ->where('grade_min', 5)->where('grade_max', 8)
             ->where('title', 'like', '%360%')
             ->where('status', 'published')->first();
+        $govEval = Evaluation::where('user_type', 'internal')
+            ->where('grade_min', 13)->where('grade_max', 13)
+            ->where('title', 'like', '%360%')
+            ->where('status', 'published')->first();
         $executiveData = $execEval ? $this->getEvaluationData($execEval->id, [9, 10, 11, 12], $filters) : [];
         $employeeData = $empEval ? $this->getEvaluationData($empEval->id, [5, 6, 7, 8], $filters) : [];
-        
-        $this->createSummaryContent($summarySheet, $executiveData, $employeeData);
+        $governorData = $govEval ? $this->getEvaluationData($govEval->id, [13], $filters) : [];
+
+        $this->createSummaryContent($summarySheet, $executiveData, $employeeData, $governorData);
         $this->applySheetStyling($summarySheet, 30);
     }
 
@@ -468,59 +473,77 @@ class EvaluationExportService
     /**
      * Create summary content
      */
-    private function createSummaryContent($sheet, array $executiveData, array $employeeData): void
+    private function createSummaryContent($sheet, array $executiveData, array $employeeData, array $governorData = []): void
     {
         $sheet->setCellValue('A1', 'สรุปภาพรวมการประเมิน 360 องศา');
         $sheet->mergeCells('A1:D1');
         $sheet->getStyle('A1')->getFont()->setSize(16)->setBold(true);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-        
+
         $row = 3;
-        
+
+        // Governor summary
+        $governorStats = $this->calculateSummaryStats($governorData);
+        if ($governorStats['total_evaluatees'] > 0) {
+            $sheet->setCellValue('A' . $row, 'สรุปผู้ว่าการ กนอ. ระดับ 13');
+            $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+            $row++;
+            $sheet->setCellValue('A' . $row, 'จำนวนผู้ถูกประเมิน:');
+            $sheet->setCellValue('B' . $row, $governorStats['total_evaluatees']);
+            $row++;
+            $sheet->setCellValue('A' . $row, 'คะแนนเฉลี่ยรวม:');
+            $sheet->setCellValue('B' . $row, number_format($governorStats['average_score'], 2));
+            $row++;
+            $sheet->setCellValue('A' . $row, 'จำนวนคำตอบทั้งหมด:');
+            $sheet->setCellValue('B' . $row, $governorStats['total_answers']);
+            $row += 2;
+        }
+
         // Executive summary
         $sheet->setCellValue('A' . $row, 'สรุปผู้บริหารระดับ 9-12');
         $sheet->getStyle('A' . $row)->getFont()->setBold(true);
         $row++;
-        
+
         $executiveStats = $this->calculateSummaryStats($executiveData);
         $sheet->setCellValue('A' . $row, 'จำนวนผู้ถูกประเมิน:');
         $sheet->setCellValue('B' . $row, $executiveStats['total_evaluatees']);
         $row++;
-        
+
         $sheet->setCellValue('A' . $row, 'คะแนนเฉลี่ยรวม:');
         $sheet->setCellValue('B' . $row, number_format($executiveStats['average_score'], 2));
         $row++;
-        
+
         $sheet->setCellValue('A' . $row, 'จำนวนคำตอบทั้งหมด:');
         $sheet->setCellValue('B' . $row, $executiveStats['total_answers']);
         $row += 2;
-        
+
         // Employee summary
-        $sheet->setCellValue('A' . $row, 'สรุพนักงานระดับ 5-8');
+        $sheet->setCellValue('A' . $row, 'สรุปพนักงานระดับ 5-8');
         $sheet->getStyle('A' . $row)->getFont()->setBold(true);
         $row++;
-        
+
         $employeeStats = $this->calculateSummaryStats($employeeData);
         $sheet->setCellValue('A' . $row, 'จำนวนผู้ถูกประเมิน:');
         $sheet->setCellValue('B' . $row, $employeeStats['total_evaluatees']);
         $row++;
-        
+
         $sheet->setCellValue('A' . $row, 'คะแนนเฉลี่ยรวม:');
         $sheet->setCellValue('B' . $row, number_format($employeeStats['average_score'], 2));
         $row++;
-        
+
         $sheet->setCellValue('A' . $row, 'จำนวนคำตอบทั้งหมด:');
         $sheet->setCellValue('B' . $row, $employeeStats['total_answers']);
         $row += 2;
-        
+
         // Overall summary
         $sheet->setCellValue('A' . $row, 'สรุปรวมทั้งระบบ');
         $sheet->getStyle('A' . $row)->getFont()->setBold(true);
         $row++;
-        
-        $totalEvaluatees = $executiveStats['total_evaluatees'] + $employeeStats['total_evaluatees'];
-        $totalAnswers = $executiveStats['total_answers'] + $employeeStats['total_answers'];
-        $overallAverage = ($executiveStats['average_score'] + $employeeStats['average_score']) / 2;
+
+        $totalEvaluatees = $governorStats['total_evaluatees'] + $executiveStats['total_evaluatees'] + $employeeStats['total_evaluatees'];
+        $totalAnswers = $governorStats['total_answers'] + $executiveStats['total_answers'] + $employeeStats['total_answers'];
+        $scoreCount = ($governorStats['total_evaluatees'] > 0 ? 1 : 0) + ($executiveStats['total_evaluatees'] > 0 ? 1 : 0) + ($employeeStats['total_evaluatees'] > 0 ? 1 : 0);
+        $overallAverage = $scoreCount > 0 ? ($governorStats['average_score'] + $executiveStats['average_score'] + $employeeStats['average_score']) / $scoreCount : 0;
         
         $sheet->setCellValue('A' . $row, 'จำนวนผู้ถูกประเมินรวม:');
         $sheet->setCellValue('B' . $row, $totalEvaluatees);
