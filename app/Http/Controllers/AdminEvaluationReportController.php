@@ -2648,4 +2648,659 @@ class AdminEvaluationReportController extends Controller
             return 'high';
         }
     }
+
+    /**
+     * Export individual evaluation report by grade group
+     * Used by ReportExport.tsx handleExport()
+     */
+    public function exportIndividual(Request $request)
+    {
+        try {
+            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
+            $groupFilter = $request->input('group_filter', 'all');
+            $divisionId = $request->input('division');
+
+            $filters = [
+                'fiscal_year' => $fiscalYear,
+                'division_id' => $divisionId,
+                'only_completed' => $request->input('only_completed'),
+            ];
+
+            if ($groupFilter === 'all') {
+                $filePath = $this->evaluationExportService->exportComprehensiveEvaluationReport($filters);
+            } else {
+                // Parse grade range from group_filter (e.g. '5-8' or '9-12')
+                $parts = explode('-', $groupFilter);
+                $gradeMin = (int) ($parts[0] ?? 5);
+                $gradeMax = (int) ($parts[1] ?? 8);
+
+                $evaluation = Evaluation::where('user_type', 'internal')
+                    ->where('grade_min', $gradeMin)
+                    ->where('grade_max', $gradeMax)
+                    ->where('status', 'published')
+                    ->latest()
+                    ->first();
+
+                if (!$evaluation) {
+                    return response()->json(['error' => "ไม่พบแบบประเมินสำหรับระดับ C{$gradeMin}-C{$gradeMax}"], 404);
+                }
+
+                $filePath = $this->evaluationExportService->exportByEvaluationType($evaluation->id, $filters);
+            }
+
+            $filename = basename($filePath);
+            return response()->download($filePath, $filename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            Log::error('Export individual error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกรายงานล้มเหลว'], 500);
+        }
+    }
+
+    /**
+     * Export completion tracking data
+     * Used by ReportExport.tsx handleCompletionExport()
+     */
+    public function exportCompletionData(Request $request)
+    {
+        try {
+            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
+            $divisionId = $request->input('division');
+            $grade = $request->input('grade');
+
+            // Query: for each evaluatee, get completion status per angle
+            $query = DB::table('users as u')
+                ->leftJoin('divisions as d', 'u.division_id', '=', 'd.id')
+                ->leftJoin('departments as dept', 'u.department_id', '=', 'dept.id')
+                ->leftJoin('positions as pos', 'u.position_id', '=', 'pos.id')
+                ->where('u.role', 'user')
+                ->whereExists(function ($sub) use ($fiscalYear) {
+                    $sub->select(DB::raw(1))
+                        ->from('evaluation_assignments as ea')
+                        ->whereColumn('ea.evaluatee_id', 'u.id')
+                        ->where('ea.fiscal_year', $fiscalYear);
+                })
+                ->select([
+                    'u.id', 'u.emid', 'u.fname', 'u.lname', 'u.grade',
+                    'd.name as division', 'dept.name as department', 'pos.title as position',
+                ]);
+
+            if ($divisionId) {
+                $query->where('u.division_id', $divisionId);
+            }
+            if ($grade) {
+                $query->where('u.grade', $grade);
+            }
+
+            $evaluatees = $query->orderBy('u.grade')->orderBy('u.fname')->get();
+
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('ข้อมูลความครบถ้วน');
+
+            // Title
+            $sheet->setCellValue('A1', 'รายงานความครบถ้วนการประเมิน 360 องศา');
+            $sheet->mergeCells('A1:L1');
+            $sheet->getStyle('A1')->getFont()->setSize(16)->setBold(true);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet->setCellValue('A2', 'ปีงบประมาณ: ' . ($fiscalYear + 543) . ' | วันที่สร้าง: ' . now()->format('d/m/Y H:i'));
+            $sheet->mergeCells('A2:L2');
+            $sheet->getStyle('A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Headers
+            $headers = [
+                'A4' => 'ลำดับ', 'B4' => 'รหัสพนักงาน', 'C4' => 'ชื่อ-สกุล',
+                'D4' => 'ระดับ', 'E4' => 'หน่วยงาน', 'F4' => 'แผนก', 'G4' => 'ตำแหน่ง',
+                'H4' => 'ตนเอง', 'I4' => 'ผู้บังคับบัญชา', 'J4' => 'ผู้ใต้บังคับบัญชา',
+                'K4' => 'เพื่อนร่วมงาน (ซ้าย)', 'L4' => 'เพื่อนร่วมงาน (ขวา)',
+                'M4' => 'องศาครบ', 'N4' => '% ครบถ้วน',
+            ];
+
+            foreach ($headers as $cell => $header) {
+                $sheet->setCellValue($cell, $header);
+            }
+
+            $headerRange = 'A4:N4';
+            $sheet->getStyle($headerRange)->getFont()->setBold(true);
+            $sheet->getStyle($headerRange)->getFill()
+                  ->setFillType(Fill::FILL_SOLID)
+                  ->getStartColor()->setRGB('4F46E5');
+            $sheet->getStyle($headerRange)->getFont()->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle($headerRange)->getBorders()->getAllBorders()
+                  ->setBorderStyle(Border::BORDER_THIN);
+
+            $row = 5;
+            $counter = 1;
+
+            foreach ($evaluatees as $evaluatee) {
+                $sheet->setCellValue('A' . $row, $counter);
+                $sheet->setCellValue('B' . $row, $evaluatee->emid);
+                $sheet->setCellValue('C' . $row, trim($evaluatee->fname . ' ' . $evaluatee->lname));
+                $sheet->setCellValue('D' . $row, $evaluatee->grade);
+                $sheet->setCellValue('E' . $row, $evaluatee->division ?? 'ไม่ระบุ');
+                $sheet->setCellValue('F' . $row, $evaluatee->department ?? 'ไม่ระบุ');
+                $sheet->setCellValue('G' . $row, $evaluatee->position ?? 'ไม่ระบุ');
+
+                // Check each angle completion
+                $completedAngles = 0;
+                foreach (['self' => 'H', 'top' => 'I', 'bottom' => 'J', 'left' => 'K', 'right' => 'L'] as $angle => $col) {
+                    if ($angle === 'self') {
+                        // Self-evaluation: check if user answered their own evaluation
+                        $hasAnswers = DB::table('answers')
+                            ->where('user_id', $evaluatee->id)
+                            ->where('evaluatee_id', $evaluatee->id)
+                            ->whereYear('created_at', $fiscalYear)
+                            ->exists();
+                    } else {
+                        $hasAnswers = DB::table('evaluation_assignments as ea')
+                            ->join('answers as a', function ($join) {
+                                $join->on('ea.evaluation_id', '=', 'a.evaluation_id')
+                                     ->on('ea.evaluator_id', '=', 'a.user_id')
+                                     ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
+                            })
+                            ->where('ea.evaluatee_id', $evaluatee->id)
+                            ->where('ea.angle', $angle)
+                            ->where('ea.fiscal_year', $fiscalYear)
+                            ->exists();
+                    }
+
+                    $status = $hasAnswers ? 'สำเร็จ' : 'รอดำเนินการ';
+                    $sheet->setCellValue($col . $row, $status);
+
+                    if ($hasAnswers) {
+                        $sheet->getStyle($col . $row)->getFont()->getColor()->setRGB('28A745');
+                        $completedAngles++;
+                    } else {
+                        $sheet->getStyle($col . $row)->getFont()->getColor()->setRGB('DC3545');
+                    }
+                }
+
+                $sheet->setCellValue('M' . $row, $completedAngles . '/5');
+                $sheet->setCellValue('N' . $row, round(($completedAngles / 5) * 100, 1) . '%');
+
+                $row++;
+                $counter++;
+            }
+
+            // Auto-size columns
+            foreach (range('A', 'N') as $column) {
+                $sheet->getColumnDimension($column)->setAutoSize(true);
+            }
+
+            // Add borders to data
+            if ($evaluatees->count() > 0) {
+                $dataRange = 'A4:N' . ($row - 1);
+                $sheet->getStyle($dataRange)->getBorders()->getAllBorders()
+                      ->setBorderStyle(Border::BORDER_THIN);
+            }
+
+            $filename = 'รายงานความครบถ้วนการประเมิน_' . now()->format('Y-m-d_H-i-s') . '.xlsx';
+            $writer = new Xlsx($spreadsheet);
+
+            return response()->streamDownload(function () use ($writer) {
+                $writer->save('php://output');
+            }, $filename, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Export completion data error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกข้อมูลความครบถ้วนล้มเหลว'], 500);
+        }
+    }
+
+    /**
+     * Export raw question-level data
+     * Used by ReportExport.tsx handleRawDataExport()
+     */
+    public function exportRawQuestionData(Request $request)
+    {
+        try {
+            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
+            $divisionId = $request->input('division');
+            $grade = $request->input('grade');
+
+            $query = DB::table('answers as a')
+                ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
+                ->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
+                ->join('questions as q', 'a.question_id', '=', 'q.id')
+                ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                ->leftJoin('evaluation_assignments as ea', function ($join) {
+                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                         ->on('a.user_id', '=', 'ea.evaluator_id')
+                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                })
+                ->leftJoin('parts as p', 'q.part_id', '=', 'p.id')
+                ->leftJoin('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+                ->leftJoin('sub_aspects as sub_asp', 'q.sub_aspect_id', '=', 'sub_asp.id')
+                ->leftJoin('divisions as div', 'evaluatee.division_id', '=', 'div.id')
+                ->leftJoin('departments as dept', 'evaluatee.department_id', '=', 'dept.id')
+                ->leftJoin('positions as pos', 'evaluatee.position_id', '=', 'pos.id')
+                ->select([
+                    'evaluatee.emid as evaluatee_emid',
+                    DB::raw("CONCAT(evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
+                    'evaluatee.grade as evaluatee_grade',
+                    'div.name as evaluatee_division',
+                    'dept.name as evaluatee_department',
+                    'pos.title as evaluatee_position',
+                    'evaluator.emid as evaluator_emid',
+                    DB::raw("CONCAT(evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
+                    'ea.angle as evaluation_angle',
+                    'q.id as question_id',
+                    'p.title as part_title',
+                    'asp.name as aspect_name',
+                    'sub_asp.name as sub_aspect_name',
+                    'q.title as question_title',
+                    'q.type as question_type',
+                    'o.id as option_id',
+                    'o.label as option_label',
+                    'o.score as option_score',
+                    'a.other_text',
+                    'a.created_at as answer_date',
+                    'ea.fiscal_year',
+                ]);
+
+            // Apply filters
+            $query->where(function ($q) use ($fiscalYear) {
+                $q->whereYear('a.created_at', $fiscalYear)
+                  ->orWhere('ea.fiscal_year', $fiscalYear);
+            });
+
+            if ($divisionId) {
+                $query->where('evaluatee.division_id', $divisionId);
+            }
+            if ($grade) {
+                $query->where('evaluatee.grade', $grade);
+            }
+
+            $results = $query->orderBy('evaluatee.id')
+                            ->orderBy('p.order')
+                            ->orderBy('q.id')
+                            ->orderBy('ea.angle')
+                            ->get();
+
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('ข้อมูลดิบ');
+
+            // Title
+            $sheet->setCellValue('A1', 'ข้อมูลดิบการประเมิน 360 องศา');
+            $sheet->mergeCells('A1:V1');
+            $sheet->getStyle('A1')->getFont()->setSize(16)->setBold(true);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet->setCellValue('A2', 'ปีงบประมาณ: ' . ($fiscalYear + 543) . ' | จำนวนคำตอบ: ' . $results->count() . ' | วันที่สร้าง: ' . now()->format('d/m/Y H:i'));
+            $sheet->mergeCells('A2:V2');
+            $sheet->getStyle('A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Headers (22 columns per spec)
+            $headers = [
+                'A' => 'ลำดับ', 'B' => 'รหัสพนักงานผู้ถูกประเมิน', 'C' => 'ชื่อผู้ถูกประเมิน',
+                'D' => 'ระดับ', 'E' => 'หน่วยงาน', 'F' => 'แผนก', 'G' => 'ตำแหน่ง',
+                'H' => 'รหัสพนักงานผู้ประเมิน', 'I' => 'ชื่อผู้ประเมิน', 'J' => 'มุมการประเมิน',
+                'K' => 'รหัสคำถาม', 'L' => 'ส่วนที่', 'M' => 'หมวดหมู่', 'N' => 'หมวดหมู่ย่อย',
+                'O' => 'คำถาม', 'P' => 'ประเภทคำถาม',
+                'Q' => 'รหัสตัวเลือก', 'R' => 'คำตอบ', 'S' => 'คะแนน',
+                'T' => 'ข้อความเพิ่มเติม', 'U' => 'วันที่ตอบ', 'V' => 'ปีงบประมาณ',
+            ];
+
+            $headerRow = 4;
+            foreach ($headers as $col => $header) {
+                $sheet->setCellValue($col . $headerRow, $header);
+            }
+
+            $headerRange = 'A4:V4';
+            $sheet->getStyle($headerRange)->getFont()->setBold(true);
+            $sheet->getStyle($headerRange)->getFill()
+                  ->setFillType(Fill::FILL_SOLID)
+                  ->getStartColor()->setRGB('4F46E5');
+            $sheet->getStyle($headerRange)->getFont()->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle($headerRange)->getBorders()->getAllBorders()
+                  ->setBorderStyle(Border::BORDER_THIN);
+
+            $row = 5;
+            $counter = 1;
+
+            foreach ($results as $item) {
+                $sheet->setCellValue('A' . $row, $counter);
+                $sheet->setCellValue('B' . $row, $item->evaluatee_emid);
+                $sheet->setCellValue('C' . $row, $item->evaluatee_name);
+                $sheet->setCellValue('D' . $row, $item->evaluatee_grade);
+                $sheet->setCellValue('E' . $row, $item->evaluatee_division ?? 'ไม่ระบุ');
+                $sheet->setCellValue('F' . $row, $item->evaluatee_department ?? 'ไม่ระบุ');
+                $sheet->setCellValue('G' . $row, $item->evaluatee_position ?? 'ไม่ระบุ');
+                $sheet->setCellValue('H' . $row, $item->evaluator_emid);
+                $sheet->setCellValue('I' . $row, $item->evaluator_name);
+                $sheet->setCellValue('J' . $row, $this->translateAngle($item->evaluation_angle ?? ''));
+                $sheet->setCellValue('K' . $row, $item->question_id);
+                $sheet->setCellValue('L' . $row, $item->part_title);
+                $sheet->setCellValue('M' . $row, $item->aspect_name);
+                $sheet->setCellValue('N' . $row, $item->sub_aspect_name);
+                $sheet->setCellValue('O' . $row, $item->question_title);
+                $sheet->setCellValue('P' . $row, $this->translateQuestionType($item->question_type ?? ''));
+                $sheet->setCellValue('Q' . $row, $item->option_id);
+                $sheet->setCellValue('R' . $row, $item->option_label);
+                $sheet->setCellValue('S' . $row, $item->option_score);
+                $sheet->setCellValue('T' . $row, $item->other_text);
+                $sheet->setCellValue('U' . $row, $item->answer_date);
+                $sheet->setCellValue('V' . $row, $item->fiscal_year);
+
+                $row++;
+                $counter++;
+            }
+
+            // Auto-size columns
+            foreach (range('A', 'V') as $column) {
+                $sheet->getColumnDimension($column)->setAutoSize(true);
+            }
+
+            // Specific widths for long content
+            $sheet->getColumnDimension('O')->setWidth(50);
+            $sheet->getColumnDimension('T')->setWidth(30);
+
+            // Add borders
+            if ($results->count() > 0) {
+                $dataRange = 'A4:V' . ($row - 1);
+                $sheet->getStyle($dataRange)->getBorders()->getAllBorders()
+                      ->setBorderStyle(Border::BORDER_THIN);
+            }
+
+            $filename = 'ข้อมูลดิบการประเมิน_' . now()->format('Y-m-d_H-i-s') . '.xlsx';
+            $writer = new Xlsx($spreadsheet);
+
+            return response()->streamDownload(function () use ($writer) {
+                $writer->save('php://output');
+            }, $filename, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Export raw question data error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกข้อมูลดิบล้มเหลว'], 500);
+        }
+    }
+
+    /**
+     * Translate question type to Thai
+     */
+    private function translateQuestionType(string $type): string
+    {
+        $translations = [
+            'rating' => 'คะแนน',
+            'choice' => 'เลือกตอบ',
+            'multiple_choice' => 'เลือกหลายคำตอบ',
+            'open_text' => 'ข้อความ',
+        ];
+
+        return $translations[$type] ?? $type;
+    }
+
+    /**
+     * Export detailed evaluation report with angle breakdown and question details
+     * Used by ReportExport.tsx handleDetailedExport()
+     */
+    public function exportDetailedEvaluationReport(Request $request)
+    {
+        try {
+            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
+            $divisionId = $request->input('division');
+            $gradeGroup = $request->input('grade_group', 'all');
+            $userIds = $request->input('user_ids');
+            $includeRawScores = filter_var($request->input('include_raw_scores', true), FILTER_VALIDATE_BOOLEAN);
+            $includeAngleBreakdown = filter_var($request->input('include_angle_breakdown', true), FILTER_VALIDATE_BOOLEAN);
+            $includeQuestionDetails = filter_var($request->input('include_question_details', false), FILTER_VALIDATE_BOOLEAN);
+
+            // Build evaluatee query
+            $evaluateeQuery = DB::table('users as u')
+                ->leftJoin('divisions as d', 'u.division_id', '=', 'd.id')
+                ->leftJoin('departments as dept', 'u.department_id', '=', 'dept.id')
+                ->leftJoin('positions as pos', 'u.position_id', '=', 'pos.id')
+                ->where('u.role', 'user')
+                ->whereExists(function ($sub) use ($fiscalYear) {
+                    $sub->select(DB::raw(1))
+                        ->from('evaluation_assignments as ea')
+                        ->whereColumn('ea.evaluatee_id', 'u.id')
+                        ->where('ea.fiscal_year', $fiscalYear);
+                })
+                ->select([
+                    'u.id', 'u.emid', 'u.fname', 'u.lname', 'u.grade',
+                    'd.name as division', 'dept.name as department', 'pos.title as position',
+                ]);
+
+            if ($divisionId) {
+                $evaluateeQuery->where('u.division_id', $divisionId);
+            }
+
+            if ($gradeGroup !== 'all') {
+                $parts = explode('-', $gradeGroup);
+                if (count($parts) === 2) {
+                    $evaluateeQuery->whereBetween('u.grade', [(int) $parts[0], (int) $parts[1]]);
+                } else {
+                    $evaluateeQuery->where('u.grade', (int) $gradeGroup);
+                }
+            }
+
+            if (!empty($userIds) && is_array($userIds)) {
+                $evaluateeQuery->whereIn('u.id', $userIds);
+            }
+
+            $evaluatees = $evaluateeQuery->orderBy('u.grade')->orderBy('u.fname')->get();
+
+            $spreadsheet = new Spreadsheet();
+
+            // --- Sheet 1: Summary ---
+            $summarySheet = $spreadsheet->getActiveSheet();
+            $summarySheet->setTitle('สรุปรายบุคคล');
+
+            $summarySheet->setCellValue('A1', 'รายงานรายละเอียดการประเมิน 360 องศา');
+            $summarySheet->mergeCells('A1:K1');
+            $summarySheet->getStyle('A1')->getFont()->setSize(16)->setBold(true);
+            $summarySheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $summaryHeaders = [
+                'A3' => 'ลำดับ', 'B3' => 'รหัสพนักงาน', 'C3' => 'ชื่อ-สกุล',
+                'D3' => 'ระดับ', 'E3' => 'หน่วยงาน', 'F3' => 'ตำแหน่ง',
+                'G3' => 'ตนเอง', 'H3' => 'ผู้บังคับบัญชา', 'I3' => 'ผู้ใต้บังคับบัญชา',
+                'J3' => 'เพื่อนร่วมงาน (ซ้าย)', 'K3' => 'เพื่อนร่วมงาน (ขวา)',
+                'L3' => 'คะแนนถ่วงน้ำหนัก',
+            ];
+
+            foreach ($summaryHeaders as $cell => $header) {
+                $summarySheet->setCellValue($cell, $header);
+            }
+
+            $sHeaderRange = 'A3:L3';
+            $summarySheet->getStyle($sHeaderRange)->getFont()->setBold(true);
+            $summarySheet->getStyle($sHeaderRange)->getFill()
+                         ->setFillType(Fill::FILL_SOLID)
+                         ->getStartColor()->setRGB('4F46E5');
+            $summarySheet->getStyle($sHeaderRange)->getFont()->getColor()->setRGB('FFFFFF');
+            $summarySheet->getStyle($sHeaderRange)->getBorders()->getAllBorders()
+                         ->setBorderStyle(Border::BORDER_THIN);
+
+            $sRow = 4;
+            $counter = 1;
+
+            foreach ($evaluatees as $evaluatee) {
+                $scores = $this->weightedScoringService->getIndividualAngleReport($evaluatee->id, $fiscalYear);
+
+                $summarySheet->setCellValue('A' . $sRow, $counter);
+                $summarySheet->setCellValue('B' . $sRow, $evaluatee->emid);
+                $summarySheet->setCellValue('C' . $sRow, trim($evaluatee->fname . ' ' . $evaluatee->lname));
+                $summarySheet->setCellValue('D' . $sRow, $evaluatee->grade);
+                $summarySheet->setCellValue('E' . $sRow, $evaluatee->division ?? 'ไม่ระบุ');
+                $summarySheet->setCellValue('F' . $sRow, $evaluatee->position ?? 'ไม่ระบุ');
+
+                foreach (['self' => 'G', 'top' => 'H', 'bottom' => 'I', 'left' => 'J', 'right' => 'K'] as $angle => $col) {
+                    $value = $scores[$angle] ?? 0;
+                    $summarySheet->setCellValue($col . $sRow, $value > 0 ? round($value, 2) : '-');
+                }
+
+                $weighted = $scores['weighted_score'] ?? $scores['average'] ?? 0;
+                $summarySheet->setCellValue('L' . $sRow, $weighted > 0 ? round($weighted, 2) : '-');
+
+                $sRow++;
+                $counter++;
+            }
+
+            foreach (range('A', 'L') as $column) {
+                $summarySheet->getColumnDimension($column)->setAutoSize(true);
+            }
+
+            if ($evaluatees->count() > 0) {
+                $summarySheet->getStyle('A3:L' . ($sRow - 1))->getBorders()->getAllBorders()
+                             ->setBorderStyle(Border::BORDER_THIN);
+            }
+
+            // --- Sheet 2: Angle Breakdown (optional) ---
+            if ($includeAngleBreakdown) {
+                $angleSheet = $spreadsheet->createSheet();
+                $angleSheet->setTitle('แจกแจงตามองศา');
+
+                $angleHeaders = [
+                    'A1' => 'รหัสพนักงาน', 'B1' => 'ชื่อ-สกุล', 'C1' => 'ระดับ',
+                    'D1' => 'องศา', 'E1' => 'ผู้ประเมิน', 'F1' => 'คะแนนเฉลี่ย',
+                    'G1' => 'จำนวนคำตอบ', 'H1' => 'สถานะ',
+                ];
+
+                foreach ($angleHeaders as $cell => $header) {
+                    $angleSheet->setCellValue($cell, $header);
+                }
+
+                $aHeaderRange = 'A1:H1';
+                $angleSheet->getStyle($aHeaderRange)->getFont()->setBold(true);
+                $angleSheet->getStyle($aHeaderRange)->getFill()
+                           ->setFillType(Fill::FILL_SOLID)
+                           ->getStartColor()->setRGB('059669');
+                $angleSheet->getStyle($aHeaderRange)->getFont()->getColor()->setRGB('FFFFFF');
+
+                $aRow = 2;
+
+                foreach ($evaluatees as $evaluatee) {
+                    $assignments = DB::table('evaluation_assignments as ea')
+                        ->join('users as evaluator', 'ea.evaluator_id', '=', 'evaluator.id')
+                        ->leftJoin('answers as a', function ($join) {
+                            $join->on('ea.evaluation_id', '=', 'a.evaluation_id')
+                                 ->on('ea.evaluator_id', '=', 'a.user_id')
+                                 ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
+                        })
+                        ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                        ->where('ea.evaluatee_id', $evaluatee->id)
+                        ->where('ea.fiscal_year', $fiscalYear)
+                        ->groupBy('ea.angle', 'evaluator.emid', 'evaluator.fname', 'evaluator.lname')
+                        ->select([
+                            'ea.angle',
+                            'evaluator.emid as evaluator_emid',
+                            DB::raw("CONCAT(evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
+                            DB::raw('AVG(o.score) as avg_score'),
+                            DB::raw('COUNT(a.id) as answer_count'),
+                        ])
+                        ->get();
+
+                    foreach ($assignments as $assignment) {
+                        $angleSheet->setCellValue('A' . $aRow, $evaluatee->emid);
+                        $angleSheet->setCellValue('B' . $aRow, trim($evaluatee->fname . ' ' . $evaluatee->lname));
+                        $angleSheet->setCellValue('C' . $aRow, $evaluatee->grade);
+                        $angleSheet->setCellValue('D' . $aRow, $this->translateAngle($assignment->angle));
+                        $angleSheet->setCellValue('E' . $aRow, $assignment->evaluator_name);
+                        $angleSheet->setCellValue('F' . $aRow, $assignment->avg_score ? round($assignment->avg_score, 2) : '-');
+                        $angleSheet->setCellValue('G' . $aRow, $assignment->answer_count);
+                        $angleSheet->setCellValue('H' . $aRow, $assignment->answer_count > 0 ? 'สำเร็จ' : 'รอดำเนินการ');
+                        $aRow++;
+                    }
+                }
+
+                foreach (range('A', 'H') as $column) {
+                    $angleSheet->getColumnDimension($column)->setAutoSize(true);
+                }
+            }
+
+            // --- Sheet 3: Question Details (optional) ---
+            if ($includeQuestionDetails) {
+                $qSheet = $spreadsheet->createSheet();
+                $qSheet->setTitle('รายละเอียดคำถาม');
+
+                $qHeaders = [
+                    'A1' => 'ผู้ถูกประเมิน', 'B1' => 'องศา', 'C1' => 'ผู้ประเมิน',
+                    'D1' => 'ส่วนที่', 'E1' => 'หมวดหมู่', 'F1' => 'คำถาม',
+                    'G1' => 'คำตอบ', 'H1' => 'คะแนน', 'I1' => 'ข้อความเพิ่มเติม',
+                ];
+
+                foreach ($qHeaders as $cell => $header) {
+                    $qSheet->setCellValue($cell, $header);
+                }
+
+                $qHeaderRange = 'A1:I1';
+                $qSheet->getStyle($qHeaderRange)->getFont()->setBold(true);
+                $qSheet->getStyle($qHeaderRange)->getFill()
+                       ->setFillType(Fill::FILL_SOLID)
+                       ->getStartColor()->setRGB('D97706');
+                $qSheet->getStyle($qHeaderRange)->getFont()->getColor()->setRGB('FFFFFF');
+
+                $evaluateeIds = $evaluatees->pluck('id')->toArray();
+
+                $questionData = DB::table('answers as a')
+                    ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
+                    ->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
+                    ->join('questions as q', 'a.question_id', '=', 'q.id')
+                    ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                    ->leftJoin('evaluation_assignments as ea', function ($join) {
+                        $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                             ->on('a.user_id', '=', 'ea.evaluator_id')
+                             ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                    })
+                    ->leftJoin('parts as p', 'q.part_id', '=', 'p.id')
+                    ->leftJoin('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+                    ->whereIn('a.evaluatee_id', $evaluateeIds)
+                    ->where(function ($qry) use ($fiscalYear) {
+                        $qry->whereYear('a.created_at', $fiscalYear)
+                            ->orWhere('ea.fiscal_year', $fiscalYear);
+                    })
+                    ->select([
+                        DB::raw("CONCAT(evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
+                        'ea.angle',
+                        DB::raw("CONCAT(evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
+                        'p.title as part_title',
+                        'asp.name as aspect_name',
+                        'q.title as question_title',
+                        'o.label as option_label',
+                        'o.score as option_score',
+                        'a.other_text',
+                    ])
+                    ->orderBy('evaluatee.id')
+                    ->orderBy('p.order')
+                    ->orderBy('q.id')
+                    ->get();
+
+                $qRow = 2;
+                foreach ($questionData as $item) {
+                    $qSheet->setCellValue('A' . $qRow, $item->evaluatee_name);
+                    $qSheet->setCellValue('B' . $qRow, $this->translateAngle($item->angle ?? ''));
+                    $qSheet->setCellValue('C' . $qRow, $item->evaluator_name);
+                    $qSheet->setCellValue('D' . $qRow, $item->part_title);
+                    $qSheet->setCellValue('E' . $qRow, $item->aspect_name);
+                    $qSheet->setCellValue('F' . $qRow, $item->question_title);
+                    $qSheet->setCellValue('G' . $qRow, $item->option_label);
+                    $qSheet->setCellValue('H' . $qRow, $item->option_score);
+                    $qSheet->setCellValue('I' . $qRow, $item->other_text);
+                    $qRow++;
+                }
+
+                foreach (range('A', 'I') as $column) {
+                    $qSheet->getColumnDimension($column)->setAutoSize(true);
+                }
+                $qSheet->getColumnDimension('F')->setWidth(50);
+            }
+
+            $filename = 'รายงานรายละเอียดครบถ้วน_' . now()->format('Y-m-d_H-i-s') . '.xlsx';
+            $writer = new Xlsx($spreadsheet);
+
+            return response()->streamDownload(function () use ($writer) {
+                $writer->save('php://output');
+            }, $filename, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Export detailed evaluation report error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกรายงานรายละเอียดล้มเหลว'], 500);
+        }
+    }
 }

@@ -322,22 +322,14 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         // Export functionality
         Route::post('/export/individual', [AdminEvaluationReportController::class, 'exportIndividual'])
             ->name('export-individual');
-        Route::post('/export/weighted', [AdminEvaluationReportController::class, 'exportWeightedReport'])
-            ->name('export-weighted');
         Route::post('/export/raw-data', [AdminEvaluationReportController::class, 'exportRawQuestionData'])
             ->name('export-raw-data');
-        Route::post('/export/complete', [AdminEvaluationReportController::class, 'exportCompleteEvaluationData'])
-            ->name('export-complete');
         Route::post('/export/completion-data', [AdminEvaluationReportController::class, 'exportCompletionData'])
             ->name('export-completion-data');
         Route::post('/export/detailed', [AdminEvaluationReportController::class, 'exportDetailedEvaluationReport'])
             ->name('export-detailed');
         Route::post('/export/individual-detailed', [AdminEvaluationReportController::class, 'exportIndividualDetailed'])
             ->name('export-individual-detailed');
-        Route::post('/export/master-report', [AdminEvaluationReportController::class, 'exportMasterEvaluationReport'])
-            ->name('export-master-report');
-        Route::post('/export-advanced', [AdminEvaluationReportController::class, 'exportAdvanced'])
-            ->name('export-advanced');
         
         // PDF export methods - text content only, no images
         Route::post('/export/individual-pdf', [AdminEvaluationReportController::class, 'exportIndividualPdf'])

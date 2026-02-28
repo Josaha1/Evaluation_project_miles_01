@@ -100,9 +100,7 @@ class ExternalEvaluatorController extends Controller
         ])->orderBy('order')->get();
 
         // Get existing answers if any (for resume capability)
-        $evaluatorId = $externalSession->accessCode->evaluationAssignment
-            ? $externalSession->accessCode->evaluationAssignment->evaluator_id
-            : null;
+        $evaluatorId = $externalSession->accessCode?->evaluationAssignment?->evaluator_id;
 
         $existingAnswers = [];
         if ($evaluatorId) {
