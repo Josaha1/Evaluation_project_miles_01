@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\User;
-use App\Models\EvaluationWeight;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
@@ -25,8 +24,8 @@ class ScoreCalculationService
      */
     private array $defaultWeights = [
         '5-8' => [
-            'self' => 0.20,
-            'top' => 0.50,
+            'self' => 0.50,
+            'top' => 0.20,
             'left' => 0.30
         ],
         '9-12' => [
@@ -350,9 +349,6 @@ class ScoreCalculationService
      */
     private function getWeightsForLevel(string $level, ?int $fiscalYear = null): array
     {
-        // ในอนาคตสามารถดึงจาก database ได้
-        // $weights = EvaluationWeight::getWeightsForLevel($level, $fiscalYear);
-        
         return $this->defaultWeights[$level] ?? $this->defaultWeights['5-8'];
     }
     
@@ -361,7 +357,7 @@ class ScoreCalculationService
      */
     private function determineLevel(int $grade): string
     {
-        return $grade >= 9 ? '9-12' : '5-8';
+        return $grade >= 9 ? '9-12' : '5-8'; // '5-8' key covers grades 4-8
     }
     
     /**

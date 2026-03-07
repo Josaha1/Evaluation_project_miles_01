@@ -82,6 +82,9 @@ class AdminEvaluationReportController extends Controller
                 'evaluationMetrics' => $data['evaluationMetrics'],
                 'detailedResults' => $data['detailedResults'],
                 
+                // External organization metrics
+                'externalOrgMetrics' => $data['externalOrgMetrics'],
+
                 // Metadata
                 'metadata' => [
                     'lastUpdated' => now()->toISOString(),
@@ -125,6 +128,7 @@ class AdminEvaluationReportController extends Controller
                 'dashboardStats' => $this->calculateDashboardStats($rawScores, $users, $assignments),
                 'evaluationMetrics' => $this->calculateEvaluationMetrics($rawScores),
                 'detailedResults' => $this->formatDetailedResults($rawScores),
+                'externalOrgMetrics' => $this->getExternalOrgMetrics($fiscalYear),
             ];
         });
     }
@@ -879,6 +883,45 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
+     * Get external organization metrics for the fiscal year
+     */
+    private function getExternalOrgMetrics(int $fiscalYear): array
+    {
+        try {
+            $results = DB::table('answers as a')
+                ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+                ->leftJoin('options as o', function ($join) {
+                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                })
+                ->where('eac.fiscal_year', $fiscalYear)
+                ->whereNotNull('a.external_access_code_id')
+                ->groupBy('eo.id', 'eo.name')
+                ->select([
+                    'eo.id as org_id',
+                    'eo.name as org_name',
+                    DB::raw('COUNT(DISTINCT a.id) as total_responses'),
+                    DB::raw('ROUND(AVG(COALESCE(o.score, CASE WHEN a.value REGEXP "^[0-9]+$" THEN CAST(a.value AS UNSIGNED) ELSE 0 END)), 2) as avg_score'),
+                    DB::raw('COUNT(DISTINCT a.evaluatee_id) as evaluatee_count'),
+                ])
+                ->get();
+
+            return $results->map(function ($row) {
+                return [
+                    'org_id' => $row->org_id,
+                    'org_name' => $row->org_name,
+                    'total_responses' => $row->total_responses,
+                    'avg_score' => round((float) $row->avg_score, 2),
+                    'evaluatee_count' => $row->evaluatee_count,
+                ];
+            })->toArray();
+        } catch (\Exception $e) {
+            Log::error('Error getting external org metrics: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Get total questions count
      */
     private function getTotalQuestions(): int
@@ -1317,7 +1360,7 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
-     * Export employee level report (5-8)
+     * Export employee level report (4-8)
      */
     public function exportEmployeeReport(Request $request)
     {
@@ -1329,9 +1372,9 @@ class AdminEvaluationReportController extends Controller
                 'only_completed' => $request->input('only_completed')
             ];
 
-            // Dynamic lookup: find 360 internal evaluation for grades 5-8
+            // Dynamic lookup: find 360 internal evaluation for grades 4-8
             $evaluation = Evaluation::where('user_type', 'internal')
-                ->where('grade_min', 5)->where('grade_max', 8)
+                ->where('grade_min', 4)->where('grade_max', 8)
                 ->where('title', 'like', '%360%')
                 ->where('status', 'published')
                 ->firstOrFail();
@@ -1377,6 +1420,26 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
+     * Export external organization evaluation report
+     */
+    public function exportExternalOrgReport(Request $request)
+    {
+        try {
+            $filters = [
+                'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
+            ];
+
+            $filePath = $this->evaluationExportService->exportExternalOrgReport($filters);
+            $filename = basename($filePath);
+
+            return response()->download($filePath, $filename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            Log::error('Export external org report error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกรายงานองค์กรภายนอกล้มเหลว'], 500);
+        }
+    }
+
+    /**
      * Export detailed evaluation data with questions and evaluators
      */
     public function exportDetailedEvaluationData(Request $request)
@@ -1387,8 +1450,19 @@ class AdminEvaluationReportController extends Controller
             $divisionId = $request->input('division_id');
             $userId = $request->input('user_id');
 
+            // Dynamic lookup by grade if no evaluation_id provided
+            if (!$evaluationId && $request->input('grade_lookup')) {
+                $gradeLookup = (int) $request->input('grade_lookup');
+                $evaluation = Evaluation::where('user_type', 'internal')
+                    ->where('grade_min', '<=', $gradeLookup)
+                    ->where('grade_max', '>=', $gradeLookup)
+                    ->where('status', 'published')
+                    ->first();
+                $evaluationId = $evaluation?->id;
+            }
+
             if (!$evaluationId) {
-                return response()->json(['error' => 'กรุณาระบุรหัสการประเมิน'], 400);
+                return response()->json(['error' => 'กรุณาระบุรหัสการประเมินหรือระดับพนักงาน'], 400);
             }
 
             $evaluation = Evaluation::findOrFail($evaluationId);

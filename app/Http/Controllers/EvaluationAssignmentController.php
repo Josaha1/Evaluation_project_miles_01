@@ -321,10 +321,10 @@ class EvaluationAssignmentController extends Controller
                 ->where('grade_max', '>=', 9)
                 ->where('title', 'LIKE', '%ประเมินตนเอง%')
                 ->first();
-        } elseif ($userGrade >= 5 && $userGrade <= 8) {
-            // Staff level (grades 5-8) - use specific self-evaluation form
+        } elseif ($userGrade >= 4 && $userGrade <= 8) {
+            // Staff level (grades 4-8) - use specific self-evaluation form
             $evaluation = $evaluationQuery->where('grade_min', '<=', 8)
-                ->where('grade_max', '>=', 5)
+                ->where('grade_max', '>=', 4)
                 ->where('title', 'LIKE', '%ประเมินตนเอง%')
                 ->first();
         } else {

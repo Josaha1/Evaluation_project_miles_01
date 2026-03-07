@@ -75,10 +75,9 @@ class AdminAccessCodeController extends Controller
         $evaluations = Evaluation::where('status', 'published')
             ->orderBy('title')->get(['id', 'title', 'user_type', 'grade_min', 'grade_max']);
 
-        // Get evaluatees who have right-angle assignments
-        $evaluatees = User::whereHas('assignmentsAsEvaluatee', function ($q) {
-            $q->where('angle', 'right');
-        })->get(['id', 'fname', 'lname', 'grade', 'emid']);
+        // Get evaluatees who have any evaluation assignment
+        $evaluatees = User::whereHas('assignmentsAsEvaluatee')
+            ->get(['id', 'fname', 'lname', 'grade', 'emid']);
 
         return Inertia::render('AdminAccessCodeGenerate', [
             'organizations' => $organizations,
@@ -104,13 +103,13 @@ class AdminAccessCodeController extends Controller
         $generatedCodes = [];
 
         foreach ($validated['evaluatee_ids'] as $evaluateeId) {
-            // Find the right-angle assignment for this evaluatee
+            // Find an assignment for this evaluatee in the given fiscal year
             $assignment = EvaluationAssignment::where('evaluatee_id', $evaluateeId)
-                ->where('angle', 'right')
                 ->where('fiscal_year', $validated['fiscal_year'])
                 ->first();
 
-            $code = $this->generateUniqueCode();
+            $organization = ExternalOrganization::findOrFail($validated['organization_id']);
+            $code = $this->generateUniqueCode($organization->org_code);
 
             $accessCode = ExternalAccessCode::create([
                 'code' => $code,
@@ -279,12 +278,15 @@ class AdminAccessCodeController extends Controller
     }
 
     /**
-     * Generate a unique 8-character alphanumeric code.
+     * Generate a unique access code in format IEAT-[ORG_CODE]-[RANDOM6].
      */
-    private function generateUniqueCode(): string
+    private function generateUniqueCode(?string $orgCode = null): string
     {
+        $prefix = $orgCode ? "IEAT-{$orgCode}-" : 'IEAT-';
+
         do {
-            $code = strtoupper(Str::random(8));
+            $random = strtoupper(Str::random(6));
+            $code = $prefix . $random;
         } while (ExternalAccessCode::where('code', $code)->exists());
 
         return $code;

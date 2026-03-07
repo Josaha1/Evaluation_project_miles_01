@@ -81,18 +81,18 @@ class EvaluationExportService
     private function createEmployeeEvaluationSheet(Spreadsheet $spreadsheet, array $filters): void
     {
         $employeeSheet = $spreadsheet->createSheet();
-        $employeeSheet->setTitle('พนักงานระดับ 5-8');
+        $employeeSheet->setTitle('พนักงานระดับ 4-8');
         
-        // Dynamic lookup: find 360 internal evaluation for grades 5-8
+        // Dynamic lookup: find 360 internal evaluation for grades 4-8
         $evaluation = Evaluation::where('user_type', 'internal')
-            ->where('grade_min', 5)->where('grade_max', 8)
+            ->where('grade_min', 4)->where('grade_max', 8)
             ->where('title', 'like', '%360%')
             ->where('status', 'published')->first();
         $evaluationData = $evaluation
-            ? $this->getEvaluationData($evaluation->id, [5, 6, 7, 8], $filters)
+            ? $this->getEvaluationData($evaluation->id, [4, 5, 6, 7, 8], $filters)
             : [];
         
-        $this->setupSheetHeaders($employeeSheet, 'รายงานการประเมิน 360 องซา สำหรับพนักงานระดับ 5-8');
+        $this->setupSheetHeaders($employeeSheet, 'รายงานการประเมิน 360 องศา สำหรับพนักงานระดับ 4-8');
         $this->populateEvaluationData($employeeSheet, $evaluationData, 6);
         
         $this->applySheetStyling($employeeSheet, count($evaluationData) + 10);
@@ -139,7 +139,7 @@ class EvaluationExportService
             ->where('title', 'like', '%360%')
             ->where('status', 'published')->first();
         $empEval = Evaluation::where('user_type', 'internal')
-            ->where('grade_min', 5)->where('grade_max', 8)
+            ->where('grade_min', 4)->where('grade_max', 8)
             ->where('title', 'like', '%360%')
             ->where('status', 'published')->first();
         $govEval = Evaluation::where('user_type', 'internal')
@@ -518,7 +518,7 @@ class EvaluationExportService
         $row += 2;
 
         // Employee summary
-        $sheet->setCellValue('A' . $row, 'สรุปพนักงานระดับ 5-8');
+        $sheet->setCellValue('A' . $row, 'สรุปพนักงานระดับ 4-8');
         $sheet->getStyle('A' . $row)->getFont()->setBold(true);
         $row++;
 
@@ -718,6 +718,159 @@ class EvaluationExportService
         }
         
         return (int)$year + 543;
+    }
+
+    /**
+     * Export external organization evaluation report
+     */
+    public function exportExternalOrgReport(array $filters = []): string
+    {
+        try {
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('องค์กรภายนอก');
+
+            $fiscalYear = $filters['fiscal_year'] ?? date('Y');
+
+            $results = DB::table('answers as a')
+                ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+                ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
+                ->join('questions as q', 'a.question_id', '=', 'q.id')
+                ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                ->leftJoin('parts as p', 'q.part_id', '=', 'p.id')
+                ->leftJoin('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+                ->leftJoin('divisions as div', 'evaluatee.division_id', '=', 'div.id')
+                ->leftJoin('positions as pos', 'evaluatee.position_id', '=', 'pos.id')
+                ->where('eac.fiscal_year', $fiscalYear)
+                ->whereNotNull('a.external_access_code_id')
+                ->select([
+                    'eo.name as org_name',
+                    DB::raw("COALESCE(eo.org_code, '') as org_code"),
+                    'evaluatee.emid as evaluatee_emid',
+                    'evaluatee.fname as evaluatee_fname',
+                    'evaluatee.lname as evaluatee_lname',
+                    'evaluatee.grade as evaluatee_grade',
+                    'div.name as evaluatee_division',
+                    'pos.title as evaluatee_position',
+                    'eac.code as access_code',
+                    'p.title as part_title',
+                    'asp.name as aspect_name',
+                    'q.title as question_title',
+                    'o.label as option_label',
+                    'o.score as option_score',
+                    'a.other_text',
+                    'a.created_at as answer_date',
+                ])
+                ->orderBy('eo.name')
+                ->orderBy('evaluatee.id')
+                ->orderBy('q.id')
+                ->get();
+
+            // Title
+            $sheet->setCellValue('A1', 'รายงานการประเมินองค์กรภายนอก (องศาขวา)');
+            $sheet->mergeCells('A1:L1');
+            $sheet->getStyle('A1')->getFont()->setSize(16)->setBold(true);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet->setCellValue('A2', 'ปีงบประมาณ: ' . ($fiscalYear + 543) . ' | วันที่สร้าง: ' . now()->format('d/m/Y H:i'));
+            $sheet->mergeCells('A2:L2');
+
+            // Headers
+            $headers = [
+                'A4' => 'ลำดับ', 'B4' => 'องค์กร', 'C4' => 'รหัสองค์กร',
+                'D4' => 'ผู้ถูกประเมิน', 'E4' => 'ระดับ', 'F4' => 'หน่วยงาน',
+                'G4' => 'ส่วนที่', 'H4' => 'หมวดหมู่', 'I4' => 'คำถาม',
+                'J4' => 'คำตอบ', 'K4' => 'คะแนน', 'L4' => 'วันที่ตอบ',
+            ];
+            foreach ($headers as $cell => $header) {
+                $sheet->setCellValue($cell, $header);
+            }
+            $sheet->getStyle('A4:L4')->getFont()->setBold(true);
+            $sheet->getStyle('A4:L4')->getFill()
+                  ->setFillType(Fill::FILL_SOLID)
+                  ->getStartColor()->setRGB('7C3AED');
+            $sheet->getStyle('A4:L4')->getFont()->getColor()->setRGB('FFFFFF');
+
+            // Data
+            $row = 5;
+            $counter = 1;
+            foreach ($results as $r) {
+                $sheet->setCellValue('A' . $row, $counter);
+                $sheet->setCellValue('B' . $row, $r->org_name);
+                $sheet->setCellValue('C' . $row, $r->org_code);
+                $sheet->setCellValue('D' . $row, trim($r->evaluatee_fname . ' ' . $r->evaluatee_lname));
+                $sheet->setCellValue('E' . $row, $r->evaluatee_grade);
+                $sheet->setCellValue('F' . $row, $r->evaluatee_division ?? '-');
+                $sheet->setCellValue('G' . $row, $r->part_title ?? '-');
+                $sheet->setCellValue('H' . $row, $r->aspect_name ?? '-');
+                $sheet->setCellValue('I' . $row, $r->question_title);
+                $sheet->setCellValue('J' . $row, $r->option_label ?? $r->other_text ?? '-');
+                $sheet->setCellValue('K' . $row, $r->option_score);
+                $sheet->setCellValue('L' . $row, $r->answer_date ? date('d/m/Y', strtotime($r->answer_date)) : '-');
+                $row++;
+                $counter++;
+            }
+
+            // Summary sheet
+            $summarySheet = $spreadsheet->createSheet();
+            $summarySheet->setTitle('สรุปตามองค์กร');
+            $summarySheet->setCellValue('A1', 'สรุปคะแนนองค์กรภายนอกแยกตามองค์กร');
+            $summarySheet->mergeCells('A1:E1');
+            $summarySheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
+
+            $orgHeaders = ['A3' => 'องค์กร', 'B3' => 'รหัส', 'C3' => 'จำนวนคำตอบ', 'D3' => 'คะแนนเฉลี่ย', 'E3' => 'จำนวนผู้ถูกประเมิน'];
+            foreach ($orgHeaders as $cell => $header) {
+                $summarySheet->setCellValue($cell, $header);
+            }
+            $summarySheet->getStyle('A3:E3')->getFont()->setBold(true);
+            $summarySheet->getStyle('A3:E3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2E8F0');
+
+            $orgSummary = DB::table('answers as a')
+                ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+                ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                ->where('eac.fiscal_year', $fiscalYear)
+                ->whereNotNull('a.external_access_code_id')
+                ->groupBy('eo.id', 'eo.name', 'eo.org_code')
+                ->select([
+                    'eo.name as org_name',
+                    DB::raw("COALESCE(eo.org_code, '') as org_code"),
+                    DB::raw('COUNT(DISTINCT a.id) as total_responses'),
+                    DB::raw('ROUND(AVG(o.score), 2) as avg_score'),
+                    DB::raw('COUNT(DISTINCT a.evaluatee_id) as evaluatee_count'),
+                ])
+                ->orderBy('eo.name')
+                ->get();
+
+            $sRow = 4;
+            foreach ($orgSummary as $org) {
+                $summarySheet->setCellValue('A' . $sRow, $org->org_name);
+                $summarySheet->setCellValue('B' . $sRow, $org->org_code);
+                $summarySheet->setCellValue('C' . $sRow, $org->total_responses);
+                $summarySheet->setCellValue('D' . $sRow, $org->avg_score);
+                $summarySheet->setCellValue('E' . $sRow, $org->evaluatee_count);
+                $sRow++;
+            }
+
+            foreach (range('A', 'L') as $col) { $sheet->getColumnDimension($col)->setAutoSize(true); }
+            foreach (range('A', 'E') as $col) { $summarySheet->getColumnDimension($col)->setAutoSize(true); }
+
+            $filename = 'รายงานองค์กรภายนอก_' . now()->format('Y-m-d_H-i-s') . '.xlsx';
+            $filePath = storage_path('app/exports/' . $filename);
+
+            if (!file_exists(dirname($filePath))) {
+                mkdir(dirname($filePath), 0755, true);
+            }
+
+            $writer = new Xlsx($spreadsheet);
+            $writer->save($filePath);
+
+            return $filePath;
+        } catch (\Exception $e) {
+            Log::error('Export external org report error: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     /**

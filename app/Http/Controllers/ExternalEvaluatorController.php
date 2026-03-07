@@ -67,7 +67,7 @@ class ExternalEvaluatorController extends Controller
         $request->session()->put('external_session_token', $sessionToken);
         $request->session()->put('external_session_id', $session->id);
 
-        return redirect()->route('external.evaluate');
+        return redirect()->route('external.confirm');
     }
 
     /**
@@ -79,6 +79,85 @@ class ExternalEvaluatorController extends Controller
 
         return redirect()->route('external.login')
             ->with('success', 'ออกจากระบบเรียบร้อยแล้ว');
+    }
+
+    /**
+     * Show confirmation page before starting evaluation.
+     */
+    public function showConfirm(Request $request)
+    {
+        $externalSession = $request->attributes->get('external_session');
+
+        $evaluatee = $externalSession->evaluatee;
+        $evaluation = $externalSession->evaluation;
+        $organization = $externalSession->organization;
+
+        return Inertia::render('ExternalConfirm', [
+            'evaluatee' => [
+                'id' => $evaluatee->id,
+                'name' => $evaluatee->fname . ' ' . $evaluatee->lname,
+                'position' => $evaluatee->position ? $evaluatee->position->name : null,
+            ],
+            'evaluation' => [
+                'id' => $evaluation->id,
+                'title' => $evaluation->title,
+            ],
+            'organization' => [
+                'id' => $organization->id,
+                'name' => $organization->name,
+            ],
+        ]);
+    }
+
+    /**
+     * Handle confirmation and redirect to dashboard.
+     */
+    public function confirm(Request $request)
+    {
+        return redirect()->route('external.dashboard');
+    }
+
+    /**
+     * Show external evaluator dashboard with list of evaluatees.
+     */
+    public function showDashboard(Request $request)
+    {
+        $externalSession = $request->attributes->get('external_session');
+
+        $organization = $externalSession->organization;
+        $accessCode = $externalSession->accessCode;
+
+        // Get all access codes for this organization to show all assigned evaluatees
+        $accessCodes = ExternalAccessCode::with(['evaluatee', 'evaluation'])
+            ->where('external_organization_id', $organization->id)
+            ->where('fiscal_year', $accessCode->fiscal_year)
+            ->get();
+
+        $evaluatees = $accessCodes->map(function ($code) {
+            $evaluatee = $code->evaluatee;
+            if (!$evaluatee) return null;
+
+            // Check if evaluation is completed (code is used)
+            $isCompleted = $code->is_used;
+
+            return [
+                'id' => $evaluatee->id,
+                'name' => $evaluatee->fname . ' ' . $evaluatee->lname,
+                'position' => $evaluatee->position ? $evaluatee->position->name : null,
+                'evaluation_title' => $code->evaluation ? $code->evaluation->title : null,
+                'is_completed' => $isCompleted,
+                'access_code_id' => $code->id,
+            ];
+        })->filter()->values()->toArray();
+
+        return Inertia::render('ExternalDashboard', [
+            'organization' => [
+                'id' => $organization->id,
+                'name' => $organization->name,
+            ],
+            'evaluatees' => $evaluatees,
+            'currentEvaluateeId' => $externalSession->evaluatee_id,
+        ]);
     }
 
     /**

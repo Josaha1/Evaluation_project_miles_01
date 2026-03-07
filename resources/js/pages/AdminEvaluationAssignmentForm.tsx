@@ -258,9 +258,9 @@ export default function AdminEvaluationAssignmentForm() {
 
         // Grade filter
         if (gradeFilter !== "all") {
-            if (gradeFilter === "5-8") {
+            if (gradeFilter === "4-8") {
                 filtered = filtered.filter(
-                    (option) => option.grade >= 5 && option.grade <= 8
+                    (option) => option.grade >= 4 && option.grade <= 8
                 );
             } else if (gradeFilter === "9-12") {
                 filtered = filtered.filter(
@@ -983,8 +983,8 @@ export default function AdminEvaluationAssignmentForm() {
                                         className="w-full py-2 px-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                     >
                                         <option value="all">ทั้งหมด</option>
-                                        <option value="5-8">
-                                            C5-C8 (2 องศา)
+                                        <option value="4-8">
+                                            C4-C8 (2 องศา)
                                         </option>
                                         <option value="9-12">
                                             C9-C12 (4 องศา)

@@ -42,6 +42,9 @@ Route::prefix('external')->name('external.')->group(function () {
 
 // External auth routes (ต้องมี external session)
 Route::prefix('external')->name('external.')->middleware('external')->group(function () {
+    Route::get('/confirm', [ExternalEvaluatorController::class, 'showConfirm'])->name('confirm');
+    Route::post('/confirm', [ExternalEvaluatorController::class, 'confirm'])->name('confirm.submit');
+    Route::get('/dashboard', [ExternalEvaluatorController::class, 'showDashboard'])->name('dashboard');
     Route::get('/evaluate', [ExternalEvaluatorController::class, 'showEvaluation'])->name('evaluate');
     Route::post('/evaluate', [ExternalEvaluatorController::class, 'submitEvaluation'])->name('evaluate.submit');
 });
@@ -354,6 +357,8 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
             ->name('export-self-evaluation');
         Route::post('/export/governors', [AdminEvaluationReportController::class, 'exportGovernorReport'])
             ->name('export-governors');
+        Route::post('/export/external-org', [AdminEvaluationReportController::class, 'exportExternalOrgReport'])
+            ->name('export-external-org');
         Route::post('/export/detailed-data', [AdminEvaluationReportController::class, 'exportDetailedEvaluationData'])
             ->name('export-detailed-data');
 

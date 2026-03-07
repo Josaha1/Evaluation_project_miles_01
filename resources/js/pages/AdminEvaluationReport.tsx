@@ -68,6 +68,8 @@ import {
     Pause,
     Crown,
 } from "lucide-react";
+import Highcharts from "highcharts";
+import HighchartsReact from "highcharts-react-official";
 
 // Enhanced TypeScript Interfaces
 interface PageProps {
@@ -169,6 +171,13 @@ interface PageProps {
             percentage: number;
         }>;
     }>;
+    externalOrgMetrics: Array<{
+        org_id: number;
+        org_name: string;
+        total_responses: number;
+        avg_score: number;
+        evaluatee_count: number;
+    }>;
 }
 
 interface DashboardConfig {
@@ -224,6 +233,7 @@ const AdminEvaluationReport: React.FC = () => {
             trends: []
         },
         detailedResults = [],
+        externalOrgMetrics = [],
     } = props;
 
     // Enhanced State Management
@@ -354,12 +364,24 @@ const AdminEvaluationReport: React.FC = () => {
             if (selectedDivision) formData.append('division_id', selectedDivision);
             if (selectedGrade) formData.append('grade', selectedGrade);
             
-            // Add evaluation_id only for detailed-data export (user selects specific evaluation)
+            // Add evaluation_id only for detailed-data export (user must select specific evaluation)
             // executives, employees, self-evaluation use dynamic lookup on backend
             if (type === 'detailed-data') {
                 const evaluationId = formData.get('evaluation_id');
-                if (!evaluationId) {
-                    formData.append('evaluation_id', '1');
+                if (!evaluationId && selectedGrade) {
+                    // Auto-determine evaluation based on selected grade
+                    const grade = parseInt(selectedGrade);
+                    if (grade >= 13) {
+                        formData.append('grade_lookup', '13');
+                    } else if (grade >= 9) {
+                        formData.append('grade_lookup', '9');
+                    } else {
+                        formData.append('grade_lookup', '4');
+                    }
+                } else if (!evaluationId) {
+                    alert('กรุณาเลือกระดับ (Grade) ก่อนส่งออกรายงานรายละเอียด');
+                    setIsExporting(false);
+                    return;
                 }
             }
             
@@ -792,8 +814,9 @@ const AdminEvaluationReport: React.FC = () => {
                     )}
 
                     {dashboardConfig.view === 'analytics' && (
-                        <AnalyticsView 
+                        <AnalyticsView
                             evaluationMetrics={evaluationMetrics}
+                            externalOrgMetrics={externalOrgMetrics}
                             dashboardConfig={dashboardConfig}
                             getScoreColor={getScoreColor}
                             getCompletionColor={getCompletionColor}
@@ -801,7 +824,7 @@ const AdminEvaluationReport: React.FC = () => {
                     )}
 
                     {dashboardConfig.view === 'reports' && (
-                        <ReportsView 
+                        <ReportsView
                             filteredResults={filteredResults}
                             dashboardConfig={dashboardConfig}
                             viewMode={viewMode}
@@ -810,6 +833,7 @@ const AdminEvaluationReport: React.FC = () => {
                             setSelectedUser={setSelectedUser}
                             setShowIndividualReport={setShowIndividualReport}
                             showEvaluateeDetailsModal={showEvaluateeDetailsModal}
+                            externalOrgMetrics={externalOrgMetrics}
                         />
                     )}
 
@@ -1325,10 +1349,11 @@ const DashboardView: React.FC<{
 // Analytics View Component
 const AnalyticsView: React.FC<{
     evaluationMetrics: any;
+    externalOrgMetrics: any[];
     dashboardConfig: DashboardConfig;
     getScoreColor: (score: number) => string;
     getCompletionColor: (rate: number) => string;
-}> = ({ evaluationMetrics, dashboardConfig, getScoreColor, getCompletionColor }) => {
+}> = ({ evaluationMetrics, externalOrgMetrics, dashboardConfig, getScoreColor, getCompletionColor }) => {
     const [expandedAnalytics, setExpandedAnalytics] = useState<Set<string>>(new Set(['byDivision', 'byAngle', 'trends']));
     
     const toggleAnalyticsSection = (id: string) => {
@@ -1381,6 +1406,45 @@ const AnalyticsView: React.FC<{
                 </div>
 
                 {expandedAnalytics.has('byDivision') && (
+                    <>
+                    {/* Chart: Completion by Division */}
+                    {(evaluationMetrics?.byDivision || []).length > 0 && (
+                        <div className="mb-6">
+                            <HighchartsReact
+                                highcharts={Highcharts}
+                                options={{
+                                    chart: { type: 'bar', backgroundColor: 'transparent', height: 300 },
+                                    title: { text: 'อัตราความสำเร็จตามหน่วยงาน', style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                    xAxis: {
+                                        categories: (evaluationMetrics?.byDivision || []).map((d: any) => d.division || 'ไม่ระบุ'),
+                                        labels: { style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                    },
+                                    yAxis: {
+                                        min: 0, max: 100,
+                                        title: { text: 'อัตราความสำเร็จ (%)', style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                        labels: { style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                        gridLineColor: dashboardConfig.theme === 'dark' ? '#444' : '#ddd',
+                                    },
+                                    legend: { enabled: false },
+                                    tooltip: {
+                                        valueSuffix: '%',
+                                        backgroundColor: dashboardConfig.theme === 'dark' ? '#1f2937' : '#fff',
+                                        style: { color: dashboardConfig.theme === 'dark' ? '#fff' : '#000' },
+                                    },
+                                    plotOptions: { bar: { borderWidth: 0, borderRadius: 4 } },
+                                    series: [{
+                                        name: 'ความสำเร็จ',
+                                        type: 'bar' as const,
+                                        data: (evaluationMetrics?.byDivision || []).map((d: any) => ({
+                                            y: d.completionRate || 0,
+                                            color: (d.completionRate || 0) >= 80 ? '#10b981' : (d.completionRate || 0) >= 50 ? '#f59e0b' : '#ef4444',
+                                        })),
+                                    }],
+                                    credits: { enabled: false },
+                                }}
+                            />
+                        </div>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {(evaluationMetrics?.byDivision || []).map((division, index) => (
                             <div
@@ -1442,6 +1506,7 @@ const AnalyticsView: React.FC<{
                             </div>
                         ))}
                     </div>
+                    </>
                 )}
             </div>
 
@@ -1537,10 +1602,61 @@ const AnalyticsView: React.FC<{
                 )}
             </div>
 
+            {/* Performance by Grade */}
+            <div className={`rounded-2xl p-6 ${
+                dashboardConfig.theme === 'dark'
+                    ? 'bg-slate-800/50 border border-slate-700'
+                    : 'bg-white border border-gray-200'
+            } shadow-xl backdrop-blur-sm`}>
+                <h3 className={`text-2xl font-bold mb-6 ${
+                    dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                }`}>
+                    คะแนนเฉลี่ยตามกลุ่มระดับ
+                </h3>
+                {(evaluationMetrics?.byGrade || []).length > 0 && (
+                    <HighchartsReact
+                        highcharts={Highcharts}
+                        options={{
+                            chart: { type: 'column', backgroundColor: 'transparent', height: 350 },
+                            title: { text: '', style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                            xAxis: {
+                                categories: (evaluationMetrics?.byGrade || []).map((g: any) => {
+                                    const grade = parseInt(g.grade);
+                                    if (grade >= 13) return 'ผู้ว่าการ';
+                                    if (grade >= 9) return 'ผู้บริหาร';
+                                    return 'พนักงาน';
+                                }),
+                                labels: { style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                            },
+                            yAxis: {
+                                min: 0, max: 5,
+                                title: { text: 'คะแนนเฉลี่ย', style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                labels: { style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                gridLineColor: dashboardConfig.theme === 'dark' ? '#444' : '#ddd',
+                            },
+                            legend: { enabled: false },
+                            tooltip: {
+                                valueDecimals: 2,
+                                backgroundColor: dashboardConfig.theme === 'dark' ? '#1f2937' : '#fff',
+                                style: { color: dashboardConfig.theme === 'dark' ? '#fff' : '#000' },
+                            },
+                            plotOptions: { column: { borderWidth: 0, borderRadius: 4, colorByPoint: true } },
+                            colors: ['#f59e0b', '#10b981', '#3b82f6'],
+                            series: [{
+                                name: 'คะแนนเฉลี่ย',
+                                type: 'column' as const,
+                                data: (evaluationMetrics?.byGrade || []).map((g: any) => g.averageScore || 0),
+                            }],
+                            credits: { enabled: false },
+                        }}
+                    />
+                )}
+            </div>
+
             {/* Trends */}
             <div className={`rounded-2xl p-6 ${
-                dashboardConfig.theme === 'dark' 
-                    ? 'bg-slate-800/50 border border-slate-700' 
+                dashboardConfig.theme === 'dark'
+                    ? 'bg-slate-800/50 border border-slate-700'
                     : 'bg-white border border-gray-200'
             } shadow-xl backdrop-blur-sm`}>
                 <div className="flex items-center justify-between mb-6">
@@ -1569,6 +1685,63 @@ const AnalyticsView: React.FC<{
                 </div>
 
                 {expandedAnalytics.has('trends') && (
+                    <>
+                    {/* Chart: Trends */}
+                    {(evaluationMetrics?.trends || []).length > 0 && (
+                        <div className="mb-6">
+                            <HighchartsReact
+                                highcharts={Highcharts}
+                                options={{
+                                    chart: { backgroundColor: 'transparent', height: 350 },
+                                    title: { text: 'แนวโน้มการประเมินรายเดือน', style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                    xAxis: {
+                                        categories: (evaluationMetrics?.trends || []).map((t: any) => t.month_name || new Date(t.date).toLocaleDateString('th-TH', { month: 'short' })),
+                                        labels: { style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                    },
+                                    yAxis: [
+                                        {
+                                            title: { text: 'จำนวนการประเมิน', style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                            labels: { style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                            gridLineColor: dashboardConfig.theme === 'dark' ? '#444' : '#ddd',
+                                        },
+                                        {
+                                            title: { text: 'คะแนนเฉลี่ย', style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                            labels: { style: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' } },
+                                            opposite: true,
+                                            min: 0, max: 5,
+                                            gridLineColor: dashboardConfig.theme === 'dark' ? '#444' : '#ddd',
+                                        },
+                                    ],
+                                    legend: {
+                                        itemStyle: { color: dashboardConfig.theme === 'dark' ? '#ccc' : '#000' },
+                                    },
+                                    tooltip: {
+                                        shared: true,
+                                        backgroundColor: dashboardConfig.theme === 'dark' ? '#1f2937' : '#fff',
+                                        style: { color: dashboardConfig.theme === 'dark' ? '#fff' : '#000' },
+                                    },
+                                    series: [
+                                        {
+                                            name: 'จำนวนการประเมิน',
+                                            type: 'column' as const,
+                                            data: (evaluationMetrics?.trends || []).map((t: any) => t.completions || 0),
+                                            color: '#3b82f6',
+                                            yAxis: 0,
+                                        },
+                                        {
+                                            name: 'คะแนนเฉลี่ย',
+                                            type: 'line' as const,
+                                            data: (evaluationMetrics?.trends || []).map((t: any) => t.averageScore || 0),
+                                            color: '#f59e0b',
+                                            yAxis: 1,
+                                            marker: { radius: 4 },
+                                        },
+                                    ],
+                                    credits: { enabled: false },
+                                }}
+                            />
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                         {(evaluationMetrics?.trends || []).map((trend, index) => (
                             <div
@@ -1606,8 +1779,60 @@ const AnalyticsView: React.FC<{
                             </div>
                         ))}
                     </div>
+                    </>
                 )}
             </div>
+
+            {/* External Organization Metrics */}
+            {(externalOrgMetrics || []).length > 0 && (
+                <div className={`rounded-2xl p-6 ${
+                    dashboardConfig.theme === 'dark'
+                        ? 'bg-slate-800/50 border border-slate-700'
+                        : 'bg-white border border-gray-200'
+                } shadow-xl backdrop-blur-sm`}>
+                    <h3 className={`text-2xl font-bold mb-6 ${
+                        dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                    }`}>
+                        คะแนนองศาขวาแยกตามองค์กรภายนอก
+                    </h3>
+                    <div className="overflow-x-auto">
+                        <table className={`w-full text-sm ${
+                            dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                            <thead>
+                                <tr className={`border-b ${
+                                    dashboardConfig.theme === 'dark' ? 'border-slate-600' : 'border-gray-200'
+                                }`}>
+                                    <th className="text-left py-3 px-4 font-semibold">องค์กร</th>
+                                    <th className="text-center py-3 px-4 font-semibold">จำนวนคำตอบ</th>
+                                    <th className="text-center py-3 px-4 font-semibold">คะแนนเฉลี่ย</th>
+                                    <th className="text-center py-3 px-4 font-semibold">จำนวนผู้ถูกประเมิน</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(externalOrgMetrics || []).map((org: any, index: number) => (
+                                    <tr key={org.org_id || index} className={`border-b ${
+                                        dashboardConfig.theme === 'dark' ? 'border-slate-700 hover:bg-slate-700/50' : 'border-gray-100 hover:bg-gray-50'
+                                    } transition-colors`}>
+                                        <td className="py-3 px-4 font-medium">{org.org_name}</td>
+                                        <td className="py-3 px-4 text-center">{org.total_responses}</td>
+                                        <td className="py-3 px-4 text-center">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                (org.avg_score || 0) >= 4 ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                                                (org.avg_score || 0) >= 3 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                                                'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                            }`}>
+                                                {(org.avg_score || 0).toFixed(2)}
+                                            </span>
+                                        </td>
+                                        <td className="py-3 px-4 text-center">{org.evaluatee_count}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -1622,15 +1847,17 @@ const ReportsView: React.FC<{
     setSelectedUser: (id: number) => void;
     setShowIndividualReport: (show: boolean) => void;
     showEvaluateeDetailsModal: (id: number) => void;
-}> = ({ 
-    filteredResults, 
-    dashboardConfig, 
-    viewMode, 
-    getScoreColor, 
+    externalOrgMetrics: Array<{ org_id: number; org_name: string; total_responses: number; avg_score: number; evaluatee_count: number }>;
+}> = ({
+    filteredResults,
+    dashboardConfig,
+    viewMode,
+    getScoreColor,
     getCompletionColor,
     setSelectedUser,
     setShowIndividualReport,
-    showEvaluateeDetailsModal
+    showEvaluateeDetailsModal,
+    externalOrgMetrics
 }) => {
     return (
         <div className="space-y-8">
@@ -1800,6 +2027,52 @@ const ReportsView: React.FC<{
                                                 <Eye className="h-4 w-4 text-gray-300" />
                                             </button>
                                         </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {externalOrgMetrics && externalOrgMetrics.length > 0 && (
+                <div className={`rounded-2xl overflow-hidden ${
+                    dashboardConfig.theme === 'dark'
+                        ? 'bg-slate-800/50 border border-slate-700'
+                        : 'bg-white border border-gray-200'
+                } shadow-xl`}>
+                    <div className={`px-6 py-4 border-b ${
+                        dashboardConfig.theme === 'dark' ? 'border-slate-700 bg-purple-900/30' : 'border-gray-200 bg-purple-50'
+                    }`}>
+                        <h3 className={`text-lg font-bold ${
+                            dashboardConfig.theme === 'dark' ? 'text-purple-300' : 'text-purple-800'
+                        }`}>
+                            คะแนนองศาขวา แยกตามองค์กรภายนอก
+                        </h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className={dashboardConfig.theme === 'dark' ? 'bg-slate-700' : 'bg-gray-50'}>
+                                <tr>
+                                    <th className={`px-6 py-3 text-left text-sm font-semibold ${dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>องค์กร</th>
+                                    <th className={`px-6 py-3 text-center text-sm font-semibold ${dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>จำนวนคำตอบ</th>
+                                    <th className={`px-6 py-3 text-center text-sm font-semibold ${dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>คะแนนเฉลี่ย</th>
+                                    <th className={`px-6 py-3 text-center text-sm font-semibold ${dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>จำนวนผู้ถูกประเมิน</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
+                                {externalOrgMetrics.map((org) => (
+                                    <tr key={org.org_id} className={`hover:${dashboardConfig.theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-50'} transition-colors`}>
+                                        <td className={`px-6 py-4 font-medium ${dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>{org.org_name}</td>
+                                        <td className={`px-6 py-4 text-center ${dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>{org.total_responses}</td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`text-lg font-bold ${
+                                                org.avg_score >= 4 ? 'text-green-600' : org.avg_score >= 3 ? 'text-blue-600' : org.avg_score >= 2 ? 'text-orange-600' : 'text-red-600'
+                                            }`}>
+                                                {org.avg_score.toFixed(2)}
+                                            </span>
+                                        </td>
+                                        <td className={`px-6 py-4 text-center ${dashboardConfig.theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>{org.evaluatee_count}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -1984,7 +2257,7 @@ const ExportsView: React.FC<{
         {
             id: 'comprehensive',
             title: 'รายงานรวมผู้บริหารและพนักงาน',
-            description: 'รายงานครบถ้วนทั้งผู้ว่าการ ระดับ 9-12 และ 5-8 พร้อม Option Mapping',
+            description: 'รายงานครบถ้วนทั้งผู้ว่าการ ระดับ 9-12 และ 4-8 พร้อม Option Mapping',
             icon: Building,
             color: 'emerald'
         },
@@ -2004,8 +2277,8 @@ const ExportsView: React.FC<{
         },
         {
             id: 'employees', 
-            title: 'รายงานพนักงานระดับ 5-8',
-            description: 'รายงานเฉพาะพนักงานระดับ 5-8 พร้อมคำถามและคะแนน',
+            title: 'รายงานพนักงานระดับ 4-8',
+            description: 'รายงานเฉพาะพนักงานระดับ 4-8 พร้อมคำถามและคะแนน',
             icon: Users,
             color: 'cyan'
         },
@@ -2015,6 +2288,13 @@ const ExportsView: React.FC<{
             description: 'รายงานการประเมินตนเองของทุกระดับพร้อมคำถามและคะแนน',
             icon: User,
             color: 'indigo'
+        },
+        {
+            id: 'external-org',
+            title: 'รายงานองค์กรภายนอก (องศาขวา)',
+            description: 'รายงานคะแนนองศาขวาแยกตามองค์กรภายนอก พร้อมสรุปคะแนนเฉลี่ย',
+            icon: Building,
+            color: 'purple'
         },
         {
             id: 'detailed-data',

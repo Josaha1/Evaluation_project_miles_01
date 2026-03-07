@@ -1297,7 +1297,7 @@ class AdminEvaluationAssignmentController extends Controller
         
         // กำหนดองศาที่ต้องการตามเกรด
         // ระดับ 9+: 4 องศา (บน, ล่าง, ซ้าย[ทุกระดับ internal], ขวา)
-        // ระดับ 5-8: 2 องศา (บน, ซ้าย[ทุกระดับ internal])
+        // ระดับ 4-8: 2 องศา (บน, ซ้าย[ทุกระดับ internal])
         $requiredAngles = $grade >= 9 
             ? ['top', 'bottom', 'left', 'right']
             : ['top', 'left'];

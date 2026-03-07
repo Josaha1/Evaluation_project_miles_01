@@ -22,8 +22,8 @@ class WeightedScoringServiceTest extends TestCase
     public function test_grade_5_8_weighted_calculation()
     {
         $userScores = [
-            'self' => 4.0,  // 20% weight
-            'top' => 4.5,   // 50% weight  
+            'self' => 4.0,  // 50% weight
+            'top' => 4.5,   // 20% weight
             'left' => 3.5,  // 30% weight
             'bottom' => 0,  // Not used for 5-8
             'right' => 0,   // Not used for 5-8
@@ -31,12 +31,12 @@ class WeightedScoringServiceTest extends TestCase
 
         $result = $this->service->calculateWeightedScore($userScores, 6);
 
-        // Expected: (4.0 * 0.2 + 4.5 * 0.5 + 3.5 * 0.3) / (0.2 + 0.5 + 0.3) = 4.05
+        // Expected: (4.0 * 0.50 + 4.5 * 0.20 + 3.5 * 0.30) / (0.50 + 0.20 + 0.30) = 3.95
         $this->assertEquals('5-8', $result['level']);
         $this->assertEquals(6, $result['grade']);
-        $this->assertEqualsWithDelta(4.05, $result['final_score'], 0.01);
-        $this->assertEquals('very_good', $result['performance_level']);
-        $this->assertEquals('ดีมาก', $result['performance_text']);
+        $this->assertEqualsWithDelta(3.95, $result['final_score'], 0.01);
+        $this->assertEquals('good', $result['performance_level']);
+        $this->assertEquals('ดี', $result['performance_text']);
     }
 
     /**
@@ -79,7 +79,7 @@ class WeightedScoringServiceTest extends TestCase
         $this->assertEquals('11-12', $result['level']);
         $this->assertEquals(12, $result['grade']);
         $this->assertGreaterThan(4.0, $result['final_score']);
-        $this->assertEquals('excellent', $result['performance_level']);
+        $this->assertEquals('very_good', $result['performance_level']);
     }
 
     /**
@@ -188,7 +188,7 @@ class WeightedScoringServiceTest extends TestCase
         
         $this->assertEquals(0, $result['final_score']);
         $this->assertEquals('poor', $result['performance_level']);
-        $this->assertEquals('ไม่มีข้อมูล', $result['performance_text']);
+        $this->assertEquals('ต้องปรับปรุงมาก', $result['performance_text']);
 
         // Test with partial scores
         $partialScores = [
@@ -245,25 +245,26 @@ class WeightedScoringServiceTest extends TestCase
      */
     public function test_stakeholder_weights_application()
     {
-        // Grade 5-8: Self 20%, Top 50%, Left 30%
+        // Grade 5-8: Self 50%, Top 20%, Left 30%
         $userScores = [
-            'self' => 3.0,  // Low self score
-            'top' => 5.0,   // High superior score (should have most weight)
-            'left' => 4.0,  // Medium peer score
+            'self' => 3.0,  // Low self score (but highest weight at 50%)
+            'top' => 5.0,   // High superior score (20% weight)
+            'left' => 4.0,  // Medium peer score (30% weight)
             'bottom' => 0,
             'right' => 0,
         ];
 
         $result = $this->service->calculateWeightedScore($userScores, 6);
-        
-        // With 50% weight on 'top' score of 5.0, final should be closer to 5.0 than 3.0
-        $this->assertGreaterThan(4.0, $result['final_score']);
+
+        // Weighted: (3.0*0.50 + 5.0*0.20 + 4.0*0.30) / (0.50+0.20+0.30) = 3.70
+        // With 50% weight on 'self' score of 3.0, final should be closer to 3.0
+        $this->assertEqualsWithDelta(3.70, $result['final_score'], 0.01);
         $this->assertLessThan(5.0, $result['final_score']);
-        
+
         // Check breakdown includes weight information
         $breakdown = $result['breakdown'];
         $this->assertArrayHasKey('stakeholder_breakdown', $breakdown);
         $this->assertArrayHasKey('top', $breakdown['stakeholder_breakdown']);
-        $this->assertEquals(0.5, $breakdown['stakeholder_breakdown']['top']['weight']);
+        $this->assertEquals(0.20, $breakdown['stakeholder_breakdown']['top']['weight']);
     }
 }

@@ -15,6 +15,8 @@ import {
 import axios from "axios";
 import { ProgressIndicator } from "@/Components/ProgressIndicator";
 import { QuestionCard } from "@/Components/QuestionCard";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/Components/ui/dialog";
+import { toast } from "sonner";
 
 interface Option {
     id: number;
@@ -75,6 +77,7 @@ export default function SelfEvaluationStep() {
     const [answers, setAnswers] = useState<{ [questionId: number]: any }>({});
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
+    const [showCompletionModal, setShowCompletionModal] = useState(false);
     
     // โหลดคำตอบที่มีอยู่แล้วเมื่อเริ่มต้น
     useEffect(() => {
@@ -198,7 +201,7 @@ export default function SelfEvaluationStep() {
                         },
                         onError: () => {
                             setIsLoading(false);
-                            alert("เกิดข้อผิดพลาดในการโหลดขั้นตอนก่อนหน้า");
+                            toast.error("เกิดข้อผิดพลาดในการโหลดขั้นตอนก่อนหน้า");
                         }
                     }
                 );
@@ -225,9 +228,10 @@ export default function SelfEvaluationStep() {
                     evaluatee_id: evaluatee_id ?? auth.user.id,
                     answers: currentAnswers,
                 });
+                toast.success("บันทึกคำตอบเรียบร้อยแล้ว");
             } catch (error) {
                 console.error("Error saving answers:", error);
-                alert("เกิดข้อผิดพลาดในการบันทึก กรุณาลองใหม่");
+                toast.error("เกิดข้อผิดพลาดในการบันทึก กรุณาลองใหม่");
                 setIsLoading(false);
                 return;
             }
@@ -236,6 +240,9 @@ export default function SelfEvaluationStep() {
 
         if (currentIndex < groupedQuestions.length - 1) {
             setCurrentIndex(currentIndex + 1);
+        } else if (step >= total_steps) {
+            setShowCompletionModal(true);
+            setIsLoading(false);
         } else {
             setIsLoading(true);
             router.visit(
@@ -485,6 +492,39 @@ export default function SelfEvaluationStep() {
                     </motion.div>
                 </div>
             </div>
+            {/* Completion Modal */}
+            <Dialog open={showCompletionModal} onOpenChange={setShowCompletionModal}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-center text-xl">
+                            การประเมินตนเองเสร็จสมบูรณ์แล้ว!
+                        </DialogTitle>
+                        <DialogDescription className="text-center">
+                            <p>คุณได้ทำแบบประเมินตนเองเรียบร้อยแล้ว</p>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-center py-4">
+                        <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                            <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+                        </div>
+                    </div>
+                    <DialogFooter className="sm:justify-center">
+                        <button
+                            onClick={() => {
+                                setShowCompletionModal(false);
+                                router.visit(route("dashboard"), {
+                                    method: "get",
+                                    preserveScroll: false,
+                                    preserveState: false,
+                                });
+                            }}
+                            className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                        >
+                            กลับหน้าหลัก
+                        </button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </MainLayout>
     );
 }

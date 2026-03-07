@@ -11,6 +11,7 @@ import { Card } from "@/Components/ui/card";
 interface Organization {
     id: number;
     name: string;
+    org_code: string | null;
     description: string | null;
     contact_person: string | null;
     contact_email: string | null;
@@ -28,6 +29,7 @@ export default function AdminExternalOrganizationForm() {
 
     const { data, setData, post, put, processing, errors } = useForm({
         name: organization?.name || "",
+        org_code: organization?.org_code || "",
         description: organization?.description || "",
         contact_person: organization?.contact_person || "",
         contact_email: organization?.contact_email || "",
@@ -79,6 +81,19 @@ export default function AdminExternalOrganizationForm() {
                                 className="dark:bg-gray-800 dark:text-white"
                             />
                             {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+                        </div>
+
+                        <div>
+                            <Label>รหัสองค์กร (org_code) *</Label>
+                            <Input
+                                value={data.org_code}
+                                onChange={(e) => setData("org_code", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                                placeholder="เช่น BKKP, ABCL (ไม่เกิน 10 ตัวอักษร)"
+                                maxLength={10}
+                                className="dark:bg-gray-800 dark:text-white font-mono"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">ใช้สำหรับสร้าง Access Code รูปแบบ IEAT-[รหัส]-XXXXXX</p>
+                            {errors.org_code && <p className="text-red-500 text-sm mt-1">{errors.org_code}</p>}
                         </div>
 
                         <div>

@@ -91,8 +91,8 @@ class EvaluationPdfExportService
         ->whereNotNull('grade');
 
         // Apply grade filter based on group
-        if ($groupFilter === '5-8') {
-            $query->whereIn('grade', [5, 6, 7, 8]);
+        if ($groupFilter === '4-8') {
+            $query->whereIn('grade', [4, 5, 6, 7, 8]);
         } elseif ($groupFilter === '9-12') {
             $query->whereIn('grade', [9, 10, 11, 12]);
         } elseif ($grade) {

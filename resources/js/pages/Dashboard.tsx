@@ -27,7 +27,9 @@ import {
     ArrowDown,
     ArrowLeft,
     MapPin,
+    Lock,
 } from "lucide-react";
+import { toast } from "sonner";
 
 interface EvaluationCard {
     id: number;
@@ -208,11 +210,11 @@ export default function Dashboard() {
             });
         }
 
-        // 4. ประเมินพนักงานระดับ 5-8 (Staff level 5-8)
+        // 4. ประเมินพนักงานระดับ 4-8 (Staff level 4-8)
         const staffEvaluations = (evaluations.target || []).filter(
             (item) => {
                 const grade = typeof item.grade === 'string' ? parseInt(item.grade) : item.grade;
-                return grade >= 5 && grade <= 8;
+                return grade >= 4 && grade <= 8;
             }
         );
         if (staffEvaluations.length > 0) {
@@ -227,8 +229,8 @@ export default function Dashboard() {
 
             categories.push({
                 id: "staff",
-                title: "ประเมินพนักงานระดับ 5-8",
-                description: "ประเมินพนักงานระดับปฏิบัติการ (ระดับ 5-8)",
+                title: "ประเมินพนักงานระดับ 4-8",
+                description: "ประเมินพนักงานระดับปฏิบัติการ (ระดับ 4-8)",
                 icon: <Users size={24} className="text-blue-600" />,
                 color: "text-blue-700 dark:text-blue-400",
                 bgColor: "bg-blue-50 dark:bg-blue-900/20",
@@ -245,6 +247,13 @@ export default function Dashboard() {
 
         return categories;
     }, [evaluations]);
+
+    // Check if self-evaluation is complete (for step enforcement)
+    const selfCompleted = useMemo(() => {
+        const selfCategory = evaluationCategories.find(c => c.evaluationType === 'self');
+        if (!selfCategory) return true; // No self-eval means no restriction
+        return selfCategory.progress >= 100;
+    }, [evaluationCategories]);
 
     // Filter categories based on search and filter
     const filteredCategories = useMemo(() => {
@@ -305,6 +314,10 @@ export default function Dashboard() {
     }, [evaluations]);
 
     const handleCategoryClick = (category: EvaluationCategory) => {
+        if (category.evaluationType !== "self" && !selfCompleted) {
+            toast.info("กรุณาทำแบบประเมินตนเองให้เสร็จก่อน");
+            return;
+        }
         if (category.evaluationType === "self") {
             const selfEval = category.evaluatees[0];
             if (selfEval) {
@@ -421,6 +434,10 @@ export default function Dashboard() {
         evaluatee: EvaluationCard,
         evaluationType: string
     ) => {
+        if (evaluationType !== "self" && !selfCompleted) {
+            toast.info("กรุณาทำแบบประเมินตนเองให้เสร็จก่อน");
+            return;
+        }
         if (evaluationType === "self") {
             router.visit(
                 route(
@@ -496,6 +513,7 @@ export default function Dashboard() {
     );
 
     const renderCategoryCard = (category: EvaluationCategory) => {
+        const isLocked = category.evaluationType !== "self" && !selfCompleted;
         const isCompleted = category.progress >= 100;
         const statusColor = isCompleted
             ? "text-green-600 dark:text-green-400"
@@ -511,9 +529,10 @@ export default function Dashboard() {
                     "bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm",
                     category.bgColor,
                     category.borderColor,
-                    category.hoverColor,
+                    isLocked ? "" : category.hoverColor,
                     isCompleted ? "ring-2 ring-green-500/20" : "",
-                    isExpanded ? "hover:shadow-xl" : "hover:-translate-y-1"
+                    isExpanded ? "hover:shadow-xl" : isLocked ? "" : "hover:-translate-y-1",
+                    isLocked ? "opacity-60 cursor-not-allowed" : ""
                 )}
             >
                 {/* Header */}
@@ -537,12 +556,21 @@ export default function Dashboard() {
                         </div>
                     </div>
                     <div className="text-right">
-                        <div className={cn("text-2xl font-bold", statusColor)}>
-                            {category.progress}%
-                        </div>
-                        <div className={cn("text-sm font-medium", statusColor)}>
-                            {statusText}
-                        </div>
+                        {isLocked ? (
+                            <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                                <Lock size={18} />
+                                <span className="text-sm font-medium">ล็อค</span>
+                            </div>
+                        ) : (
+                            <>
+                                <div className={cn("text-2xl font-bold", statusColor)}>
+                                    {category.progress}%
+                                </div>
+                                <div className={cn("text-sm font-medium", statusColor)}>
+                                    {statusText}
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -1095,6 +1123,18 @@ export default function Dashboard() {
                             </p>
                         </div>
                     </div>
+
+                    {/* Step Enforcement Banner */}
+                    {!selfCompleted && evaluationCategories.some(c => c.evaluationType === 'self') && (
+                        <div className="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                            <div className="flex items-center gap-3">
+                                <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                                    กรุณาทำแบบประเมินตนเองให้เสร็จก่อนเริ่มประเมินผู้อื่น
+                                </p>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {filteredCategories.map((category) =>

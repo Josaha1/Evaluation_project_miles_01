@@ -251,7 +251,7 @@ class SelfEvaluationController extends Controller
 
     /**
      * Get evaluation form based on user grade for self-evaluation
-     * Uses specific evaluation forms: ID 4 for grades 9-12, ID 5 for grades 5-8
+     * Uses specific evaluation forms: ID 4 for grades 9-12, ID 5 for grades 4-8
      */
     private function getEvaluationByGrade($userGrade)
     {
@@ -264,10 +264,10 @@ class SelfEvaluationController extends Controller
                 ->where('grade_max', '>=', 9)
                 ->where('title', 'LIKE', '%ประเมินตนเอง%')
                 ->first();
-        } elseif ($userGrade >= 5 && $userGrade <= 8) {
-            // Staff level (grades 5-8) - use specific self-evaluation form (ID 5)
+        } elseif ($userGrade >= 4 && $userGrade <= 8) {
+            // Staff level (grades 4-8) - use specific self-evaluation form (ID 5)
             $evaluation = $evaluationQuery->where('grade_min', '<=', 8)
-                ->where('grade_max', '>=', 5)
+                ->where('grade_max', '>=', 4)
                 ->where('title', 'LIKE', '%ประเมินตนเอง%')
                 ->first();
         } else {

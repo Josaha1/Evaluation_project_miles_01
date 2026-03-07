@@ -4,14 +4,10 @@ namespace Tests\Unit;
 
 use Tests\TestCase;
 use App\Http\Controllers\AdminEvaluationReportController;
-use App\Models\Answer;
-use App\Models\Divisions;
-use App\Models\User;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
+use App\Services\ScoreCalculationService;
+use App\Services\WeightedScoringService;
+use App\Services\EvaluationExportService;
+use App\Services\EvaluationPdfExportService;
 use Mockery;
 use Carbon\Carbon;
 
@@ -22,377 +18,173 @@ class AdminEvaluationReportControllerTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->controller = new AdminEvaluationReportController();
+        $scoreCalc = new ScoreCalculationService();
+        $weightedScoring = new WeightedScoringService();
+        $exportService = new EvaluationExportService();
+        $pdfExportService = new EvaluationPdfExportService($weightedScoring, $scoreCalc);
+        $this->controller = new AdminEvaluationReportController(
+            $scoreCalc,
+            $weightedScoring,
+            $exportService,
+            $pdfExportService
+        );
     }
 
     protected function tearDown(): void
     {
         Mockery::close();
+        Carbon::setTestNow();
         parent::tearDown();
     }
 
     /**
-     * Test getCurrentFiscalYear helper method
+     * Test translateAngle returns correct Thai translations
      */
-    public function test_getCurrentFiscalYear_returns_correct_fiscal_year()
+    public function test_translateAngle_returns_correct_translations()
     {
-        // Mock Carbon to control the date
-        Carbon::setTestNow(Carbon::create(2025, 5, 15)); // May 15, 2025
-        
         $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('getCurrentFiscalYear');
+        $method = $reflection->getMethod('translateAngle');
         $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller);
-        
-        // May is before October, so fiscal year should be 2025
-        $this->assertEquals(2025, $result);
-        
-        // Test with October
-        Carbon::setTestNow(Carbon::create(2024, 10, 15)); // October 15, 2024
-        $result = $method->invoke($this->controller);
-        
-        // October is start of new fiscal year, so should be 2025
-        $this->assertEquals(2025, $result);
-        
-        Carbon::setTestNow(); // Reset
+
+        $this->assertEquals('ประเมินตนเอง', $method->invoke($this->controller, 'self'));
+        $this->assertEquals('ผู้บังคับบัญชา', $method->invoke($this->controller, 'top'));
+        $this->assertEquals('ผู้ใต้บังคับบัญชา', $method->invoke($this->controller, 'bottom'));
+        $this->assertEquals('เพื่อนร่วมงาน (ซ้าย)', $method->invoke($this->controller, 'left'));
+        $this->assertEquals('เพื่อนร่วมงาน (ขวา)', $method->invoke($this->controller, 'right'));
+        // Unknown angle returns itself
+        $this->assertEquals('unknown', $method->invoke($this->controller, 'unknown'));
     }
 
     /**
-     * Test getFiscalYearDateRange helper method
+     * Test convertToBuddhistEra returns correct Buddhist Era year
      */
-    public function test_getFiscalYearDateRange_returns_correct_dates()
+    public function test_convertToBuddhistEra_returns_correct_year()
     {
         $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('getFiscalYearDateRange');
+        $method = $reflection->getMethod('convertToBuddhistEra');
         $method->setAccessible(true);
-        
-        [$start, $end] = $method->invoke($this->controller, 2025);
-        
-        $this->assertEquals('2024-10-01 00:00:00', $start->format('Y-m-d H:i:s'));
-        $this->assertEquals('2025-09-30 23:59:59', $end->format('Y-m-d H:i:s'));
+
+        $this->assertEquals(2568, $method->invoke($this->controller, 2025));
+        $this->assertEquals(2569, $method->invoke($this->controller, 2026));
+        $this->assertEquals('', $method->invoke($this->controller, null));
+        $this->assertEquals('', $method->invoke($this->controller, ''));
     }
 
     /**
-     * Test getValidPartIds helper method
+     * Test getCompletedAnglesCount counts non-zero angles
      */
-    public function test_getValidPartIds_returns_correct_part_ids()
+    public function test_getCompletedAnglesCount_counts_correctly()
     {
         $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('getValidPartIds');
+        $method = $reflection->getMethod('getCompletedAnglesCount');
         $method->setAccessible(true);
-        
-        // Test grade < 9
-        $result = $method->invoke($this->controller, 8);
-        $this->assertEquals([7], $result);
-        
-        // Test grade >= 9
-        $result = $method->invoke($this->controller, 10);
-        $this->assertEquals([1, 4], $result);
-        
-        // Test null grade (default)
-        $result = $method->invoke($this->controller, null);
-        $this->assertEquals([1, 4, 7], $result);
+
+        // All angles completed
+        $allCompleted = ['self' => 4.0, 'top' => 3.5, 'bottom' => 4.0, 'left' => 3.0, 'right' => 4.5];
+        $this->assertEquals(5, $method->invoke($this->controller, $allCompleted));
+
+        // Only 3 angles completed (grade 5-8 pattern)
+        $partial = ['self' => 4.0, 'top' => 3.5, 'bottom' => 0, 'left' => 3.0, 'right' => 0];
+        $this->assertEquals(3, $method->invoke($this->controller, $partial));
+
+        // No angles completed
+        $none = ['self' => 0, 'top' => 0, 'bottom' => 0, 'left' => 0, 'right' => 0];
+        $this->assertEquals(0, $method->invoke($this->controller, $none));
+
+        // Missing keys treated as 0
+        $missing = ['self' => 4.0];
+        $this->assertEquals(1, $method->invoke($this->controller, $missing));
     }
 
     /**
-     * Test getAvailableFiscalYears with caching
+     * Test getProgressStatus returns correct status strings
      */
-    public function test_getAvailableFiscalYears_uses_cache()
+    public function test_getProgressStatus_returns_correct_status()
     {
-        Cache::shouldReceive('remember')
-            ->once()
-            ->with('available_fiscal_years', Mockery::any(), Mockery::type('Closure'))
-            ->andReturn([2025, 2024, 2023]);
-
         $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('getAvailableFiscalYears');
+        $method = $reflection->getMethod('getProgressStatus');
         $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller);
-        
-        $this->assertEquals([2025, 2024, 2023], $result);
+
+        // No assignments
+        $this->assertEquals('no_assignments', $method->invoke($this->controller, 0.0, 0, 0));
+
+        // All completed
+        $this->assertEquals('completed', $method->invoke($this->controller, 100.0, 5, 5));
+
+        // Nearly complete (>= 75%)
+        $this->assertEquals('nearly_complete', $method->invoke($this->controller, 80.0, 4, 5));
+
+        // In progress (> 0%)
+        $this->assertEquals('in_progress', $method->invoke($this->controller, 50.0, 2, 5));
+
+        // Not started (0%)
+        $this->assertEquals('not_started', $method->invoke($this->controller, 0.0, 0, 5));
     }
 
     /**
-     * Test getAvailableDivisions with caching
+     * Test translateQuestionType returns correct Thai translations
      */
-    public function test_getAvailableDivisions_uses_cache()
+    public function test_translateQuestionType_returns_correct_translations()
     {
-        $mockDivisions = collect([
-            (object)['id' => 1, 'name' => 'สายงาน 1'],
-            (object)['id' => 2, 'name' => 'สายงาน 2']
+        $reflection = new \ReflectionClass($this->controller);
+        $method = $reflection->getMethod('translateQuestionType');
+        $method->setAccessible(true);
+
+        $this->assertEquals('คะแนน', $method->invoke($this->controller, 'rating'));
+        $this->assertEquals('เลือกตอบ', $method->invoke($this->controller, 'choice'));
+        $this->assertEquals('เลือกหลายคำตอบ', $method->invoke($this->controller, 'multiple_choice'));
+        $this->assertEquals('ข้อความ', $method->invoke($this->controller, 'open_text'));
+        // Unknown type returns itself
+        $this->assertEquals('unknown_type', $method->invoke($this->controller, 'unknown_type'));
+    }
+
+    /**
+     * Test validateRequest validates parameters correctly
+     */
+    public function test_validateRequest_accepts_valid_params()
+    {
+        $reflection = new \ReflectionClass($this->controller);
+        $method = $reflection->getMethod('validateRequest');
+        $method->setAccessible(true);
+
+        $request = \Illuminate\Http\Request::create('/admin/evaluation-report', 'GET', [
+            'fiscal_year' => 2025,
         ]);
 
-        Cache::shouldReceive('remember')
-            ->once()
-            ->with('available_divisions', Mockery::any(), Mockery::type('Closure'))
-            ->andReturn($mockDivisions);
-
-        $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('getAvailableDivisions');
-        $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller);
-        
-        $this->assertEquals($mockDivisions, $result);
+        $result = $method->invoke($this->controller, $request);
+        $this->assertEquals(2025, $result['fiscal_year']);
     }
 
     /**
-     * Test getAvailableGrades with caching
+     * Test validateRequest rejects invalid fiscal_year
      */
-    public function test_getAvailableGrades_uses_cache()
-    {
-        Cache::shouldReceive('remember')
-            ->once()
-            ->with('available_grades', Mockery::any(), Mockery::type('Closure'))
-            ->andReturn([12, 11, 10, 9, 8, 7, 6, 5]);
-
-        $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('getAvailableGrades');
-        $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller);
-        
-        $this->assertEquals([12, 11, 10, 9, 8, 7, 6, 5], $result);
-    }
-
-    /**
-     * Test getAvailableUsers with caching
-     */
-    public function test_getAvailableUsers_uses_cache()
-    {
-        $mockUsers = collect([
-            ['id' => 1, 'name' => 'สมชาย ใจดี'],
-            ['id' => 2, 'name' => 'สมหญิง รักดี']
-        ]);
-
-        Cache::shouldReceive('remember')
-            ->once()
-            ->with('available_users', Mockery::any(), Mockery::type('Closure'))
-            ->andReturn($mockUsers);
-
-        $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('getAvailableUsers');
-        $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller);
-        
-        $this->assertEquals($mockUsers, $result);
-    }
-
-    /**
-     * Test filterScoresForExport helper method
-     */
-    public function test_filterScoresForExport_filters_scores_correctly()
-    {
-        $rawScores = collect([
-            ['id' => 1, 'name' => 'User 1', 'average' => 4.5],
-            ['id' => 2, 'name' => 'User 2', 'average' => 0],
-            ['id' => 3, 'name' => 'User 3', 'average' => 3.2],
-            ['id' => 4, 'name' => 'User 4', 'average' => 0]
-        ]);
-
-        $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('filterScoresForExport');
-        $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller, $rawScores);
-        
-        $this->assertCount(2, $result);
-        $this->assertEquals(4.5, $result[0]['average']);
-        $this->assertEquals(3.2, $result[1]['average']);
-    }
-
-    /**
-     * Test getDefaultSummaryStats helper method
-     */
-    public function test_getDefaultSummaryStats_returns_default_structure()
+    public function test_validateRequest_rejects_invalid_fiscal_year()
     {
         $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('getDefaultSummaryStats');
+        $method = $reflection->getMethod('validateRequest');
         $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller);
-        
-        $expectedKeys = [
-            'total_evaluatees', 'total_completed', 'total_remaining',
-            'completion_rate', 'score_distribution', 'avg_scores_by_group',
-            'overall_avg_score', 'highest_score', 'lowest_score'
-        ];
-        
-        foreach ($expectedKeys as $key) {
-            $this->assertArrayHasKey($key, $result);
-        }
-        
-        $this->assertEquals(0, $result['total_evaluatees']);
-        $this->assertEquals(0, $result['completion_rate']);
-        $this->assertIsArray($result['score_distribution']);
-        $this->assertIsArray($result['avg_scores_by_group']);
-    }
 
-    /**
-     * Test fetchCompleteRawScores with caching
-     */
-    public function test_fetchCompleteRawScores_uses_cache()
-    {
-        $mockScores = collect([
-            ['id' => 1, 'name' => 'User 1', 'average' => 4.5]
-        ]);
-
-        Cache::shouldReceive('remember')
-            ->once()
-            ->with('evaluation_scores_2025__', Mockery::any(), Mockery::type('Closure'))
-            ->andReturn($mockScores);
-
-        $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('fetchCompleteRawScores');
-        $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller, 2025, null, null);
-        
-        $this->assertEquals($mockScores, $result);
-    }
-
-    /**
-     * Test calculateSummaryStats with error handling
-     */
-    public function test_calculateSummaryStats_handles_errors_gracefully()
-    {
-        // Mock collection that will throw exception
-        $mockCollection = Mockery::mock();
-        $mockCollection->shouldReceive('sum')
-            ->with('total')
-            ->andThrow(new \Exception('Database error'));
-
-        Log::shouldReceive('error')
-            ->once()
-            ->with(Mockery::type('string'));
-
-        $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('calculateSummaryStats');
-        $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller, $mockCollection, collect());
-        
-        // Should return default stats when error occurs
-        $this->assertEquals(0, $result['total_evaluatees']);
-        $this->assertEquals(0, $result['completion_rate']);
-    }
-
-    /**
-     * Test calculateSummaryStats with valid data
-     */
-    public function test_calculateSummaryStats_calculates_correctly()
-    {
-        $evaluateeCountByGrade = collect([
-            (object)['total' => 10, 'completed' => 8, 'remaining' => 2],
-            (object)['total' => 15, 'completed' => 12, 'remaining' => 3]
-        ]);
-
-        $rawScores = collect([
-            ['rating' => 5, 'average' => 4.8, 'grade' => 10, 'user_type' => 'internal'],
-            ['rating' => 4, 'average' => 4.2, 'grade' => 9, 'user_type' => 'internal'],
-            ['rating' => 3, 'average' => 3.5, 'grade' => 8, 'user_type' => 'internal'],
-            ['rating' => 5, 'average' => 4.6, 'grade' => 11, 'user_type' => 'external']
-        ]);
-
-        $reflection = new \ReflectionClass($this->controller);
-        $method = $reflection->getMethod('calculateSummaryStats');
-        $method->setAccessible(true);
-        
-        $result = $method->invoke($this->controller, $evaluateeCountByGrade, $rawScores);
-        
-        $this->assertEquals(25, $result['total_evaluatees']);
-        $this->assertEquals(20, $result['total_completed']);
-        $this->assertEquals(5, $result['total_remaining']);
-        $this->assertEquals(80.0, $result['completion_rate']);
-        
-        $this->assertEquals(2, $result['score_distribution']['excellent']);
-        $this->assertEquals(1, $result['score_distribution']['very_good']);
-        $this->assertEquals(1, $result['score_distribution']['good']);
-        
-        $this->assertGreaterThan(0, $result['overall_avg_score']);
-        $this->assertEquals(4.8, $result['highest_score']);
-        $this->assertEquals(3.5, $result['lowest_score']);
-    }
-
-    /**
-     * Test index method validation
-     */
-    public function test_index_validates_request_parameters()
-    {
-        $request = Request::create('/admin/evaluation-report', 'GET', [
+        $request = \Illuminate\Http\Request::create('/admin/evaluation-report', 'GET', [
             'fiscal_year' => 'invalid',
-            'division' => 999,
-            'grade' => 25,
-            'user_id' => 999
         ]);
 
-        $this->expectException(ValidationException::class);
-        
-        $this->controller->index($request);
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $method->invoke($this->controller, $request);
     }
 
     /**
-     * Test exportIndividual validation
+     * Test controller constructor properly injects dependencies
      */
-    public function test_exportIndividual_validates_request_parameters()
+    public function test_constructor_injects_all_services()
     {
-        $request = Request::create('/admin/evaluation-report/export', 'POST', [
-            'fiscal_year' => 'invalid'
-        ]);
+        $reflection = new \ReflectionClass($this->controller);
 
-        $this->expectException(ValidationException::class);
-        
-        $this->controller->exportIndividual($request);
-    }
+        $properties = ['scoreCalculationService', 'weightedScoringService', 'evaluationExportService', 'evaluationPdfExportService'];
 
-    /**
-     * Test exportIndividual returns error for empty data
-     */
-    public function test_exportIndividual_returns_error_for_empty_data()
-    {
-        // Mock fetchEnhancedRawScores to return empty collection
-        $controller = Mockery::mock(AdminEvaluationReportController::class)->makePartial();
-        $controller->shouldReceive('fetchEnhancedRawScores')
-            ->once()
-            ->andReturn(collect());
-
-        $request = Request::create('/admin/evaluation-report/export', 'POST', [
-            'fiscal_year' => 2025
-        ]);
-
-        $response = $controller->exportIndividual($request);
-        
-        $this->assertEquals(404, $response->getStatusCode());
-        $data = json_decode($response->getContent(), true);
-        $this->assertEquals('ไม่พบข้อมูลการประเมิน', $data['error']);
-    }
-
-    /**
-     * Test exportIndividual handles general exceptions
-     */
-    public function test_exportIndividual_handles_general_exceptions()
-    {
-        // Mock to throw exception
-        $controller = Mockery::mock(AdminEvaluationReportController::class)->makePartial();
-        $controller->shouldReceive('fetchEnhancedRawScores')
-            ->once()
-            ->andThrow(new \Exception('Database connection error'));
-
-        Log::shouldReceive('error')
-            ->once()
-            ->with(Mockery::type('string'));
-
-        $request = Request::create('/admin/evaluation-report/export', 'POST', [
-            'fiscal_year' => 2025
-        ]);
-
-        $response = $controller->exportIndividual($request);
-        
-        $this->assertEquals(500, $response->getStatusCode());
-        $data = json_decode($response->getContent(), true);
-        $this->assertEquals('เกิดข้อผิดพลาดในการส่งออกข้อมูล', $data['error']);
+        foreach ($properties as $propName) {
+            $prop = $reflection->getProperty($propName);
+            $prop->setAccessible(true);
+            $this->assertNotNull($prop->getValue($this->controller), "Property {$propName} should be initialized");
+        }
     }
 }

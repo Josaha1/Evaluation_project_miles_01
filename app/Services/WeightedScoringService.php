@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 class WeightedScoringService
 {
     /**
-     * Grade 5-8 Evaluation Criteria Weights (น้ำหนักการคะแนนการประเมิน)
+     * Grade 4-8 Evaluation Criteria Weights (น้ำหนักการคะแนนการประเมิน)
      * 1. ด้านเก่งคิด (Intelligence Quotient: IQ) - 25%
      * 2. ด้านเก่งคน (Emotional Quotient: EQ) - 25%
      * 3. ด้านเก่งงาน (Adversity Quotient: AQ และ Technology Quotient: TQ) - 30%
@@ -22,12 +22,12 @@ class WeightedScoringService
     ];
 
     /**
-     * Grade 5-8 Stakeholder Weights (น้ำหนักตามกลุ่มผู้ประเมิน สำหรับพนักงานระดับ 5-8)
+     * Grade 4-8 Stakeholder Weights (น้ำหนักตามกลุ่มผู้ประเมิน สำหรับพนักงานระดับ 4-8)
      * ตามเอกสารหลักเกณฑ์การประเมิน กนอ.:
      * - ประเมินตนเอง (self)   : 50%
      * - ผู้บังคับบัญชา (top)  : 20%
      * - เพื่อนร่วมงาน (left)  : 30%
-     * ไม่มี bottom (ผู้ใต้บังคับบัญชา) และ right (ภายนอก) สำหรับพนักงาน 5-8
+     * ไม่มี bottom (ผู้ใต้บังคับบัญชา) และ right (ภายนอก) สำหรับพนักงาน 4-8
      */
     private const GRADE_5_8_STAKEHOLDER_WEIGHTS = [
         'self'   => 0.50,  // ประเมินตนเอง
@@ -226,7 +226,7 @@ class WeightedScoringService
     private function determineEvaluationLevel(int $grade): string
     {
         return match (true) {
-            $grade >= 5 && $grade <= 8 => '5-8',
+            $grade >= 4 && $grade <= 8 => '5-8',
             $grade >= 9 && $grade <= 10 => '9-10',
             $grade >= 11 && $grade <= 12 => '11-12',
             $grade >= 13 => 'governor',
@@ -361,7 +361,7 @@ class WeightedScoringService
     private function getCriteriaName(string $criteria): string
     {
         return match ($criteria) {
-            // Grade 5-8 criteria
+            // Grade 4-8 criteria
             'iq' => 'ด้านเก่งคิด (Intelligence Quotient)',
             'eq' => 'ด้านเก่งคน (Emotional Quotient)',
             'aq_tq' => 'ด้านเก่งงาน (Adversity & Technology Quotient)',
@@ -667,8 +667,8 @@ class WeightedScoringService
      */
     private function getAngleWeights($grade)
     {
-        // Grade 5-8: self=50%, top=20%, left=30%, bottom=0%, right=0%
-        if ($grade >= 5 && $grade <= 8) {
+        // Grade 4-8: self=50%, top=20%, left=30%, bottom=0%, right=0%
+        if ($grade >= 4 && $grade <= 8) {
             return [
                 'top'    => 20,  // ผู้บังคับบัญชา
                 'bottom' => 0,   // ไม่ใช้
@@ -725,7 +725,7 @@ class WeightedScoringService
     {
         // This would typically come from your aspect configuration
         // For now, return equal weight for all aspects
-        $baseWeight = $grade >= 9 ? 16.67 : 25; // 6 aspects for grade 9+ vs 4 for grade 5-8
+        $baseWeight = $grade >= 9 ? 16.67 : 25; // 6 aspects for grade 9+ vs 4 for grade 4-8
 
         // Governor (grade 13) — เน้นภาวะผู้นำสูงสุด
         if ($grade >= 13) {

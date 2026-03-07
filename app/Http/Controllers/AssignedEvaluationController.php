@@ -46,10 +46,10 @@ class AssignedEvaluationController extends Controller
                 ->where('title', 'NOT LIKE', '%ประเมินตนเอง%')
                 ->latest()
                 ->first();
-        } elseif ($targetGrade >= 5 && $targetGrade <= 8) {
-            // Staff level - use 5-8 form (excluding self-evaluation forms)
+        } elseif ($targetGrade >= 4 && $targetGrade <= 8) {
+            // Staff level - use 4-8 form (excluding self-evaluation forms)
             $evaluation = $evaluationQuery->where('grade_min', '<=', 8)
-                ->where('grade_max', '>=', 5)
+                ->where('grade_max', '>=', 4)
                 ->where('title', 'NOT LIKE', '%ประเมินตนเอง%')
                 ->latest()
                 ->first();

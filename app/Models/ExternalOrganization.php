@@ -9,6 +9,7 @@ class ExternalOrganization extends Model
 {
     protected $fillable = [
         'name',
+        'org_code',
         'description',
         'contact_person',
         'contact_email',

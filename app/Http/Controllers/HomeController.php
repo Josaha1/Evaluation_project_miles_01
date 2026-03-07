@@ -52,7 +52,7 @@ class HomeController extends Controller
         $gradeGroups = [
             ['label' => 'ผู้ว่าการ (ระดับ 13)', 'grades' => [13], 'color' => 'rose'],
             ['label' => 'ผู้บริหาร (ระดับ 9-12)', 'grades' => [9, 10, 11, 12], 'color' => 'amber'],
-            ['label' => 'พนักงาน (ระดับ 5-8)', 'grades' => [5, 6, 7, 8], 'color' => 'cyan'],
+            ['label' => 'พนักงาน (ระดับ 4-8)', 'grades' => [4, 5, 6, 7, 8], 'color' => 'cyan'],
         ];
 
         $gradeStats = [];

@@ -41,12 +41,15 @@ class AdminExternalOrganizationController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'org_code' => 'required|string|max:10|unique:external_organizations,org_code|alpha_num',
             'description' => 'nullable|string',
             'contact_person' => 'nullable|string|max:255',
             'contact_email' => 'nullable|email|max:255',
             'contact_phone' => 'nullable|string|max:50',
             'is_active' => 'boolean',
         ]);
+
+        $validated['org_code'] = strtoupper($validated['org_code']);
 
         ExternalOrganization::create($validated);
 
@@ -66,12 +69,15 @@ class AdminExternalOrganizationController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'org_code' => 'required|string|max:10|alpha_num|unique:external_organizations,org_code,' . $external_organization->id,
             'description' => 'nullable|string',
             'contact_person' => 'nullable|string|max:255',
             'contact_email' => 'nullable|email|max:255',
             'contact_phone' => 'nullable|string|max:50',
             'is_active' => 'boolean',
         ]);
+
+        $validated['org_code'] = strtoupper($validated['org_code']);
 
         $external_organization->update($validated);
 
