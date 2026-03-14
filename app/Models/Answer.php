@@ -1,11 +1,14 @@
 <?php
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Answer extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'evaluation_id',
         'user_id',
@@ -14,6 +17,7 @@ class Answer extends Model
         'value',
         'other_text',
         'external_access_code_id',
+        'fiscal_year',
     ];
 
     public function user(): BelongsTo

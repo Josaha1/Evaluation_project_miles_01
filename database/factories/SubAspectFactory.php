@@ -1,18 +1,17 @@
 <?php
 namespace Database\Factories;
 use App\Models\Aspect;
-use App\Models\Part;
+use App\Models\SubAspect;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-class AspectFactory extends Factory
+class SubAspectFactory extends Factory
 {
-    protected $model = Aspect::class;
+    protected $model = SubAspect::class;
     public function definition(): array
     {
         return [
-            'part_id' => Part::factory(),
+            'aspect_id' => Aspect::factory(),
             'name' => $this->faker->word(),
-            'has_subaspects' => false,
         ];
     }
 }

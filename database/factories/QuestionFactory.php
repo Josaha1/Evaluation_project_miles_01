@@ -1,25 +1,24 @@
 <?php
 namespace Database\Factories;
-
+use App\Models\Aspect;
+use App\Models\Part;
 use App\Models\Question;
-use App\Models\Section;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class QuestionFactory extends Factory
 {
     protected $model = Question::class;
-
     public function definition(): array
     {
-        $section = Section::inRandomOrder()->first();
-        $aspect  = $section->id === 3 ? null : \App\Models\Aspect::where('section_id', $section->id)->inRandomOrder()->first();
-
         return [
-            'section_id' => $section->id,
-            'aspect_id'  => $aspect?->id,
-            'title'      => $this->faker->sentence(6),
-            'type'       => $this->faker->randomElement(['rating', 'open_text']),
+            'part_id' => Part::factory(),
+            'aspect_id' => Aspect::factory(),
+            'sub_aspect_id' => null,
+            'title' => $this->faker->sentence(6),
+            'type' => 'rating',
+            'order' => $this->faker->numberBetween(1, 10),
         ];
     }
-
+    public function openText(): static { return $this->state(fn () => ['type' => 'open_text']); }
+    public function choice(): static { return $this->state(fn () => ['type' => 'choice']); }
 }
