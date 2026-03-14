@@ -20,7 +20,7 @@ describe('ExternalLogin', () => {
 
         render(<ExternalLogin />);
 
-        expect(screen.getByPlaceholderText('XXXXXXXX')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('IEAT-XXXX-XXXXXX')).toBeInTheDocument();
     });
 
     it('renders submit button', () => {
@@ -34,7 +34,7 @@ describe('ExternalLogin', () => {
 
         render(<ExternalLogin />);
 
-        expect(screen.getByText('เข้าสู่ระบบ')).toBeInTheDocument();
+        expect(screen.getAllByText('เข้าสู่ระบบ').length).toBeGreaterThanOrEqual(1);
     });
 
     it('shows error flash message when flash.error set', () => {

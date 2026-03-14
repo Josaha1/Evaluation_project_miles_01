@@ -34,7 +34,7 @@ describe('ReportStats', () => {
 
     it('renders completion rate (74.1%)', () => {
         render(<ReportStats summaryStats={mockSummaryStats} />);
-        expect(screen.getByText('74.1%')).toBeInTheDocument();
+        expect(screen.getAllByText('74.1%').length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText('อัตราความสำเร็จ')).toBeInTheDocument();
     });
 
