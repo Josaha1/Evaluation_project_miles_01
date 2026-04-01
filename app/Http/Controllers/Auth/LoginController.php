@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
+use App\Services\EvaluationLookupService;
 
 class LoginController extends Controller
 {
@@ -16,12 +17,16 @@ class LoginController extends Controller
      */
     public function showLoginForm()
     {
+        // Thai fiscal year: Oct-Sep (month >= 10 → next CE year)
+        $fiscalYearCE = EvaluationLookupService::currentFiscalYear();
+        $fiscalYearBE = $fiscalYearCE + 543;
+        $prevYearBE = $fiscalYearBE - 1;
+
         return Inertia::render('Auth/Login', [
             'announcement' => [
                 'title' => 'ประกาศการประเมิน 360 องศา กนอ.',
-                
-                'deadline' => '28 มีนาคม 2568',
-                'year' => '2567-2568',
+                'deadline' => '31 มีนาคม ' . $fiscalYearBE,
+                'year' => $prevYearBE . '-' . $fiscalYearBE,
                 'show' => true // สามารถควบคุมการแสดง/ซ่อนจาก database หรือ config ได้
             ]
         ]);

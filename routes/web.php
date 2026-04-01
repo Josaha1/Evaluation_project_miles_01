@@ -41,12 +41,12 @@ Route::prefix('external')->name('external.')->group(function () {
 });
 
 // External auth routes (ต้องมี external session)
-Route::prefix('external')->name('external.')->middleware('external')->group(function () {
+Route::prefix('external')->name('external.')->middleware(['external', 'throttle:30,1'])->group(function () {
     Route::get('/confirm', [ExternalEvaluatorController::class, 'showConfirm'])->name('confirm');
     Route::post('/confirm', [ExternalEvaluatorController::class, 'confirm'])->name('confirm.submit');
     Route::get('/dashboard', [ExternalEvaluatorController::class, 'showDashboard'])->name('dashboard');
     Route::get('/evaluate', [ExternalEvaluatorController::class, 'showEvaluation'])->name('evaluate');
-    Route::post('/evaluate', [ExternalEvaluatorController::class, 'submitEvaluation'])->name('evaluate.submit');
+    Route::post('/evaluate', [ExternalEvaluatorController::class, 'submitEvaluation'])->name('evaluate.submit')->middleware('throttle:10,1');
 });
 
 /*
@@ -131,10 +131,10 @@ Route::middleware(['auth', 'role:user'])->group(function () {
         ->name('satisfaction.status');
 
     // จัดการการมอบหมายการประเมิน (สำหรับ user ทั่วไป)
-    Route::get('/assignments', [EvaluationAssignmentController::class, 'index'])->name('assignments.index');
-    Route::get('/assignments/create', [EvaluationAssignmentController::class, 'create'])->name('assignments.create');
-    Route::post('/assignments', [EvaluationAssignmentController::class, 'store'])->name('assignments.store');
-    Route::delete('/assignments/{assignment}', [EvaluationAssignmentController::class, 'destroy'])->name('assignments.destroy');
+    Route::get('/assignments', [EvaluationAssignmentController::class, 'index'])->name('user.assignments.index');
+    Route::get('/assignments/create', [EvaluationAssignmentController::class, 'create'])->name('user.assignments.create');
+    Route::post('/assignments', [EvaluationAssignmentController::class, 'store'])->name('user.assignments.store');
+    Route::delete('/assignments/{assignment}', [EvaluationAssignmentController::class, 'destroy'])->name('user.assignments.destroy');
 });
 
 /*
@@ -148,7 +148,7 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         if (Auth::user()->role !== 'admin') {
             abort(403, 'คุณไม่มีสิทธิ์เข้าถึงหน้านี้');
         }
-        return app(HomeController::class)->admindashboard();
+        return app(HomeController::class)->admindashboard(request());
     })->name('admindashboard');
 
     /*
@@ -229,6 +229,9 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         // Bulk operations (ใหม่)
         Route::post('/bulk-store', [AdminEvaluationAssignmentController::class, 'bulkStore'])->name('bulk-store');
         Route::delete('/bulk-delete', [AdminEvaluationAssignmentController::class, 'bulkDestroy'])->name('bulk-delete');
+
+        // Import from Excel
+        Route::post('/import-excel', [AdminEvaluationAssignmentController::class, 'importExcel'])->name('import-excel');
 
         // Analytics and export
         Route::get('/analytics', [AdminEvaluationAssignmentController::class, 'getAnalytics'])->name('analytics');
@@ -346,6 +349,10 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::post('/export/comparison', [AdminEvaluationReportController::class, 'exportComparison'])
             ->name('export-comparison');
         
+        // Evaluatee score table — ชื่อ + คะแนนแต่ละองศา
+        Route::post('/export/evaluatee-scores', [AdminEvaluationReportController::class, 'exportEvaluateeScoreTable'])
+            ->name('export-evaluatee-scores');
+
         // Enhanced export methods with option mapping
         Route::post('/export/comprehensive', [AdminEvaluationReportController::class, 'exportComprehensiveReport'])
             ->name('export-comprehensive');
@@ -387,6 +394,10 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::get('/api/evaluatee-details/{evaluateeId}', [AdminEvaluationReportController::class, 'getEvaluateeDetails'])
             ->name('evaluatee-details');
 
+        // Assignments data API
+        Route::get('/api/assignments-data', [AdminEvaluationReportController::class, 'getAssignmentsData'])
+            ->name('api.assignments-data');
+
         // Legacy support routes
         Route::get('/list-evaluatees', [AdminEvaluationReportController::class, 'listEvaluatees'])
             ->name('list-evaluatees');
@@ -423,6 +434,7 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::post('/print-cards', [AdminAccessCodeController::class, 'printCards'])->name('print-cards');
         Route::get('/{accessCode}', [AdminAccessCodeController::class, 'show'])->name('show');
         Route::put('/{accessCode}/revoke', [AdminAccessCodeController::class, 'revoke'])->name('revoke');
+        Route::post('/{accessCode}/regenerate', [AdminAccessCodeController::class, 'regenerate'])->name('regenerate');
         Route::delete('/{accessCode}', [AdminAccessCodeController::class, 'destroy'])->name('destroy');
     });
 

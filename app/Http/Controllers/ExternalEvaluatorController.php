@@ -6,8 +6,10 @@ use App\Models\Answer;
 use App\Models\ExternalAccessCode;
 use App\Models\ExternalEvaluationSession;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
+use App\Services\EvaluationLookupService;
 
 class ExternalEvaluatorController extends Controller
 {
@@ -35,6 +37,11 @@ class ExternalEvaluatorController extends Controller
             ->first();
 
         if (!$accessCode) {
+            Log::channel('stack')->warning('External login failed: invalid code', [
+                'code' => $request->code,
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
             return back()->withErrors(['code' => 'รหัสเข้าใช้งานไม่ถูกต้อง']);
         }
 
@@ -66,6 +73,14 @@ class ExternalEvaluatorController extends Controller
         // Store session info in Laravel session
         $request->session()->put('external_session_token', $sessionToken);
         $request->session()->put('external_session_id', $session->id);
+
+        Log::channel('stack')->info('External login successful', [
+            'session_id' => $session->id,
+            'code_id' => $accessCode->id,
+            'org_id' => $accessCode->external_organization_id,
+            'evaluatee_id' => $accessCode->evaluatee_id,
+            'ip' => $request->ip(),
+        ]);
 
         return redirect()->route('external.confirm');
     }
@@ -157,6 +172,7 @@ class ExternalEvaluatorController extends Controller
             ],
             'evaluatees' => $evaluatees,
             'currentEvaluateeId' => $externalSession->evaluatee_id,
+            'fiscalYear' => $accessCode->fiscal_year,
         ]);
     }
 
@@ -183,9 +199,11 @@ class ExternalEvaluatorController extends Controller
 
         $existingAnswers = [];
         if ($evaluatorId) {
+            $externalFiscalYear = $externalSession->accessCode->fiscal_year ?? EvaluationLookupService::currentFiscalYear();
             $existingAnswers = Answer::where('evaluation_id', $evaluation->id)
                 ->where('user_id', $evaluatorId)
                 ->where('evaluatee_id', $evaluatee->id)
+                ->where('fiscal_year', $externalFiscalYear)
                 ->get()
                 ->keyBy('question_id')
                 ->map(fn($a) => [
@@ -222,7 +240,7 @@ class ExternalEvaluatorController extends Controller
 
         $data = $request->validate([
             'answers' => 'required|array',
-            'answers.*.question_id' => 'required|exists:questions,id',
+            'answers.*.question_id' => 'required|integer',
             'answers.*.value' => 'nullable',
             'answers.*.other_text' => 'nullable|string',
         ]);
@@ -230,13 +248,17 @@ class ExternalEvaluatorController extends Controller
         $accessCode = $externalSession->accessCode;
         $assignment = $accessCode->evaluationAssignment;
 
-        if (!$assignment) {
-            return back()->withErrors(['error' => 'ไม่พบข้อมูลการมอบหมายประเมิน']);
+        // Use assignment data if available, otherwise fallback to session/accessCode data
+        $evaluateeId = $externalSession->evaluatee_id ?? $accessCode->evaluatee_id;
+        $evaluationId = $externalSession->evaluation_id ?? $accessCode->evaluation_id;
+
+        if (!$evaluateeId || !$evaluationId) {
+            return back()->withErrors(['error' => 'ไม่พบข้อมูลผู้ถูกประเมินหรือแบบประเมิน']);
         }
 
-        $evaluatorId = $assignment->evaluator_id;
-        $evaluateeId = $externalSession->evaluatee_id;
-        $evaluationId = $externalSession->evaluation_id;
+        // For external evaluators: use evaluator_id from assignment if available,
+        // otherwise use evaluatee_id as user_id (distinguished by external_access_code_id)
+        $evaluatorId = $assignment?->evaluator_id ?? $evaluateeId;
 
         // Save answers
         foreach ($data['answers'] as $answerData) {
@@ -251,6 +273,7 @@ class ExternalEvaluatorController extends Controller
                     'user_id' => $evaluatorId,
                     'evaluatee_id' => $evaluateeId,
                     'question_id' => $answerData['question_id'],
+                    'fiscal_year' => $accessCode->fiscal_year ?? EvaluationLookupService::currentFiscalYear(),
                 ],
                 [
                     'value' => $finalValue,
@@ -267,6 +290,16 @@ class ExternalEvaluatorController extends Controller
         $accessCode->update([
             'is_used' => true,
             'used_at' => now(),
+        ]);
+
+        Log::channel('stack')->info('External evaluation submitted', [
+            'session_id' => $externalSession->id,
+            'code_id' => $accessCode->id,
+            'evaluator_id' => $evaluatorId,
+            'evaluatee_id' => $evaluateeId,
+            'evaluation_id' => $evaluationId,
+            'answer_count' => count($data['answers']),
+            'ip' => $request->ip(),
         ]);
 
         // Clear the session

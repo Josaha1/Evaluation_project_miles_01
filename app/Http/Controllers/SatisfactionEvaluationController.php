@@ -162,14 +162,18 @@ class SatisfactionEvaluationController extends Controller
             return false;
         }
 
-        // Check if user has answered all required questions for all assignments
-        foreach ($assignments as $assignment) {
-            $hasAnsweredForThisAssignment = Answer::where('user_id', $userId)
-                ->where('evaluatee_id', $assignment->evaluatee_id)
-                ->where('evaluation_id', $assignment->evaluation_id)
-                ->exists();
+        // Batch check: get all answered (evaluation_id, evaluatee_id) pairs in 1 query (filtered by fiscal year)
+        $answeredPairs = Answer::where('user_id', $userId)
+            ->where('fiscal_year', $fiscalYear)
+            ->whereIn('evaluatee_id', $assignments->pluck('evaluatee_id')->unique())
+            ->select('evaluatee_id', 'evaluation_id')
+            ->distinct()
+            ->get()
+            ->map(fn($a) => $a->evaluation_id . '_' . $a->evaluatee_id)
+            ->flip();
 
-            if (!$hasAnsweredForThisAssignment) {
+        foreach ($assignments as $assignment) {
+            if (!$answeredPairs->has($assignment->evaluation_id . '_' . $assignment->evaluatee_id)) {
                 return false;
             }
         }
@@ -191,8 +195,18 @@ class SatisfactionEvaluationController extends Controller
                     ->with('error', 'คุณไม่มีสิทธิ์เข้าถึงหน้านี้');
             }
 
-            $fiscalYear = $request->input('fiscal_year', date('Y'));
-            
+            // Get available fiscal years for this evaluation (cached)
+            $availableYears = cache()->remember("satisfaction_fiscal_years_{$evaluationId}", 3600, function () use ($evaluationId) {
+                return SatisfactionEvaluation::where('evaluation_id', $evaluationId)
+                    ->select('fiscal_year')
+                    ->distinct()
+                    ->orderBy('fiscal_year', 'desc')
+                    ->pluck('fiscal_year')
+                    ->toArray();
+            });
+
+            $fiscalYear = $request->input('fiscal_year', $availableYears[0] ?? date('Y'));
+
             // Get satisfaction statistics
             $stats = SatisfactionEvaluation::getSatisfactionStats($evaluationId, $fiscalYear);
             
@@ -200,7 +214,7 @@ class SatisfactionEvaluationController extends Controller
             $evaluation = Evaluation::findOrFail($evaluationId);
             
             // Get all satisfaction evaluations for detailed view
-            $satisfactionEvaluations = SatisfactionEvaluation::with('user')
+            $satisfactionEvaluations = SatisfactionEvaluation::with(['user.position', 'user.division'])
                 ->where('evaluation_id', $evaluationId)
                 ->where('fiscal_year', $fiscalYear)
                 ->orderBy('created_at', 'desc')
@@ -213,6 +227,7 @@ class SatisfactionEvaluationController extends Controller
                     'description' => $evaluation->description,
                 ],
                 'fiscalYear' => $fiscalYear,
+                'availableYears' => $availableYears,
                 'stats' => $stats,
                 'questions' => SatisfactionEvaluation::getQuestions(),
                 'ratingScale' => SatisfactionEvaluation::getRatingScale(),

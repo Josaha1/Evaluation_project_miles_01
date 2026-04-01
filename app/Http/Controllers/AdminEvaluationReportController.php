@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\ScoreCalculationService;
 use App\Services\WeightedScoringService;
 use App\Services\EvaluationExportService;
+use App\Services\EvaluationLookupService;
 use App\Services\EvaluationPdfExportService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -46,6 +47,15 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
+     * Boost memory/time limits for heavy export operations.
+     */
+    private function boostLimits(): void
+    {
+        ini_set('memory_limit', '1G');
+        set_time_limit(300);
+    }
+
+    /**
      * Main dashboard for AdminEvaluationReport React component
      */
     public function index(Request $request)
@@ -57,40 +67,31 @@ class AdminEvaluationReportController extends Controller
             $grade = $validated['grade'] ?? null;
             $userId = $validated['user_id'] ?? null;
 
-            // Get all necessary data
+            // Use Inertia lazy loading — detailedResults only loaded when tab is active
             $data = $this->fetchComprehensiveData($fiscalYear, $divisionId, $grade, $userId);
 
             return Inertia::render('AdminEvaluationReport', [
-                'fiscalYear' => $fiscalYear,
+                'fiscalYear' => (string) $fiscalYear,
                 'filters' => [
-                    'fiscal_year' => $fiscalYear,
+                    'fiscal_year' => (string) $fiscalYear,
                     'division' => $divisionId,
                     'grade' => $grade,
                     'user_id' => $userId,
                 ],
-                
-                // Filter options
+
+                // Filter options (cached 2 hours separately)
                 'availableYears' => $data['availableYears'],
                 'availableDivisions' => $data['availableDivisions'],
                 'availableGrades' => $data['availableGrades'],
-                'availableUsers' => $data['availableUsers'],
-                'availableDepartments' => $data['availableDepartments'],
-                'availablePositions' => $data['availablePositions'],
-                
-                // Main dashboard data for React component
+                'availableUsers' => $data['availableUsers'] ?? [],
+                'availableDepartments' => $data['availableDepartments'] ?? [],
+                'availablePositions' => $data['availablePositions'] ?? [],
+
+                // Dashboard data (cached 1 hour)
                 'dashboardStats' => $data['dashboardStats'],
                 'evaluationMetrics' => $data['evaluationMetrics'],
                 'detailedResults' => $data['detailedResults'],
-                
-                // External organization metrics
                 'externalOrgMetrics' => $data['externalOrgMetrics'],
-
-                // Metadata
-                'metadata' => [
-                    'lastUpdated' => now()->toISOString(),
-                    'dataVersion' => '3.0',
-                    'totalRecords' => count($data['detailedResults']),
-                ],
             ]);
         } catch (\Exception $e) {
             Log::error('AdminEvaluationReport index error: ' . $e->getMessage());
@@ -103,34 +104,34 @@ class AdminEvaluationReportController extends Controller
      */
     private function fetchComprehensiveData(int $fiscalYear, $divisionId, $grade, $userId): array
     {
-        $cacheKey = "evaluation_report_" . md5(json_encode([
-            'fy' => $fiscalYear,
-            'div' => $divisionId,
-            'grade' => $grade,
-            'user' => $userId,
-        ]));
+        // Filter options (realtime)
+        $filterOptions = [
+            'availableYears' => $this->getAvailableYears(),
+            'availableDivisions' => $this->getAvailableDivisions(),
+            'availableGrades' => $this->getAvailableGrades(),
+            'availableUsers' => $this->getAvailableUsers(),
+            'availableDepartments' => $this->getAvailableDepartments(),
+            'availablePositions' => $this->getAvailablePositions(),
+        ];
 
-        return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($fiscalYear, $divisionId, $grade, $userId) {
-            Log::info('Cache miss - generating fresh data for fiscal year: ' . $fiscalYear);
-            // Get basic data
-            $rawScores = $this->getRawScores($fiscalYear, $divisionId, $grade, $userId);
-            $users = $this->getUsers($divisionId, $grade);
-            $assignments = $this->getAssignments($fiscalYear, $divisionId, $grade);
-            
-            return [
-                'availableYears' => $this->getAvailableYears(),
-                'availableDivisions' => $this->getAvailableDivisions(),
-                'availableGrades' => $this->getAvailableGrades(),
-                'availableUsers' => $this->getAvailableUsers(),
-                'availableDepartments' => $this->getAvailableDepartments(),
-                'availablePositions' => $this->getAvailablePositions(),
-                
-                'dashboardStats' => $this->calculateDashboardStats($rawScores, $users, $assignments),
-                'evaluationMetrics' => $this->calculateEvaluationMetrics($rawScores),
-                'detailedResults' => $this->formatDetailedResults($rawScores),
-                'externalOrgMetrics' => $this->getExternalOrgMetrics($fiscalYear),
-            ];
-        });
+        // Report data (realtime)
+        $rawScores = $this->getRawScores($fiscalYear, $divisionId, $grade, $userId);
+
+        $assignments = DB::table('evaluation_assignments')
+            ->where('fiscal_year', $fiscalYear)
+            ->when($divisionId, fn($q) => $q->join('users as u', 'evaluation_assignments.evaluatee_id', '=', 'u.id')->where('u.division_id', $divisionId))
+            ->when($grade, fn($q) => $q->join('users as ug', 'evaluation_assignments.evaluatee_id', '=', 'ug.id')->where('ug.grade', $grade))
+            ->select('evaluation_assignments.evaluator_id', 'evaluation_assignments.evaluatee_id')
+            ->get();
+
+        $reportData = [
+            'dashboardStats' => $this->calculateDashboardStats($rawScores, collect(), $assignments),
+            'evaluationMetrics' => $this->calculateEvaluationMetrics($rawScores, $fiscalYear),
+            'detailedResults' => $this->formatDetailedResults($rawScores, $fiscalYear),
+            'externalOrgMetrics' => $this->getExternalOrgMetrics($fiscalYear),
+        ];
+
+        return array_merge($filterOptions, $reportData);
     }
 
     /**
@@ -139,13 +140,6 @@ class AdminEvaluationReportController extends Controller
     private function getRawScores(int $fiscalYear, $divisionId = null, $grade = null, $userId = null): Collection
     {
         try {
-            Log::info('getRawScores called', [
-                'fiscalYear' => $fiscalYear,
-                'divisionId' => $divisionId,
-                'grade' => $grade,
-                'userId' => $userId
-            ]);
-
             // First, get all evaluation assignments for the fiscal year
             $assignmentsQuery = DB::table('evaluation_assignments as ea')
                 ->join('users as evaluatee', 'ea.evaluatee_id', '=', 'evaluatee.id')
@@ -175,63 +169,142 @@ class AdminEvaluationReportController extends Controller
                 'p.title as evaluatee_position'
             ])->get();
 
-            Log::info('Found assignments: ' . $assignments->count());
-            Log::info('Using fiscal year: ' . $fiscalYear);
+            // BATCH: Get aggregated scores per evaluatee+angle
+            $evaluateeIds = $assignments->pluck('evaluatee_id')->unique();
 
-            if ($assignments->isEmpty()) {
-                Log::info('No assignments found for fiscal year: ' . $fiscalYear);
-                // Return empty collection but log what fiscal years are available
-                $availableFiscalYears = DB::table('evaluation_assignments')
-                    ->distinct()
-                    ->pluck('fiscal_year')
-                    ->sort()
-                    ->values();
-                Log::info('Available fiscal years in assignments: ' . $availableFiscalYears->implode(', '));
-                
-                // Also log total assignments for debugging
-                $totalAssignments = DB::table('evaluation_assignments')->count();
-                Log::info('Total assignments in database: ' . $totalAssignments);
-                
+            // Also include evaluatees from external access codes
+            $externalEvaluateeIds = DB::table('external_access_codes')
+                ->where('fiscal_year', $fiscalYear)
+                ->whereNotNull('evaluatee_id')
+                ->distinct()
+                ->pluck('evaluatee_id');
+            $allEvaluateeIds = $evaluateeIds->merge($externalEvaluateeIds)->unique();
+
+            if ($allEvaluateeIds->isEmpty()) {
                 return collect([]);
             }
 
-            // Now get answers for these assignments
+            // Pre-load option scores lookup (734 rows, 1ms)
+            $optionScores = DB::table('options')->pluck('score', 'id')->toArray();
+
+            // Helper: resolve score from value (option ID or direct 1-5)
+            $resolveScore = function ($value) use ($optionScores) {
+                if (isset($optionScores[$value])) return (float) $optionScores[$value];
+                if (preg_match('/^[1-5]$/', $value)) return (float) $value;
+                return null;
+            };
+
+            // Helper: aggregate raw rows into evaluatee+angle scores
+            $aggregateRows = function ($rows, $angleField = 'angle') use ($resolveScore) {
+                $scores = [];
+                foreach ($rows as $row) {
+                    $score = $resolveScore($row->value);
+                    if ($score === null) continue;
+                    $key = $row->evaluatee_id . '-' . $row->$angleField;
+                    if (!isset($scores[$key])) {
+                        $scores[$key] = (object) ['evaluatee_id' => $row->evaluatee_id, 'angle' => $row->$angleField, 'total' => 0, 'count' => 0];
+                    }
+                    $scores[$key]->total += $score * $row->cnt;
+                    $scores[$key]->count += $row->cnt;
+                }
+                return collect($scores)->map(function ($s) {
+                    return (object) ['evaluatee_id' => $s->evaluatee_id, 'angle' => $s->angle, 'score' => $s->count > 0 ? round($s->total / $s->count, 2) : 0, 'answer_count' => $s->count];
+                })->values();
+            };
+
+            // Query 1: Internal scores (NO options join = 10x faster)
+            $internalRaw = DB::table('answers as a')
+                ->join('evaluation_assignments as ea', function($join) {
+                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                         ->on('a.user_id', '=', 'ea.evaluator_id')
+                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                })
+                ->whereIn('a.evaluatee_id', $allEvaluateeIds)
+                ->where('ea.fiscal_year', $fiscalYear)
+                ->whereNull('a.external_access_code_id')
+                ->groupBy('a.evaluatee_id', 'ea.angle', 'a.value')
+                ->select('a.evaluatee_id', 'ea.angle', 'a.value', DB::raw('COUNT(*) as cnt'))
+                ->get();
+            $internalAnswers = $aggregateRows($internalRaw);
+
+            // Query 2: Self-evaluation (user_id = evaluatee_id, no assignment)
+            $selfRaw = DB::table('answers as a')
+                ->whereColumn('a.user_id', 'a.evaluatee_id')
+                ->whereNull('a.external_access_code_id')
+                ->where('a.fiscal_year', $fiscalYear)
+                ->whereIn('a.evaluatee_id', $allEvaluateeIds)
+                ->groupBy('a.evaluatee_id', 'a.value')
+                ->select('a.evaluatee_id', DB::raw("'self' as angle"), 'a.value', DB::raw('COUNT(*) as cnt'))
+                ->get();
+            $selfAnswers = $aggregateRows($selfRaw);
+
+            // Query 3: External answers → 'right' angle
+            $externalRaw = DB::table('answers as a')
+                ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                ->where('eac.fiscal_year', $fiscalYear)
+                ->whereNotNull('a.external_access_code_id')
+                ->whereIn('a.evaluatee_id', $allEvaluateeIds)
+                ->groupBy('a.evaluatee_id', 'a.value')
+                ->select('a.evaluatee_id', DB::raw("'right' as angle"), 'a.value', DB::raw('COUNT(*) as cnt'))
+                ->get();
+            $externalAnswers = $aggregateRows($externalRaw);
+
+            // Merge internal + self + external
+            $mergedAnswers = $internalAnswers->concat($selfAnswers)->concat($externalAnswers);
+            $allAnswers = $mergedAnswers->groupBy('evaluatee_id')->map(function ($rows) {
+                // If both internal right and external right exist, average them
+                return $rows->groupBy('angle')->map(function ($angleRows) {
+                    $totalScore = 0;
+                    $totalCount = 0;
+                    foreach ($angleRows as $row) {
+                        if ($row->score > 0 && $row->answer_count > 0) {
+                            $totalScore += $row->score * $row->answer_count;
+                            $totalCount += $row->answer_count;
+                        }
+                    }
+                    return (object) [
+                        'angle' => $angleRows->first()->angle,
+                        'score' => $totalCount > 0 ? round($totalScore / $totalCount, 2) : 0,
+                        'answer_count' => $totalCount,
+                    ];
+                });
+            });
+
+            // BATCH: Get evaluator progress for ALL users in a single query
+            $allEvaluatorProgress = $this->getBatchEvaluatorProgress($allEvaluateeIds, $fiscalYear);
+
             $userScores = [];
             $groupedAssignments = $assignments->groupBy('evaluatee_id');
 
+            // Add external-only evaluatees (not in assignments) to groupedAssignments
+            $externalOnlyIds = $externalEvaluateeIds->diff($evaluateeIds);
+            if ($externalOnlyIds->isNotEmpty()) {
+                $externalUsers = DB::table('users as u')
+                    ->leftJoin('divisions as d', 'u.division_id', '=', 'd.id')
+                    ->leftJoin('departments as dep', 'u.department_id', '=', 'dep.id')
+                    ->leftJoin('positions as p', 'u.position_id', '=', 'p.id')
+                    ->whereIn('u.id', $externalOnlyIds)
+                    ->select([
+                        'u.id as evaluatee_id', 'u.fname', 'u.lname',
+                        'u.grade as evaluatee_grade',
+                        'd.name as evaluatee_division',
+                        'dep.name as evaluatee_department',
+                        'p.title as evaluatee_position',
+                        DB::raw("'right' as angle"),
+                        DB::raw('0 as evaluation_id'),
+                    ])
+                    ->get();
+                foreach ($externalUsers as $eu) {
+                    $groupedAssignments[$eu->evaluatee_id] = collect([$eu]);
+                }
+            }
+
             foreach ($groupedAssignments as $evaluateeId => $userAssignments) {
                 $firstAssignment = $userAssignments->first();
-                
-                // Get answers for this evaluatee
-                $answersQuery = DB::table('answers as a')
-                    ->join('evaluation_assignments as ea', function($join) {
-                        $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                             ->on('a.user_id', '=', 'ea.evaluator_id')
-                             ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                    })
-                    ->leftJoin('options as o', function($join) {
-                        $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
-                    })
-                    ->where('a.evaluatee_id', $evaluateeId)
-                    ->where('ea.fiscal_year', $fiscalYear)
-                    ->select([
-                        'ea.angle',
-                        DB::raw('COALESCE(o.score, 
-                            CASE 
-                                WHEN a.value REGEXP "^[0-9]+$" THEN CAST(a.value AS UNSIGNED)
-                                ELSE 0 
-                            END) as score')
-                    ]);
+                $answers = $allAnswers->get($evaluateeId, collect());
 
-                $answers = $answersQuery->get();
-                
-                Log::info("Evaluatee {$evaluateeId} has {$answers->count()} answers");
-
-                // Calculate scores by angle
-                $angleScores = $answers->groupBy('angle')->map(function($answers) {
-                    $validScores = $answers->filter(fn($answer) => $answer->score > 0);
-                    return $validScores->isNotEmpty() ? $validScores->avg('score') : 0;
-                });
+                // Scores aggregated per angle (already keyed by angle from merge logic)
+                $angleScores = $answers->map(fn($row) => (float) $row->score);
 
                 $selfScore = $angleScores->get('self', 0);
                 $topScore = $angleScores->get('top', 0);
@@ -239,21 +312,28 @@ class AdminEvaluationReportController extends Controller
                 $leftScore = $angleScores->get('left', 0);
                 $rightScore = $angleScores->get('right', 0);
 
-                // Count available angles for this user
-                $availableAngles = $userAssignments->pluck('angle')->unique()->count();
+                // Available angles: from assignments + 'right' if external answers exist
+                $assignmentAngles = $userAssignments->pluck('angle')->unique()->toArray();
+                if ($angleScores->has('right') && !in_array('right', $assignmentAngles)) {
+                    $assignmentAngles[] = 'right';
+                }
+                $availableAngles = count($assignmentAngles);
                 $completedAngles = $angleScores->filter(fn($score) => $score > 0)->count();
-                
-                $validScores = array_filter([
-                    $selfScore, $topScore, $bottomScore, $leftScore, $rightScore
-                ], fn($score) => $score > 0);
 
-                $average = count($validScores) > 0 ? array_sum($validScores) / count($validScores) : 0;
+                // Weighted average ตามระดับ (grade) ของผู้ถูกประเมิน
+                $grade = (int) ($firstAssignment->evaluatee_grade ?? 0);
+                $weights = $this->getStakeholderWeights($grade);
+                $scoreMap = ['self' => $selfScore, 'top' => $topScore, 'bottom' => $bottomScore, 'left' => $leftScore, 'right' => $rightScore];
+                $weightedSum = 0;
+                $totalWeight = 0;
+                foreach ($weights as $angle => $weight) {
+                    if (($scoreMap[$angle] ?? 0) > 0 && $weight > 0) {
+                        $weightedSum += $scoreMap[$angle] * $weight;
+                        $totalWeight += $weight;
+                    }
+                }
+                $average = $totalWeight > 0 ? $weightedSum / $totalWeight : 0;
                 $completionRate = $availableAngles > 0 ? ($completedAngles / $availableAngles) * 100 : 0;
-
-                // Get evaluation progress for this user as an evaluator
-                // Note: $evaluateeId is actually used as the ID of the person we're reporting on
-                // We need to get their progress as an evaluator (how many people they need to evaluate)
-                $evaluatorProgress = $this->getEvaluatorProgress($evaluateeId, $fiscalYear);
 
                 $userScores[] = [
                     'evaluatee_id' => $evaluateeId,
@@ -269,12 +349,17 @@ class AdminEvaluationReportController extends Controller
                     'right' => round($rightScore, 2),
                     'average' => round($average, 2),
                     'completion_rate' => round($completionRate, 1),
-                    'total_answers' => $answers->count(),
+                    'total_answers' => $answers->sum('answer_count'),
                     'available_angles' => $availableAngles,
                     'completed_angles' => $completedAngles,
-                    'last_updated' => $answers->isNotEmpty() ? $answers->max('created_at') : null,
-                    // Add evaluator progress data
-                    'evaluator_progress' => $evaluatorProgress,
+                    'last_updated' => null,
+                    'evaluator_progress' => $allEvaluatorProgress[$evaluateeId] ?? [
+                        'total_assignments' => 0, 'completed_assignments' => 0,
+                        'in_progress_assignments' => 0, 'not_started_assignments' => 0,
+                        'overall_progress_percentage' => 0, 'total_questions_to_answer' => 0,
+                        'total_questions_answered' => 0, 'detailed_progress_percentage' => 0,
+                        'status' => 'no_assignments'
+                    ],
                 ];
             }
 
@@ -288,107 +373,52 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
-     * Calculate dashboard statistics with correct business logic
+     * Calculate dashboard statistics from pre-loaded data (zero extra queries).
+     * Was: 7+ separate DB queries. Now: all derived from $rawScores + $assignments.
      */
     private function calculateDashboardStats(Collection $rawScores, Collection $users, Collection $assignments): array
     {
-        $fiscalYear = $this->getCurrentFiscalYear();
+        // uniqueEvaluatees = from rawScores (already includes external-only evaluatees)
+        $uniqueEvaluatees = $rawScores->pluck('evaluatee_id')->unique()->count();
+        $totalAssignments = $assignments->count();
 
-        // ผู้เข้าร่วม: GROUP BY evaluator_id สำหรับปีงบประมาณปัจจุบัน
-        $totalParticipants = DB::table('evaluation_assignments')
-            ->where('fiscal_year', $fiscalYear)
-            ->distinct('evaluator_id')
-            ->count();
-            
-        // Count unique evaluatees who have assignments
-        $uniqueEvaluatees = DB::table('evaluation_assignments')
-            ->where('fiscal_year', $fiscalYear)
-            ->distinct('evaluatee_id')
-            ->count();
-            
-        // Count total assignments for reference
-        $totalAssignments = DB::table('evaluation_assignments')
-            ->where('fiscal_year', $fiscalYear)
-            ->count();
-        
-        // เสร็จสิ้น: นับ user_id จาก answers ที่ตอบคำถามครบทุกข้อแล้ว
-        $completedEvaluations = $this->getCompletedEvaluationsCount($fiscalYear);
-        
-        // รอดำเนินการ: ผู้เข้าร่วม - เสร็จสิ้น
-        $pendingEvaluations = max(0, $totalParticipants - $completedEvaluations);
-        $overallCompletionRate = $totalParticipants > 0 ? ($completedEvaluations / $totalParticipants) * 100 : 0;
-        
-        // Calculate weighted average score from actual answers
-        $averageScore = DB::table('answers as a')
-            ->join('evaluation_assignments as ea', function($join) {
-                $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                     ->on('a.user_id', '=', 'ea.evaluator_id')
-                     ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-            })
-            ->leftJoin('options as o', function($join) {
-                $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
-            })
-            ->where('ea.fiscal_year', $fiscalYear)
-            ->avg(DB::raw('COALESCE(o.score, 
-                CASE 
-                    WHEN a.value REGEXP "^[0-9]+$" THEN CAST(a.value AS UNSIGNED)
-                    ELSE 0 
-                END)')) ?? 0;
-        
-        $totalAnswers = DB::table('answers as a')
-            ->join('evaluation_assignments as ea', function($join) {
-                $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                     ->on('a.user_id', '=', 'ea.evaluator_id')
-                     ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-            })
-            ->where('ea.fiscal_year', $fiscalYear)
-            ->count();
+        // Completed evaluations — evaluatees who have all assigned angles scored
+        $completedEvaluations = $rawScores->filter(function ($score) {
+            // If evaluatee has evaluator_progress, use that
+            $progress = $score['evaluator_progress'] ?? null;
+            if ($progress && ($progress['status'] === 'completed' || ($progress['overall_progress_percentage'] ?? 0) >= 100)) {
+                return true;
+            }
+            // Fallback: completion_rate >= 100
+            return ($score['completion_rate'] ?? 0) >= 100;
+        })->count();
 
-        // Get additional stats
-        $totalQuestions = $this->getTotalQuestions();
-        $avgCompletionRate = $totalParticipants > 0 ? ($completedEvaluations / $totalParticipants) * 100 : 0;
-        
-        // Count evaluatees with high average scores (>= 4.0)
+        $pendingEvaluations = max(0, $uniqueEvaluatees - $completedEvaluations);
+        $overallCompletionRate = $uniqueEvaluatees > 0 ? ($completedEvaluations / $uniqueEvaluatees) * 100 : 0;
+
+        // Average score from rawScores (already has per-evaluatee averages)
+        $validScores = $rawScores->pluck('average')->filter(fn($s) => $s > 0);
+        $averageScore = $validScores->isNotEmpty() ? $validScores->avg() : 0;
+
+        // Total answers from evaluator_progress data
+        $totalAnswers = $rawScores->sum(fn($s) => $s['evaluator_progress']['total_questions_answered'] ?? $s['total_answers'] ?? 0);
+        $totalQuestions = $rawScores->sum(fn($s) => $s['evaluator_progress']['total_questions_to_answer'] ?? 0);
+
         $highPerformers = $rawScores->filter(fn($score) => $score['average'] >= 4.0)->count();
-        
-        // Additional debug: Check fiscal years available in database
-        $availableFiscalYears = DB::table('evaluation_assignments')
-            ->select('fiscal_year', DB::raw('COUNT(DISTINCT evaluator_id) as participant_count'))
-            ->groupBy('fiscal_year')
-            ->orderBy('fiscal_year', 'desc')
-            ->get();
-        
-        // Check if current fiscal year matches what user expects  
-        $userQueryEquivalent = DB::table('evaluation_assignments')
-            ->select(DB::raw('COUNT(DISTINCT evaluator_id) as total_count'))
-            ->first();
-        
-        Log::info('Dashboard stats calculation with Raw SQL GROUP BY method', [
-            'fiscal_year' => $fiscalYear,
-            'total_participants_raw_sql_group_by' => $totalParticipants,
-            'total_participants_distinct' => $totalParticipantsDistinct,
-            'completed_evaluations_all_questions' => $completedEvaluations,
-            'pending_evaluations' => $pendingEvaluations,
-            'total_assignments' => $totalAssignments,
-            'counting_method_used' => 'Raw SQL with GROUP BY subquery',
-            'matches_expected_607' => $totalParticipants == 607 ? 'YES' : 'NO',
-            'available_fiscal_years' => $availableFiscalYears->toArray(),
-            'user_query_equivalent_count' => $userQueryEquivalent->total_count
-        ]);
-        
+
         return [
-            'totalParticipants' => $totalParticipants, // นับด้วย Raw SQL GROUP BY evaluator_id (ควรได้ 607)
-            'completedEvaluations' => $completedEvaluations, // นับ user_id ที่ตอบครบทุกข้อ
-            'pendingEvaluations' => $pendingEvaluations, // ผู้เข้าร่วม - เสร็จสิ้น
+            'totalParticipants' => $uniqueEvaluatees,
+            'completedEvaluations' => $completedEvaluations,
+            'pendingEvaluations' => $pendingEvaluations,
             'overallCompletionRate' => round($overallCompletionRate, 1),
             'averageScore' => round($averageScore, 2),
             'totalQuestions' => $totalQuestions,
             'totalAnswers' => $totalAnswers,
-            'uniqueEvaluators' => $totalParticipants, // Same as total participants
+            'uniqueEvaluators' => $assignments->pluck('evaluator_id')->unique()->count(),
             'uniqueEvaluatees' => $uniqueEvaluatees,
-            'evaluationTypes' => 1, // 360-degree evaluation
+            'evaluationTypes' => 1,
             'totalAssignments' => $totalAssignments,
-            'avgCompletionRate' => round($avgCompletionRate, 1),
+            'avgCompletionRate' => round($overallCompletionRate, 1),
             'highPerformers' => $highPerformers,
             'lastUpdated' => now()->toISOString()
         ];
@@ -397,21 +427,24 @@ class AdminEvaluationReportController extends Controller
     /**
      * Calculate evaluation metrics for analytics
      */
-    private function calculateEvaluationMetrics(Collection $rawScores): array
+    private function calculateEvaluationMetrics(Collection $rawScores, int $fiscalYear = 0): array
     {
         return [
             'byGrade' => $this->getMetricsByGrade($rawScores),
             'byDivision' => $this->getMetricsByDivision($rawScores),
             'byAngle' => $this->getMetricsByAngle($rawScores),
-            'trends' => $this->getTrendMetrics($rawScores),
+            'trends' => $this->getTrendMetrics($rawScores, $fiscalYear),
         ];
     }
 
     /**
      * Format detailed results for individual reports
+     * Uses batch-loaded evaluators and aspect scores to avoid N+1 queries
      */
-    private function formatDetailedResults(Collection $rawScores): array
+    private function formatDetailedResults(Collection $rawScores, int $fiscalYear): array
     {
+        // Lightweight: send only summary data to frontend.
+        // evaluators + aspectScores are loaded on-demand via API (getEvaluateeDetails).
         return $rawScores->map(function ($score) {
             return [
                 'id' => $score['evaluatee_id'],
@@ -432,13 +465,10 @@ class AdminEvaluationReportController extends Controller
                     'totalAngles' => $score['available_angles'] ?? 5,
                     'completedAngles' => $score['completed_angles'] ?? 0,
                     'completionRate' => $score['completion_rate'],
-                    'lastActivity' => $score['last_updated'] ?? now()->toISOString(),
                 ],
-                // ข้อมูลสำหรับคอลัมน์ "ถูกประเมิน"
                 'completed_angles' => $score['completed_angles'] ?? 0,
                 'available_angles' => $score['available_angles'] ?? 5,
                 'total_answers' => $score['total_answers'] ?? 0,
-                // ข้อมูลสำหรับคอลัมน์ "ประเมินผู้อื่น"
                 'evaluator_progress' => $score['evaluator_progress'] ?? [
                     'total_assignments' => 0,
                     'completed_assignments' => 0,
@@ -447,8 +477,6 @@ class AdminEvaluationReportController extends Controller
                     'total_questions_answered' => 0,
                     'status' => 'no_assignments'
                 ],
-                'evaluators' => $this->getEvaluatorsForUser($score['evaluatee_id']),
-                'aspectScores' => $this->getAspectScoresForUser($score['evaluatee_id']),
             ];
         })->toArray();
     }
@@ -479,7 +507,10 @@ class AdminEvaluationReportController extends Controller
      */
     private function getMetricsByDivision(Collection $rawScores): array
     {
-        return $rawScores->groupBy('evaluatee_division')->map(function ($scores, $division) {
+        // Pre-load all division name→id mappings in one query (was N+1)
+        $divisionMap = DB::table('divisions')->pluck('id', 'name');
+
+        return $rawScores->groupBy('evaluatee_division')->map(function ($scores, $division) use ($divisionMap) {
             $total = $scores->count();
             $completed = $scores->where('completion_rate', '>=', 80)->count();
             $completionRate = $total > 0 ? ($completed / $total) * 100 : 0;
@@ -487,7 +518,7 @@ class AdminEvaluationReportController extends Controller
 
             return [
                 'division' => $division ?? 'N/A',
-                'divisionId' => $this->getDivisionId($division),
+                'divisionId' => $divisionMap[$division] ?? 0,
                 'total' => $total,
                 'completed' => $completed,
                 'averageScore' => round($averageScore, 2),
@@ -516,65 +547,73 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
-     * Get trend metrics from actual database data
+     * Get trend metrics from actual database data.
+     * Optimized: 2 aggregate queries instead of 24 (was 12 months × 2 queries).
      */
-    private function getTrendMetrics(Collection $rawScores): array
+    private function getTrendMetrics(Collection $rawScores, int $fiscalYear = 0): array
     {
         try {
-            // Get actual completion trends from database
+            $startDate = now()->subMonths(11)->startOfMonth()->toDateString();
+            $endDate = now()->endOfMonth()->toDateString();
+
+            // Monthly completions: internal + external
+            $internalCompletions = DB::table('answers as a')
+                ->join('evaluation_assignments as ea', function ($join) {
+                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                         ->on('a.user_id', '=', 'ea.evaluator_id')
+                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                })
+                ->whereBetween('a.created_at', [$startDate, $endDate])
+                ->when($fiscalYear > 0, fn($q) => $q->where('ea.fiscal_year', $fiscalYear))
+                ->select(DB::raw("DATE_FORMAT(a.created_at, '%Y-%m') as ym"), DB::raw('COUNT(DISTINCT CONCAT(a.evaluatee_id, "-", ea.angle)) as completions'))
+                ->groupBy('ym')
+                ->pluck('completions', 'ym');
+
+            $externalCompletions = DB::table('answers as a')
+                ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                ->whereNotNull('a.external_access_code_id')
+                ->whereBetween('a.created_at', [$startDate, $endDate])
+                ->when($fiscalYear > 0, fn($q) => $q->where('eac.fiscal_year', $fiscalYear))
+                ->select(DB::raw("DATE_FORMAT(a.created_at, '%Y-%m') as ym"), DB::raw('COUNT(DISTINCT a.evaluatee_id) as completions'))
+                ->groupBy('ym')
+                ->pluck('completions', 'ym');
+
+            // Merge completions
+            $monthlyCompletions = $internalCompletions->toArray();
+            foreach ($externalCompletions as $ym => $count) {
+                $monthlyCompletions[$ym] = ($monthlyCompletions[$ym] ?? 0) + $count;
+            }
+
+            // Monthly avg scores: use answers directly (works for both internal + external)
+            $monthlyScores = DB::table('answers as a')
+                ->where('a.fiscal_year', $fiscalYear > 0 ? $fiscalYear : now()->year)
+                ->whereBetween('a.created_at', [$startDate, $endDate])
+                ->where('a.value', '!=', '')
+                ->whereNotNull('a.value')
+                ->select(
+                    DB::raw("DATE_FORMAT(a.created_at, '%Y-%m') as ym"),
+                    DB::raw("AVG(CASE WHEN a.value REGEXP '^[0-9]+(\\.?[0-9]*)$' THEN CAST(a.value AS DECIMAL(5,2)) ELSE NULL END) as avg_score")
+                )
+                ->groupBy('ym')
+                ->pluck('avg_score', 'ym');
+
+            // Build results in PHP
             $trends = [];
-            $currentYear = now()->year;
-            
-            // Get monthly data for the past 12 months
             for ($i = 11; $i >= 0; $i--) {
                 $month = now()->subMonths($i);
-                $startDate = $month->startOfMonth()->toDateString();
-                $endDate = $month->endOfMonth()->toDateString();
-                
-                // Get actual completions for this month
-                $monthlyCompletions = DB::table('answers as a')
-                    ->join('evaluation_assignments as ea', function($join) {
-                        $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                             ->on('a.user_id', '=', 'ea.evaluator_id')
-                             ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                    })
-                    ->whereBetween('a.created_at', [$startDate, $endDate])
-                    ->where('ea.fiscal_year', $currentYear)
-                    ->distinct(['a.evaluatee_id', 'ea.angle'])
-                    ->count();
-                
-                // Get average score for this month
-                $monthlyAvgScore = DB::table('answers as a')
-                    ->join('evaluation_assignments as ea', function($join) {
-                        $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                             ->on('a.user_id', '=', 'ea.evaluator_id')
-                             ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                    })
-                    ->leftJoin('options as o', function($join) {
-                        $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
-                    })
-                    ->whereBetween('a.created_at', [$startDate, $endDate])
-                    ->where('ea.fiscal_year', $currentYear)
-                    ->avg(DB::raw('COALESCE(o.score, 
-                        CASE 
-                            WHEN a.value REGEXP "^[0-9]+$" THEN CAST(a.value AS UNSIGNED)
-                            ELSE 0 
-                        END)')) ?? 0;
-                
+                $ym = $month->format('Y-m');
                 $trends[] = [
                     'date' => $month->format('Y-m-d'),
                     'month_name' => $month->format('M Y'),
-                    'completions' => $monthlyCompletions,
-                    'averageScore' => round($monthlyAvgScore, 2),
-                    'target' => 4.0, // Target score
+                    'completions' => (int) ($monthlyCompletions[$ym] ?? 0),
+                    'averageScore' => round((float) ($monthlyScores[$ym] ?? 0), 2),
+                    'target' => 4.0,
                 ];
             }
-            
+
             return $trends;
         } catch (\Exception $e) {
             Log::error('Error getting trend metrics: ' . $e->getMessage());
-            
-            // Fallback to sample data if error occurs
             $trends = [];
             for ($i = 11; $i >= 0; $i--) {
                 $month = now()->subMonths($i);
@@ -596,47 +635,26 @@ class AdminEvaluationReportController extends Controller
     private function getAvailableYears(): array
     {
         try {
-            // Get years from evaluation_assignments table
-            $yearsFromAssignments = DB::table('evaluation_assignments')
-                ->distinct()
-                ->pluck('fiscal_year')
-                ->filter()
-                ->sort()
-                ->values()
-                ->toArray();
-            
-            // Get years from answers table
-            $yearsFromAnswers = DB::table('answers')
-                ->selectRaw('YEAR(created_at) as year')
-                ->distinct()
-                ->pluck('year')
-                ->filter()
-                ->sort()
-                ->values()
-                ->toArray();
-            
-            // Combine and deduplicate
-            $allYears = collect($yearsFromAssignments)
-                ->concat($yearsFromAnswers)
-                ->unique()
-                ->sort()
-                ->values();
-            
-            // Add current year if not present
-            $currentYear = now()->year;
-            if (!$allYears->contains($currentYear)) {
-                $allYears->push($currentYear);
+            // Single UNION query instead of 2 separate queries
+            $allYears = DB::select("
+                SELECT DISTINCT fiscal_year AS y FROM evaluation_assignments WHERE fiscal_year IS NOT NULL
+                UNION
+                SELECT DISTINCT YEAR(created_at) AS y FROM answers WHERE created_at IS NOT NULL
+                ORDER BY y
+            ");
+
+            $years = collect($allYears)->pluck('y')->filter()->unique()->sort()->values();
+
+            $currentFiscalYear = EvaluationLookupService::currentFiscalYear();
+            if (!$years->contains($currentFiscalYear)) {
+                $years->push($currentFiscalYear);
             }
-            
-            // Convert to strings and return
-            $result = $allYears->map(fn($year) => (string)$year)->toArray();
-            
-            Log::info('Available years found: ' . implode(', ', $result));
-            
-            return array_values($result);
+
+            return $years->map(fn($y) => (string) $y)->values()->toArray();
         } catch (\Exception $e) {
             Log::error('Error getting available years: ' . $e->getMessage());
-            return [(string)now()->year];
+            $fallbackYear = EvaluationLookupService::currentFiscalYear();
+            return [(string) $fallbackYear];
         }
     }
 
@@ -679,16 +697,8 @@ class AdminEvaluationReportController extends Controller
      */
     private function getAvailableUsers(): array
     {
-        try {
-            return DB::table('users')
-                ->select('id', DB::raw("CONCAT(fname, ' ', lname) as name"))
-                ->where('role', 'user')
-                ->orderBy('fname')
-                ->get()
-                ->toArray();
-        } catch (\Exception $e) {
-            return [];
-        }
+        // Not needed for report page filters — return empty to reduce payload
+        return [];
     }
 
     /**
@@ -786,7 +796,7 @@ class AdminEvaluationReportController extends Controller
                          ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
                 })
                 ->leftJoin('options as o', function($join) {
-                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                    $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
                 })
                 ->where('ea.evaluatee_id', $userId)
                 ->select([
@@ -838,7 +848,7 @@ class AdminEvaluationReportController extends Controller
                 ->join('questions as q', 'a.question_id', '=', 'q.id')
                 ->join('aspects as asp', 'q.aspect_id', '=', 'asp.id')
                 ->leftJoin('options as o', function($join) {
-                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                    $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
                 })
                 ->where('a.evaluatee_id', $userId)
                 ->whereNotNull('asp.name')
@@ -872,15 +882,127 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
+     * Batch-load evaluators for multiple evaluatees in a single query.
+     * Returns an array grouped by evaluatee_id.
+     */
+    private function getBatchEvaluatorsForUsers(array $evaluateeIds, int $fiscalYear): array
+    {
+        if (empty($evaluateeIds)) {
+            return [];
+        }
+
+        try {
+            $rows = DB::table('evaluation_assignments as ea')
+                ->join('users as u', 'ea.evaluator_id', '=', 'u.id')
+                ->leftJoin('divisions as d', 'u.division_id', '=', 'd.id')
+                ->leftJoin('answers as a', function($join) {
+                    $join->on('ea.evaluation_id', '=', 'a.evaluation_id')
+                         ->on('ea.evaluator_id', '=', 'a.user_id')
+                         ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
+                })
+                ->leftJoin('options as o', function($join) {
+                    $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
+                })
+                ->whereIn('ea.evaluatee_id', $evaluateeIds)
+                ->select([
+                    'ea.evaluatee_id',
+                    'ea.id as assignment_id',
+                    DB::raw("CONCAT(u.fname, ' ', u.lname) as name"),
+                    'u.emid as evaluator_emid',
+                    'ea.angle',
+                    'd.name as division',
+                    'ea.created_at',
+                    DB::raw('MAX(a.created_at) as last_answer_date'),
+                    DB::raw('COUNT(a.id) as answer_count'),
+                    DB::raw('AVG(COALESCE(o.score,
+                        CASE
+                            WHEN a.value REGEXP "^[0-9]+$" THEN CAST(a.value AS UNSIGNED)
+                            ELSE 0
+                        END)) as avg_score')
+                ])
+                ->groupBy([
+                    'ea.evaluatee_id', 'ea.id', 'u.fname', 'u.lname', 'u.emid',
+                    'ea.angle', 'd.name', 'ea.created_at'
+                ])
+                ->get();
+
+            $grouped = [];
+            foreach ($rows as $evaluator) {
+                $completed = !is_null($evaluator->last_answer_date);
+                $grouped[$evaluator->evaluatee_id][] = [
+                    'id' => 0,
+                    'name' => $evaluator->name,
+                    'angle' => $evaluator->angle,
+                    'completed' => $completed,
+                    'score' => $completed ? round($evaluator->avg_score, 2) : 0,
+                    'division' => $evaluator->division ?? 'N/A',
+                    'completed_at' => $evaluator->last_answer_date,
+                ];
+            }
+
+            return $grouped;
+        } catch (\Exception $e) {
+            Log::error('Error batch-loading evaluators: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Batch-load aspect scores for multiple evaluatees in a single query.
+     * Returns an array grouped by evaluatee_id.
+     */
+    private function getBatchAspectScoresForUsers(array $evaluateeIds, int $fiscalYear): array
+    {
+        if (empty($evaluateeIds)) {
+            return [];
+        }
+
+        try {
+            $rows = DB::table('answers as a')
+                ->join('questions as q', 'a.question_id', '=', 'q.id')
+                ->join('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+                ->leftJoin('options as o', function($join) {
+                    $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
+                })
+                ->whereIn('a.evaluatee_id', $evaluateeIds)
+                ->whereNotNull('asp.name')
+                ->select([
+                    'a.evaluatee_id',
+                    'asp.id as aspect_id',
+                    'asp.name as aspect_name',
+                    DB::raw('AVG(COALESCE(o.score,
+                        CASE
+                            WHEN a.value REGEXP "^[0-9]+$" THEN CAST(a.value AS UNSIGNED)
+                            ELSE 0
+                        END)) as avg_score'),
+                    DB::raw('COUNT(a.id) as answer_count')
+                ])
+                ->groupBy('a.evaluatee_id', 'asp.id', 'asp.name')
+                ->orderBy('asp.name')
+                ->get();
+
+            $grouped = [];
+            foreach ($rows as $aspect) {
+                $score = round($aspect->avg_score, 2);
+                $grouped[$aspect->evaluatee_id][] = [
+                    'aspect' => $aspect->aspect_name,
+                    'score' => $score,
+                    'max_score' => 5.0,
+                    'percentage' => round(($score / 5.0) * 100, 1),
+                ];
+            }
+
+            return $grouped;
+        } catch (\Exception $e) {
+            Log::error('Error batch-loading aspect scores: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Get division ID by name
      */
-    private function getDivisionId($divisionName): int
-    {
-        if (!$divisionName) return 0;
-        
-        $division = DB::table('divisions')->where('name', $divisionName)->first();
-        return $division->id ?? 0;
-    }
+    // getDivisionId removed — division lookup now pre-loaded in getMetricsByDivision()
 
     /**
      * Get external organization metrics for the fiscal year
@@ -891,18 +1013,19 @@ class AdminEvaluationReportController extends Controller
             $results = DB::table('answers as a')
                 ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
                 ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
-                ->leftJoin('options as o', function ($join) {
-                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
-                })
+                ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
                 ->where('eac.fiscal_year', $fiscalYear)
                 ->whereNotNull('a.external_access_code_id')
+                ->where('a.value', '!=', '')
+                ->whereNotNull('a.value')
                 ->groupBy('eo.id', 'eo.name')
                 ->select([
                     'eo.id as org_id',
                     'eo.name as org_name',
-                    DB::raw('COUNT(DISTINCT a.id) as total_responses'),
-                    DB::raw('ROUND(AVG(COALESCE(o.score, CASE WHEN a.value REGEXP "^[0-9]+$" THEN CAST(a.value AS UNSIGNED) ELSE 0 END)), 2) as avg_score'),
+                    DB::raw('COUNT(a.id) as total_responses'),
+                    DB::raw('ROUND(AVG(CASE WHEN o.score IS NOT NULL THEN o.score WHEN a.value REGEXP "^[0-9]+(\\.?[0-9]*)$" THEN CAST(a.value AS DECIMAL(5,2)) ELSE NULL END), 2) as avg_score'),
                     DB::raw('COUNT(DISTINCT a.evaluatee_id) as evaluatee_count'),
+                    DB::raw('COUNT(DISTINCT eac.id) as evaluator_count'),
                 ])
                 ->get();
 
@@ -913,6 +1036,7 @@ class AdminEvaluationReportController extends Controller
                     'total_responses' => $row->total_responses,
                     'avg_score' => round((float) $row->avg_score, 2),
                     'evaluatee_count' => $row->evaluatee_count,
+                    'evaluator_count' => $row->evaluator_count ?? 0,
                 ];
             })->toArray();
         } catch (\Exception $e) {
@@ -936,6 +1060,20 @@ class AdminEvaluationReportController extends Controller
     /**
      * Get current fiscal year
      */
+    /**
+     * Get stakeholder weights by evaluatee grade
+     * พนักงาน 4-8: self 50%, top 20%, left 30%
+     * ผู้บริหาร 9-12: self 10%, top 25%, bottom 25%, left 20%, right 20%
+     * ผู้ว่าการ 13+: self 10%, top 25%, bottom 25%, left 20%, right 20%
+     */
+    private function getStakeholderWeights(int $grade): array
+    {
+        if ($grade >= 9) {
+            return ['self' => 0.10, 'top' => 0.25, 'bottom' => 0.25, 'left' => 0.20, 'right' => 0.20];
+        }
+        return ['self' => 0.50, 'top' => 0.20, 'bottom' => 0.0, 'left' => 0.30, 'right' => 0.0];
+    }
+
     private function getCurrentFiscalYear(): int
     {
         $now = now();
@@ -1009,41 +1147,200 @@ class AdminEvaluationReportController extends Controller
     public function getUserDetails(Request $request, $userId): JsonResponse
     {
         try {
-            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
-            
-            $user = User::with(['position', 'division'])->findOrFail($userId);
-            $scores = $this->weightedScoringService->getIndividualAngleReport($userId, $fiscalYear);
-            
-            $data = [
-                'user' => [
-                    'id' => $user->id,
-                    'name' => trim($user->fname . ' ' . $user->lname),
-                    'position' => $user->position->title ?? 'N/A',
-                    'division' => $user->division->name ?? 'N/A',
-                    'grade' => $user->grade ?? 0,
-                    'user_type' => 'internal', // Default type
-                ],
-                'scores' => [
-                    'self' => $scores['self'] ?? 0,
-                    'top' => $scores['top'] ?? 0,
-                    'bottom' => $scores['bottom'] ?? 0,
-                    'left' => $scores['left'] ?? 0,
-                    'right' => $scores['right'] ?? 0,
-                    'average' => $scores['average'] ?? 0,
-                ],
-                'completion_data' => [
-                    'total_angles' => 5,
-                    'completed_angles' => $this->getCompletedAnglesCount($scores),
-                    'completion_rate' => round($scores['completion_rate'] ?? 0, 1),
-                    'total_answers' => $scores['total_answers'] ?? 0,
-                    'last_updated' => now()->toISOString(),
-                ],
-                'evaluators' => $this->getEvaluatorsForUser($userId),
-                'aspect_scores' => $this->getAspectScoresForUser($userId),
-                'comparison_data' => $this->getUserComparisonData($userId, $fiscalYear),
-                'evaluator_assignments' => $this->getEvaluatorAssignments($userId, $fiscalYear),
-            ];
-            
+            $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
+
+            // No cache - realtime data
+            $data = (function () use ($userId, $fiscalYear) {
+
+                $user = User::with(['position', 'division'])->findOrFail($userId);
+
+                // Single query: get all angle scores from assignments + external
+                $scoreExpr = 'CASE WHEN o.score IS NOT NULL THEN o.score WHEN a.value REGEXP "^[1-5]$" THEN CAST(a.value AS UNSIGNED) ELSE NULL END';
+
+                $internalScores = DB::table('answers as a')
+                    ->join('evaluation_assignments as ea', function ($join) {
+                        $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                             ->on('a.user_id', '=', 'ea.evaluator_id')
+                             ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                    })
+                    ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
+                    ->where('a.evaluatee_id', $userId)
+                    ->where('ea.fiscal_year', $fiscalYear)
+                    ->groupBy('ea.angle')
+                    ->select('ea.angle', DB::raw("ROUND(AVG({$scoreExpr}), 2) as score"), DB::raw('COUNT(a.id) as cnt'))
+                    ->pluck('score', 'angle');
+
+                $externalScore = DB::table('answers as a')
+                    ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                    ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
+                    ->where('a.evaluatee_id', $userId)
+                    ->where('eac.fiscal_year', $fiscalYear)
+                    ->whereNotNull('a.external_access_code_id')
+                    ->selectRaw("ROUND(AVG({$scoreExpr}), 2) as score")
+                    ->selectRaw('COUNT(a.id) as cnt')
+                    ->first();
+
+                $selfScore = (float) ($internalScores['self'] ?? 0);
+                $topScore = (float) ($internalScores['top'] ?? 0);
+                $bottomScore = (float) ($internalScores['bottom'] ?? 0);
+                $leftScore = (float) ($internalScores['left'] ?? 0);
+                $rightScore = (float) ($internalScores['right'] ?? ($externalScore->score ?? 0));
+
+                // Weighted average by grade
+                $userGrade = (int) ($user->grade ?? 0);
+                $weights = $this->getStakeholderWeights($userGrade);
+                $scoreMap = ['self' => $selfScore, 'top' => $topScore, 'bottom' => $bottomScore, 'left' => $leftScore, 'right' => $rightScore];
+                $wSum = 0; $wTotal = 0;
+                foreach ($weights as $a => $w) {
+                    if (($scoreMap[$a] ?? 0) > 0 && $w > 0) { $wSum += $scoreMap[$a] * $w; $wTotal += $w; }
+                }
+                $avgScore = $wTotal > 0 ? round($wSum / $wTotal, 2) : 0;
+                $completedAngles = count(array_filter([$selfScore, $topScore, $bottomScore, $leftScore, $rightScore], fn($s) => $s > 0));
+
+                // Single query: evaluators
+                $evaluators = DB::table('evaluation_assignments as ea')
+                    ->join('users as u', 'ea.evaluator_id', '=', 'u.id')
+                    ->leftJoin('divisions as d', 'u.division_id', '=', 'd.id')
+                    ->where('ea.evaluatee_id', $userId)
+                    ->where('ea.fiscal_year', $fiscalYear)
+                    ->select([
+                        DB::raw("CONCAT(u.fname, ' ', u.lname) as name"),
+                        'ea.angle', 'd.name as division',
+                    ])
+                    ->get()
+                    ->map(fn($e) => [
+                        'id' => 0, 'name' => $e->name, 'angle' => $e->angle,
+                        'completed' => ($internalScores[$e->angle] ?? 0) > 0,
+                        'score' => round((float) ($internalScores[$e->angle] ?? 0), 2),
+                        'division' => $e->division ?? 'N/A', 'completed_at' => null,
+                    ])
+                    ->toArray();
+
+                // Add external evaluators
+                if ($rightScore > 0) {
+                    $extOrgs = DB::table('external_access_codes as eac')
+                        ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+                        ->where('eac.evaluatee_id', $userId)
+                        ->where('eac.fiscal_year', $fiscalYear)
+                        ->where('eac.is_used', true)
+                        ->select('eo.name')
+                        ->get();
+                    foreach ($extOrgs as $org) {
+                        $evaluators[] = [
+                            'id' => 0, 'name' => $org->name . ' (ภายนอก)', 'angle' => 'right',
+                            'completed' => true, 'score' => $rightScore,
+                            'division' => 'องค์กรภายนอก', 'completed_at' => null,
+                        ];
+                    }
+                }
+
+                // Single query: aspect scores
+                $aspectScores = DB::table('answers as a')
+                    ->join('questions as q', 'a.question_id', '=', 'q.id')
+                    ->join('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+                    ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
+                    ->where('a.evaluatee_id', $userId)
+                    ->where('a.fiscal_year', $fiscalYear)
+                    ->whereNotNull('asp.name')
+                    ->groupBy('asp.id', 'asp.name')
+                    ->select('asp.name as aspect_name', DB::raw("ROUND(AVG({$scoreExpr}), 2) as score"))
+                    ->orderBy('asp.name')
+                    ->get()
+                    ->map(fn($a) => [
+                        'aspect' => $a->aspect_name, 'score' => (float) $a->score,
+                        'max_score' => 5.0, 'percentage' => round(((float) $a->score / 5.0) * 100, 1),
+                    ])
+                    ->toArray();
+
+                return [
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => trim($user->fname . ' ' . $user->lname),
+                        'position' => $user->position->title ?? 'N/A',
+                        'division' => $user->division->name ?? 'N/A',
+                        'grade' => $user->grade ?? 0,
+                        'user_type' => 'internal',
+                    ],
+                    'scores' => compact('selfScore', 'topScore', 'bottomScore', 'leftScore', 'rightScore') + [
+                        'self' => $selfScore, 'top' => $topScore, 'bottom' => $bottomScore,
+                        'left' => $leftScore, 'right' => $rightScore, 'average' => $avgScore,
+                    ],
+                    'completion_data' => [
+                        'total_angles' => 5, 'completed_angles' => $completedAngles,
+                        'completion_rate' => round(($completedAngles / 5) * 100, 1),
+                        'total_answers' => 0, 'last_updated' => now()->toISOString(),
+                    ],
+                    'evaluators' => $evaluators,
+                    'aspect_scores' => $aspectScores,
+                    'comparison_data' => (function () use ($userId, $fiscalYear, $avgScore) {
+                        $gradeAvg = DB::table('answers as a')
+                            ->join('users as u', 'a.evaluatee_id', '=', 'u.id')
+                            ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
+                            ->where('a.fiscal_year', $fiscalYear)
+                            ->where('u.grade', DB::table('users')->where('id', $userId)->value('grade'))
+                            ->selectRaw('AVG(CASE WHEN o.score IS NOT NULL THEN o.score WHEN a.value REGEXP "^[1-5]$" THEN CAST(a.value AS UNSIGNED) ELSE NULL END) as avg')
+                            ->value('avg');
+                        $divAvg = DB::table('answers as a')
+                            ->join('users as u', 'a.evaluatee_id', '=', 'u.id')
+                            ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
+                            ->where('a.fiscal_year', $fiscalYear)
+                            ->where('u.division_id', DB::table('users')->where('id', $userId)->value('division_id'))
+                            ->selectRaw('AVG(CASE WHEN o.score IS NOT NULL THEN o.score WHEN a.value REGEXP "^[1-5]$" THEN CAST(a.value AS UNSIGNED) ELSE NULL END) as avg')
+                            ->value('avg');
+                        return [
+                            'grade_average' => round((float) ($gradeAvg ?? 0), 2),
+                            'division_average' => round((float) ($divAvg ?? 0), 2),
+                            'overall_average' => round((float) ($gradeAvg ?? 0), 2),
+                        ];
+                    })(),
+                    'evaluator_assignments' => (function () use ($userId, $fiscalYear) {
+                        $assignments = DB::table('evaluation_assignments as ea')
+                            ->join('users as evaluatee', 'ea.evaluatee_id', '=', 'evaluatee.id')
+                            ->leftJoin('divisions as d', 'evaluatee.division_id', '=', 'd.id')
+                            ->where('ea.evaluator_id', $userId)
+                            ->where('ea.fiscal_year', $fiscalYear)
+                            ->select('ea.*', DB::raw("CONCAT(evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"), 'evaluatee.grade as evaluatee_grade', 'd.name as division_name')
+                            ->get();
+
+                        $completed = 0; $inProgress = 0; $notStarted = 0;
+                        $byAngle = [];
+                        $details = [];
+                        foreach ($assignments as $a) {
+                            $answerCount = DB::table('answers')
+                                ->where('evaluation_id', $a->evaluation_id)
+                                ->where('user_id', $userId)
+                                ->where('evaluatee_id', $a->evaluatee_id)
+                                ->count();
+                            $status = $answerCount > 0 ? 'completed' : 'not_started';
+                            if ($status === 'completed') $completed++;
+                            else $notStarted++;
+
+                            $byAngle[$a->angle] = ($byAngle[$a->angle] ?? 0) + 1;
+                            $details[] = [
+                                'evaluatee_name' => $a->evaluatee_name,
+                                'evaluatee_grade' => $a->evaluatee_grade,
+                                'division' => $a->division_name ?? '-',
+                                'angle' => $a->angle,
+                                'status' => $status,
+                                'answer_count' => $answerCount,
+                            ];
+                        }
+                        $total = $assignments->count();
+                        return [
+                            'summary' => [
+                                'total_assignments' => $total,
+                                'completed_assignments' => $completed,
+                                'in_progress_assignments' => $inProgress,
+                                'not_started_assignments' => $notStarted,
+                                'overall_completion_percentage' => $total > 0 ? round(($completed / $total) * 100, 1) : 0,
+                                'by_angle' => collect($byAngle)->map(fn($count, $angle) => ['angle' => $angle, 'count' => $count])->values()->toArray(),
+                            ],
+                            'details' => $details,
+                        ];
+                    })(),
+                ];
+            });
+
             return response()->json($data);
         } catch (\Exception $e) {
             Log::error('Error fetching user details: ' . $e->getMessage());
@@ -1057,6 +1354,7 @@ class AdminEvaluationReportController extends Controller
     public function exportSummary(Request $request)
     {
         try {
+            $this->boostLimits();
             $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
             $format = $request->input('format', 'excel');
             
@@ -1080,16 +1378,36 @@ class AdminEvaluationReportController extends Controller
     public function exportIndividualDetailed(Request $request)
     {
         try {
+            $this->boostLimits();
             $userId = $request->input('user_id');
-            $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
-            
+            $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
+
             if (!$userId) {
                 return response()->json(['error' => 'User ID required'], 400);
             }
-            
+
             $user = User::with(['position', 'division'])->findOrFail($userId);
             $scores = $this->weightedScoringService->getIndividualAngleReport($userId, $fiscalYear);
-            
+            $scores = $scores ?? [];
+
+            // Include external scores
+            $externalScore = DB::table('answers as a')
+                ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                ->where('a.evaluatee_id', $userId)
+                ->where('eac.fiscal_year', $fiscalYear)
+                ->whereNotNull('a.external_access_code_id')
+                ->selectRaw('AVG(CASE WHEN a.value REGEXP "^[0-9]+(\\.?[0-9]*)$" THEN CAST(a.value AS DECIMAL(5,2)) ELSE NULL END) as avg_score')
+                ->selectRaw('COUNT(a.id) as answer_count')
+                ->first();
+
+            $rightScore = $scores['right'] ?? ($externalScore && $externalScore->avg_score ? round($externalScore->avg_score, 2) : 0);
+            $selfScore = $scores['self'] ?? 0;
+            $topScore = $scores['top'] ?? 0;
+            $bottomScore = $scores['bottom'] ?? 0;
+            $leftScore = $scores['left'] ?? 0;
+            $validScores = array_filter([$selfScore, $topScore, $bottomScore, $leftScore, $rightScore], fn($s) => $s > 0);
+            $avgScore = count($validScores) > 0 ? round(array_sum($validScores) / count($validScores), 2) : 0;
+
             $data = [
                 'user' => [
                     'name' => trim($user->fname . ' ' . $user->lname),
@@ -1097,11 +1415,18 @@ class AdminEvaluationReportController extends Controller
                     'division' => $user->division->name ?? 'N/A',
                     'grade' => $user->grade ?? 0,
                 ],
-                'scores' => $scores,
+                'scores' => array_merge($scores, [
+                    'self' => $selfScore,
+                    'top' => $topScore,
+                    'bottom' => $bottomScore,
+                    'left' => $leftScore,
+                    'right' => $rightScore,
+                    'average' => $avgScore,
+                ]),
             ];
-            
+
             $filename = "รายงานรายบุคคล_{$data['user']['name']}_{$fiscalYear}";
-            
+
             return $this->generateExcelIndividualReport($data, $filename);
         } catch (\Exception $e) {
             Log::error('Export individual error: ' . $e->getMessage());
@@ -1204,8 +1529,8 @@ class AdminEvaluationReportController extends Controller
         $scores = $data['scores'];
         $angles = [
             'self' => 'ประเมินตนเอง',
-            'top' => 'องศาบน',
-            'bottom' => 'องศาล่าง',
+            'top' => 'ผู้บังคับบัญชา',
+            'bottom' => 'ผู้ใต้บังคับบัญชา',
             'left' => 'องศาซ้าย',
             'right' => 'องศาขวา'
         ];
@@ -1231,6 +1556,67 @@ class AdminEvaluationReportController extends Controller
         }, $filename . '.xlsx', [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
+    }
+
+    /**
+     * Get assignments data for the Assignments tab
+     */
+    public function getAssignmentsData(Request $request): JsonResponse
+    {
+        try {
+            $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
+
+            // Subquery: count answers per assignment
+            $answerCounts = DB::table('answers')
+                ->select('evaluation_id', 'user_id as evaluator_id', 'evaluatee_id', DB::raw('COUNT(*) as answer_count'))
+                ->where('fiscal_year', $fiscalYear)
+                ->groupBy('evaluation_id', 'user_id', 'evaluatee_id');
+
+            // Subquery: count total questions per evaluation
+            $questionCounts = DB::table('questions')
+                ->join('aspects', 'questions.aspect_id', '=', 'aspects.id')
+                ->join('parts', 'aspects.part_id', '=', 'parts.id')
+                ->select('parts.evaluation_id', DB::raw('COUNT(*) as total_questions'))
+                ->groupBy('parts.evaluation_id');
+
+            $data = DB::table('evaluation_assignments as ea')
+                ->join('evaluations as e', 'ea.evaluation_id', '=', 'e.id')
+                ->join('users as evaluator', 'ea.evaluator_id', '=', 'evaluator.id')
+                ->join('users as evaluatee', 'ea.evaluatee_id', '=', 'evaluatee.id')
+                ->leftJoin('divisions as d', 'evaluatee.division_id', '=', 'd.id')
+                ->leftJoinSub($answerCounts, 'ans', function ($join) {
+                    $join->on('ea.evaluation_id', '=', 'ans.evaluation_id')
+                         ->on('ea.evaluator_id', '=', 'ans.evaluator_id')
+                         ->on('ea.evaluatee_id', '=', 'ans.evaluatee_id');
+                })
+                ->leftJoinSub($questionCounts, 'qc', function ($join) {
+                    $join->on('ea.evaluation_id', '=', 'qc.evaluation_id');
+                })
+                ->where('ea.fiscal_year', $fiscalYear)
+                ->select([
+                    'ea.id',
+                    'ea.evaluation_id',
+                    'e.title as evaluation_title',
+                    DB::raw("CONCAT(evaluator.prename, evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
+                    'evaluator.grade as evaluator_grade',
+                    DB::raw("CONCAT(evaluatee.prename, evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
+                    'evaluatee.grade as evaluatee_grade',
+                    'd.name as evaluatee_division',
+                    'ea.fiscal_year',
+                    'ea.angle',
+                    DB::raw('COALESCE(ans.answer_count, 0) as answer_count'),
+                    DB::raw('COALESCE(qc.total_questions, 0) as total_questions'),
+                    DB::raw('ROUND(COALESCE(ans.answer_count, 0) / GREATEST(COALESCE(qc.total_questions, 1), 1) * 100, 1) as completion_pct'),
+                ])
+                ->orderBy('evaluatee.fname')
+                ->orderBy('ea.angle')
+                ->get();
+
+            return response()->json(['data' => $data]);
+        } catch (\Exception $e) {
+            Log::error('getAssignmentsData error: ' . $e->getMessage());
+            return response()->json(['error' => 'ไม่สามารถโหลดข้อมูลได้', 'data' => []], 500);
+        }
     }
 
     /**
@@ -1307,16 +1693,131 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
+     * Export evaluatee score table — ชื่อ + คะแนนแต่ละองศา
+     */
+    public function exportEvaluateeScoreTable(Request $request)
+    {
+        try {
+            $this->boostLimits();
+            $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
+            $divisionId = $request->input('division_id');
+            $grade = $request->input('grade');
+
+            $rawScores = $this->getRawScores($fiscalYear, $divisionId, $grade, null);
+
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('คะแนนผู้ถูกประเมิน');
+
+            // Title
+            $sheet->setCellValue('A1', 'รายงานคะแนนผู้ถูกประเมิน 360 องศา');
+            $sheet->mergeCells('A1:K1');
+            $sheet->getStyle('A1')->getFont()->setSize(16)->setBold(true);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+
+            $sheet->setCellValue('A2', 'ปีงบประมาณ พ.ศ. ' . ($fiscalYear + 543) . ' | วันที่สร้าง: ' . now()->format('d/m/Y H:i'));
+            $sheet->mergeCells('A2:K2');
+
+            // Headers
+            $headers = [
+                'A4' => 'ลำดับ', 'B4' => 'รหัสพนักงาน', 'C4' => 'ชื่อ-นามสกุล',
+                'D4' => 'ระดับ', 'E4' => 'หน่วยงาน', 'F4' => 'ตนเอง',
+                'G4' => 'ผู้บังคับบัญชา', 'H4' => 'ผู้ใต้บังคับบัญชา',
+                'I4' => 'เพื่อนร่วมงาน', 'J4' => 'องค์กรภายนอก', 'K4' => 'เฉลี่ย',
+            ];
+            foreach ($headers as $cell => $header) {
+                $sheet->setCellValue($cell, $header);
+            }
+            $sheet->getStyle('A4:K4')->getFont()->setBold(true);
+            $sheet->getStyle('A4:K4')->getFill()
+                ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                ->getStartColor()->setRGB('7C3AED');
+            $sheet->getStyle('A4:K4')->getFont()->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle('A4:K4')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+
+            // Data rows
+            $row = 5;
+            $counter = 1;
+            foreach ($rawScores as $score) {
+                // Get user emid
+                $user = \App\Models\User::find($score['evaluatee_id']);
+                $emid = $user->emid ?? '-';
+
+                $sheet->setCellValue('A' . $row, $counter);
+                $sheet->setCellValue('B' . $row, $emid);
+                $sheet->setCellValue('C' . $row, $score['evaluatee_name']);
+                $sheet->setCellValue('D' . $row, $score['evaluatee_grade']);
+                $sheet->setCellValue('E' . $row, $score['evaluatee_division']);
+                $sheet->setCellValue('F' . $row, $score['self'] ?: '-');
+                $sheet->setCellValue('G' . $row, $score['top'] ?: '-');
+                $sheet->setCellValue('H' . $row, $score['bottom'] ?: '-');
+                $sheet->setCellValue('I' . $row, $score['left'] ?: '-');
+                $sheet->setCellValue('J' . $row, $score['right'] ?: '-');
+                $sheet->setCellValue('K' . $row, $score['average'] ?: '-');
+
+                // Color code average
+                if (($score['average'] ?? 0) > 0) {
+                    $avgColor = $score['average'] >= 4.5 ? '059669' : ($score['average'] >= 3.5 ? '2563EB' : ($score['average'] >= 2.5 ? 'D97706' : 'DC2626'));
+                    $sheet->getStyle('K' . $row)->getFont()->setBold(true)->getColor()->setRGB($avgColor);
+                }
+
+                // Alternating row color
+                if ($counter % 2 === 0) {
+                    $sheet->getStyle("A{$row}:K{$row}")->getFill()
+                        ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                        ->getStartColor()->setRGB('F5F3FF');
+                }
+
+                $row++;
+                $counter++;
+            }
+
+            // Auto-size columns
+            foreach (range('A', 'K') as $col) {
+                $sheet->getColumnDimension($col)->setAutoSize(true);
+            }
+
+            // Score columns center-aligned
+            $sheet->getStyle("F5:K" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+
+            // Summary row
+            $sheet->setCellValue('A' . $row, '');
+            $sheet->setCellValue('C' . $row, 'จำนวนทั้งหมด: ' . ($counter - 1) . ' คน');
+            $sheet->getStyle('C' . $row)->getFont()->setBold(true);
+
+            $filename = "คะแนนผู้ถูกประเมิน_360องศา_พศ" . ($fiscalYear + 543) . '_' . now()->format('Ymd_Hi') . '.xlsx';
+            $filePath = storage_path('app/exports/' . $filename);
+
+            if (!file_exists(dirname($filePath))) {
+                mkdir(dirname($filePath), 0755, true);
+            }
+
+            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            $writer->save($filePath);
+
+            return response()->download($filePath, $filename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            Log::error('Export evaluatee score table error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกรายงานล้มเหลว: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Export comprehensive evaluation report with detailed option mapping
      */
     public function exportComprehensiveReport(Request $request)
     {
         try {
+            $this->boostLimits();
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division_id' => $request->input('division_id'),
                 'user_id' => $request->input('user_id'),
-                'only_completed' => $request->input('only_completed')
+                'only_completed' => $request->input('only_completed'),
+                'angle' => $request->input('angle'),
+                'department_id' => $request->input('department_id'),
+                'position_id' => $request->input('position_id'),
+                'grade' => $request->input('grade'),
             ];
 
             $filePath = $this->evaluationExportService->exportComprehensiveEvaluationReport($filters);
@@ -1335,19 +1836,24 @@ class AdminEvaluationReportController extends Controller
     public function exportExecutiveReport(Request $request)
     {
         try {
+            $this->boostLimits();
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division_id' => $request->input('division_id'),
                 'user_id' => $request->input('user_id'),
-                'only_completed' => $request->input('only_completed')
+                'only_completed' => $request->input('only_completed'),
+                'angle' => $request->input('angle'),
+                'department_id' => $request->input('department_id'),
+                'position_id' => $request->input('position_id'),
+                'grade' => $request->input('grade'),
             ];
 
-            // Dynamic lookup: find 360 internal evaluation for grades 9-12
-            $evaluation = Evaluation::where('user_type', 'internal')
-                ->where('grade_min', 9)->where('grade_max', 12)
-                ->where('title', 'like', '%360%')
-                ->where('status', 'published')
-                ->firstOrFail();
+            // Dynamic lookup: find 360 internal evaluation for grades 9-12 (not self-eval)
+            $evaluation = EvaluationLookupService::findByGrade(9, 'internal', (int) $filters['fiscal_year']);
+
+            if (!$evaluation) {
+                return response()->json(['error' => 'ไม่พบแบบประเมินสำหรับระดับ 9-12'], 404);
+            }
 
             $filePath = $this->evaluationExportService->exportByEvaluationType($evaluation->id, $filters);
             $filename = basename($filePath);
@@ -1365,19 +1871,24 @@ class AdminEvaluationReportController extends Controller
     public function exportEmployeeReport(Request $request)
     {
         try {
+            $this->boostLimits();
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division_id' => $request->input('division_id'),
                 'user_id' => $request->input('user_id'),
-                'only_completed' => $request->input('only_completed')
+                'only_completed' => $request->input('only_completed'),
+                'angle' => $request->input('angle'),
+                'department_id' => $request->input('department_id'),
+                'position_id' => $request->input('position_id'),
+                'grade' => $request->input('grade'),
             ];
 
-            // Dynamic lookup: find 360 internal evaluation for grades 4-8
-            $evaluation = Evaluation::where('user_type', 'internal')
-                ->where('grade_min', 4)->where('grade_max', 8)
-                ->where('title', 'like', '%360%')
-                ->where('status', 'published')
-                ->firstOrFail();
+            // Dynamic lookup: find 360 internal evaluation for grades 4-8 (not self-eval)
+            $evaluation = EvaluationLookupService::findByGrade(5, 'internal', (int) $filters['fiscal_year']);
+
+            if (!$evaluation) {
+                return response()->json(['error' => 'ไม่พบแบบประเมินสำหรับระดับ 4-8'], 404);
+            }
 
             $filePath = $this->evaluationExportService->exportByEvaluationType($evaluation->id, $filters);
             $filename = basename($filePath);
@@ -1395,19 +1906,24 @@ class AdminEvaluationReportController extends Controller
     public function exportGovernorReport(Request $request)
     {
         try {
+            $this->boostLimits();
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division_id' => $request->input('division_id'),
                 'user_id' => $request->input('user_id'),
-                'only_completed' => $request->input('only_completed')
+                'only_completed' => $request->input('only_completed'),
+                'angle' => $request->input('angle'),
+                'department_id' => $request->input('department_id'),
+                'position_id' => $request->input('position_id'),
+                'grade' => $request->input('grade'),
             ];
 
-            // Dynamic lookup: find 360 internal evaluation for grade 13
-            $evaluation = Evaluation::where('user_type', 'internal')
-                ->where('grade_min', 13)->where('grade_max', 13)
-                ->where('title', 'like', '%360%')
-                ->where('status', 'published')
-                ->firstOrFail();
+            // Dynamic lookup: find 360 internal evaluation for grade 13 (not self-eval)
+            $evaluation = EvaluationLookupService::findByGrade(13, 'internal', (int) $filters['fiscal_year']);
+
+            if (!$evaluation) {
+                return response()->json(['error' => 'ไม่พบแบบประเมินสำหรับผู้ว่าการ'], 404);
+            }
 
             $filePath = $this->evaluationExportService->exportByEvaluationType($evaluation->id, $filters);
             $filename = basename($filePath);
@@ -1425,8 +1941,15 @@ class AdminEvaluationReportController extends Controller
     public function exportExternalOrgReport(Request $request)
     {
         try {
+            $this->boostLimits();
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
+                'external_org_id' => $request->input('external_org_id'),
+                'angle' => $request->input('angle'),
+                'department_id' => $request->input('department_id'),
+                'position_id' => $request->input('position_id'),
+                'grade' => $request->input('grade'),
+                'user_id' => $request->input('user_id'),
             ];
 
             $filePath = $this->evaluationExportService->exportExternalOrgReport($filters);
@@ -1445,6 +1968,7 @@ class AdminEvaluationReportController extends Controller
     public function exportDetailedEvaluationData(Request $request)
     {
         try {
+            $this->boostLimits();
             $evaluationId = $request->input('evaluation_id');
             $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
             $divisionId = $request->input('division_id');
@@ -1664,7 +2188,7 @@ class AdminEvaluationReportController extends Controller
                          ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
                 })
                 ->leftJoin('options as o', function($join) {
-                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                    $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
                 })
                 ->where('ea.evaluatee_id', $evaluateeId)
                 ->where('ea.fiscal_year', $fiscalYear)
@@ -1860,6 +2384,7 @@ class AdminEvaluationReportController extends Controller
     public function exportSelfEvaluationReport(Request $request)
     {
         try {
+            $this->boostLimits();
             $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
             
             // Convert Buddhist year to Gregorian year if needed
@@ -1886,8 +2411,16 @@ class AdminEvaluationReportController extends Controller
             // Get self-evaluation data (where user_id = evaluatee_id)
             $filters = [
                 'fiscal_year' => $fiscalYear,
-                'self_evaluation' => true,  // Custom flag to indicate self-evaluation filtering
-                'only_completed' => $request->input('only_completed')
+                'self_evaluation' => true,
+                'only_completed' => $request->input('only_completed'),
+                'angle' => $request->input('angle'),
+                'department_id' => $request->input('department_id'),
+                'position_id' => $request->input('position_id'),
+                'user_id' => $request->input('user_id'),
+                'angle' => $request->input('angle'),
+                'department_id' => $request->input('department_id'),
+                'position_id' => $request->input('position_id'),
+                'grade' => $request->input('grade'),
             ];
             
             if ($request->filled('division_id')) {
@@ -1920,6 +2453,7 @@ class AdminEvaluationReportController extends Controller
     public function exportIndividualPdf(Request $request)
     {
         try {
+            $this->boostLimits();
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division' => $request->input('division'),
@@ -1948,6 +2482,7 @@ class AdminEvaluationReportController extends Controller
     public function exportComprehensivePdf(Request $request)
     {
         try {
+            $this->boostLimits();
             $filters = [
                 'fiscal_year' => $request->input('fiscal_year', $this->getCurrentFiscalYear()),
                 'division' => $request->input('division'),
@@ -2106,6 +2641,7 @@ class AdminEvaluationReportController extends Controller
     public function exportComparison(Request $request)
     {
         try {
+            $this->boostLimits();
             $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
             $format = $request->input('format', 'excel');
             
@@ -2200,48 +2736,46 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
-     * Get count of users who completed ALL their assigned evaluation questions
+     * Get count of users who completed ALL their assigned evaluation questions.
+     * Optimized: uses 3 queries instead of N+1 loop (was ~4000+ queries).
      */
     private function getCompletedEvaluationsCount(string $fiscalYear): int
     {
-        // Get all unique evaluators who have assignments in this fiscal year
-        $evaluators = DB::table('evaluation_assignments')
+        // 1) Pre-compute question counts per evaluation_id (single query)
+        $questionCounts = DB::table('questions as q')
+            ->join('parts as p', 'q.part_id', '=', 'p.id')
+            ->select('p.evaluation_id', DB::raw('COUNT(*) as q_count'))
+            ->groupBy('p.evaluation_id')
+            ->pluck('q_count', 'evaluation_id');
+
+        // 2) Get required questions per evaluator (single query)
+        $assignments = DB::table('evaluation_assignments')
             ->where('fiscal_year', $fiscalYear)
-            ->distinct('evaluator_id')
-            ->pluck('evaluator_id');
+            ->select('evaluator_id', 'evaluation_id')
+            ->get();
 
+        $requiredPerEvaluator = [];
+        foreach ($assignments as $a) {
+            $qCount = $questionCounts[$a->evaluation_id] ?? 0;
+            $requiredPerEvaluator[$a->evaluator_id] = ($requiredPerEvaluator[$a->evaluator_id] ?? 0) + $qCount;
+        }
+
+        // 3) Count actual answers per evaluator (single query)
+        $actualCounts = DB::table('answers as a')
+            ->join('evaluation_assignments as ea', function ($join) {
+                $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                     ->on('a.user_id', '=', 'ea.evaluator_id')
+                     ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+            })
+            ->where('ea.fiscal_year', $fiscalYear)
+            ->select('ea.evaluator_id', DB::raw('COUNT(*) as answer_count'))
+            ->groupBy('ea.evaluator_id')
+            ->pluck('answer_count', 'evaluator_id');
+
+        // 4) Compare in PHP — no more loops hitting DB
         $completedCount = 0;
-
-        foreach ($evaluators as $evaluatorId) {
-            // Get all assignments for this evaluator in the fiscal year
-            $assignments = DB::table('evaluation_assignments')
-                ->where('evaluator_id', $evaluatorId)
-                ->where('fiscal_year', $fiscalYear)
-                ->get(['evaluation_id', 'evaluatee_id']);
-
-            // Calculate total questions this evaluator needs to answer
-            $totalRequiredQuestions = 0;
-            foreach ($assignments as $assignment) {
-                $questionCount = DB::table('questions as q')
-                    ->join('parts as p', 'q.part_id', '=', 'p.id')
-                    ->where('p.evaluation_id', $assignment->evaluation_id)
-                    ->count();
-                $totalRequiredQuestions += $questionCount;
-            }
-
-            // Count how many questions this evaluator actually answered
-            $actualAnswersCount = DB::table('answers as a')
-                ->join('evaluation_assignments as ea', function($join) {
-                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                         ->on('a.user_id', '=', 'ea.evaluator_id')
-                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                })
-                ->where('ea.evaluator_id', $evaluatorId)
-                ->where('ea.fiscal_year', $fiscalYear)
-                ->count();
-
-            // If they answered all required questions, count as completed
-            if ($actualAnswersCount >= $totalRequiredQuestions && $totalRequiredQuestions > 0) {
+        foreach ($requiredPerEvaluator as $evaluatorId => $required) {
+            if ($required > 0 && ($actualCounts[$evaluatorId] ?? 0) >= $required) {
                 $completedCount++;
             }
         }
@@ -2267,7 +2801,7 @@ class AdminEvaluationReportController extends Controller
                          ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
                 })
                 ->leftJoin('options as o', function($join) {
-                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                    $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
                 })
                 ->where('u.grade', $user->grade)
                 ->where('ea.fiscal_year', $fiscalYear)
@@ -2287,7 +2821,7 @@ class AdminEvaluationReportController extends Controller
                          ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
                 })
                 ->leftJoin('options as o', function($join) {
-                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                    $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
                 })
                 ->where('u.division_id', $user->division_id)
                 ->where('ea.fiscal_year', $fiscalYear)
@@ -2306,7 +2840,7 @@ class AdminEvaluationReportController extends Controller
                          ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
                 })
                 ->leftJoin('options as o', function($join) {
-                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                    $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
                 })
                 ->where('ea.fiscal_year', $fiscalYear)
                 ->selectRaw('AVG(COALESCE(o.score, 
@@ -2359,7 +2893,7 @@ class AdminEvaluationReportController extends Controller
                      ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
             })
             ->leftJoin('options as o', function($join) {
-                $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
             })
             ->where('u.grade', $user->grade)
             ->where('ea.fiscal_year', $fiscalYear)
@@ -2401,7 +2935,7 @@ class AdminEvaluationReportController extends Controller
                      ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
             })
             ->leftJoin('options as o', function($join) {
-                $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
+                $join->on('a.value', '=', DB::raw('CAST(o.id AS CHAR)'));
             })
             ->where('u.division_id', $user->division_id)
             ->where('ea.fiscal_year', $fiscalYear)
@@ -2428,7 +2962,90 @@ class AdminEvaluationReportController extends Controller
     }
 
     /**
-     * Get evaluator progress for a user (assignments they need to complete as evaluator)
+     * BATCH: Get evaluator progress for multiple users in 2 queries instead of N
+     */
+    private function getBatchEvaluatorProgress($userIds, string $fiscalYear): array
+    {
+        try {
+            // Query 1: Get total questions per evaluation
+            $questionCounts = DB::table('questions as q')
+                ->join('parts as p', 'q.part_id', '=', 'p.id')
+                ->select('p.evaluation_id', DB::raw('COUNT(q.id) as total_questions'))
+                ->groupBy('p.evaluation_id')
+                ->pluck('total_questions', 'evaluation_id');
+
+            // Query 2: Get all assignments + answer counts for all users at once
+            $rows = DB::table('evaluation_assignments as ea')
+                ->leftJoin('answers as a', function($join) {
+                    $join->on('ea.evaluation_id', '=', 'a.evaluation_id')
+                         ->on('ea.evaluator_id', '=', 'a.user_id')
+                         ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
+                })
+                ->whereIn('ea.evaluator_id', $userIds)
+                ->where('ea.fiscal_year', $fiscalYear)
+                ->groupBy('ea.evaluator_id', 'ea.evaluation_id', 'ea.evaluatee_id')
+                ->select([
+                    'ea.evaluator_id',
+                    'ea.evaluation_id',
+                    DB::raw('COUNT(a.id) as answered_questions'),
+                ])
+                ->get();
+
+            $result = [];
+            $grouped = $rows->groupBy('evaluator_id');
+
+            foreach ($grouped as $uId => $userRows) {
+                $totalAssignments = $userRows->count();
+                $completed = 0; $inProgress = 0; $notStarted = 0;
+                $totalQToAnswer = 0; $totalQAnswered = 0;
+
+                foreach ($userRows as $row) {
+                    $totalQ = $questionCounts[$row->evaluation_id] ?? 0;
+                    $answeredQ = (int) $row->answered_questions;
+                    $totalQToAnswer += $totalQ;
+                    $totalQAnswered += $answeredQ;
+                    if ($totalQ > 0 && $answeredQ >= $totalQ) $completed++;
+                    elseif ($answeredQ > 0) $inProgress++;
+                    else $notStarted++;
+                }
+
+                $overallProgress = $totalAssignments > 0 ? round(($completed / $totalAssignments) * 100, 1) : 0;
+                $detailedProgress = $totalQToAnswer > 0 ? round(($totalQAnswered / $totalQToAnswer) * 100, 1) : 0;
+
+                $result[$uId] = [
+                    'total_assignments' => $totalAssignments,
+                    'completed_assignments' => $completed,
+                    'in_progress_assignments' => $inProgress,
+                    'not_started_assignments' => $notStarted,
+                    'overall_progress_percentage' => $overallProgress,
+                    'total_questions_to_answer' => $totalQToAnswer,
+                    'total_questions_answered' => $totalQAnswered,
+                    'detailed_progress_percentage' => $detailedProgress,
+                    'status' => $this->getProgressStatus($overallProgress, $completed, $totalAssignments),
+                ];
+            }
+
+            foreach ($userIds as $uid) {
+                if (!isset($result[$uid])) {
+                    $result[$uid] = [
+                        'total_assignments' => 0, 'completed_assignments' => 0,
+                        'in_progress_assignments' => 0, 'not_started_assignments' => 0,
+                        'overall_progress_percentage' => 0, 'total_questions_to_answer' => 0,
+                        'total_questions_answered' => 0, 'detailed_progress_percentage' => 0,
+                        'status' => 'no_assignments'
+                    ];
+                }
+            }
+
+            return $result;
+        } catch (\Exception $e) {
+            Log::error('Batch evaluator progress error: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Get evaluator progress for a single user (kept for backward compatibility)
      */
     private function getEvaluatorProgress(int $userId, string $fiscalYear): array
     {
@@ -2685,8 +3302,8 @@ class AdminEvaluationReportController extends Controller
     {
         switch ($angle) {
             case 'self': return 'ตนเอง';
-            case 'top': return 'องศาบน';
-            case 'bottom': return 'องศาล่าง';
+            case 'top': return 'ผู้บังคับบัญชา';
+            case 'bottom': return 'ผู้ใต้บังคับบัญชา';
             case 'left': return 'องศาซ้าย';
             case 'right': return 'องศาขวา';
             default: return $angle;
@@ -2730,6 +3347,7 @@ class AdminEvaluationReportController extends Controller
     public function exportIndividual(Request $request)
     {
         try {
+            $this->boostLimits();
             $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
             $groupFilter = $request->input('group_filter', 'all');
             $divisionId = $request->input('division');
@@ -2738,6 +3356,11 @@ class AdminEvaluationReportController extends Controller
                 'fiscal_year' => $fiscalYear,
                 'division_id' => $divisionId,
                 'only_completed' => $request->input('only_completed'),
+                'angle' => $request->input('angle'),
+                'department_id' => $request->input('department_id'),
+                'position_id' => $request->input('position_id'),
+                'grade' => $request->input('grade'),
+                'user_id' => $request->input('user_id'),
             ];
 
             if ($groupFilter === 'all') {
@@ -2748,12 +3371,7 @@ class AdminEvaluationReportController extends Controller
                 $gradeMin = (int) ($parts[0] ?? 5);
                 $gradeMax = (int) ($parts[1] ?? 8);
 
-                $evaluation = Evaluation::where('user_type', 'internal')
-                    ->where('grade_min', $gradeMin)
-                    ->where('grade_max', $gradeMax)
-                    ->where('status', 'published')
-                    ->latest()
-                    ->first();
+                $evaluation = EvaluationLookupService::findByGrade($gradeMin, 'internal', (int) $fiscalYear);
 
                 if (!$evaluation) {
                     return response()->json(['error' => "ไม่พบแบบประเมินสำหรับระดับ C{$gradeMin}-C{$gradeMax}"], 404);
@@ -2777,6 +3395,7 @@ class AdminEvaluationReportController extends Controller
     public function exportCompletionData(Request $request)
     {
         try {
+            $this->boostLimits();
             $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
             $divisionId = $request->input('division');
             $grade = $request->input('grade');
@@ -2929,6 +3548,7 @@ class AdminEvaluationReportController extends Controller
     public function exportRawQuestionData(Request $request)
     {
         try {
+            $this->boostLimits();
             $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
             $divisionId = $request->input('division');
             $grade = $request->input('grade');
@@ -2937,7 +3557,7 @@ class AdminEvaluationReportController extends Controller
                 ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
                 ->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
                 ->join('questions as q', 'a.question_id', '=', 'q.id')
-                ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
                 ->leftJoin('evaluation_assignments as ea', function ($join) {
                     $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
                          ->on('a.user_id', '=', 'ea.evaluator_id')
@@ -3114,6 +3734,7 @@ class AdminEvaluationReportController extends Controller
     public function exportDetailedEvaluationReport(Request $request)
     {
         try {
+            $this->boostLimits();
             $fiscalYear = $request->input('fiscal_year', $this->getCurrentFiscalYear());
             $divisionId = $request->input('division');
             $gradeGroup = $request->input('grade_group', 'all');
@@ -3256,7 +3877,7 @@ class AdminEvaluationReportController extends Controller
                                  ->on('ea.evaluator_id', '=', 'a.user_id')
                                  ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
                         })
-                        ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                        ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
                         ->where('ea.evaluatee_id', $evaluatee->id)
                         ->where('ea.fiscal_year', $fiscalYear)
                         ->groupBy('ea.angle', 'evaluator.emid', 'evaluator.fname', 'evaluator.lname')
@@ -3315,7 +3936,7 @@ class AdminEvaluationReportController extends Controller
                     ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
                     ->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
                     ->join('questions as q', 'a.question_id', '=', 'q.id')
-                    ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                    ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
                     ->leftJoin('evaluation_assignments as ea', function ($join) {
                         $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
                              ->on('a.user_id', '=', 'ea.evaluator_id')

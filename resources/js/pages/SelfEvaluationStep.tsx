@@ -8,15 +8,26 @@ import {
     ArrowLeft,
     Send,
     User,
-    Clock,
     CheckCircle,
     AlertCircle,
+    Sparkles,
+    BookOpen,
+    Loader2,
+    Save,
 } from "lucide-react";
 import axios from "axios";
 import { ProgressIndicator } from "@/Components/ProgressIndicator";
 import { QuestionCard } from "@/Components/QuestionCard";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/Components/ui/dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from "@/Components/ui/dialog";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface Option {
     id: number;
@@ -62,6 +73,7 @@ export default function SelfEvaluationStep() {
         auth,
         group_index_to_resume,
         existingAnswers,
+        fiscal_year,
     } = usePage<{
         evaluation: { id: number };
         current_part: { id: number; title: string; aspects: Aspect[] };
@@ -72,55 +84,41 @@ export default function SelfEvaluationStep() {
         auth: { user: { id: number } };
         group_index_to_resume: number | null;
         existingAnswers?: { [questionId: number]: any };
+        fiscal_year?: number;
     }>().props;
 
     const [answers, setAnswers] = useState<{ [questionId: number]: any }>({});
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
     const [showCompletionModal, setShowCompletionModal] = useState(false);
-    
-    // โหลดคำตอบที่มีอยู่แล้วเมื่อเริ่มต้น
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+    const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(() => {
         if (existingAnswers) {
-           
-            
-            // Convert existing answers format to match our state structure
             const formattedAnswers: { [questionId: number]: any } = {};
-            
-            Object.entries(existingAnswers).forEach(([questionIdStr, answerValue]) => {
-                const questionId = parseInt(questionIdStr);
-                
-                // Handle different answer formats
-                let processedValue = answerValue;
-                
-                // If it's a JSON string, try to parse it
-                if (typeof answerValue === 'string') {
-                    try {
-                        // Try to parse as JSON (for array/object answers)
-                        const parsed = JSON.parse(answerValue);
-                        processedValue = parsed;
-                    } catch (e) {
-                        // If not JSON, keep as string
-                        processedValue = answerValue;
+            Object.entries(existingAnswers).forEach(
+                ([questionIdStr, answerValue]) => {
+                    const questionId = parseInt(questionIdStr);
+                    let processedValue = answerValue;
+                    if (typeof answerValue === "string") {
+                        try {
+                            processedValue = JSON.parse(answerValue);
+                        } catch (e) {
+                            processedValue = answerValue;
+                        }
                     }
+                    formattedAnswers[questionId] = processedValue;
                 }
-                
-                formattedAnswers[questionId] = processedValue;
-     
-            });
-            
-           
+            );
             setAnswers(formattedAnswers);
         } else {
-   
             setAnswers({});
         }
     }, [existingAnswers]);
 
-    // แยกคำถามเป็นกลุ่มตามด้านย่อยหรือแอสเปกหลัก
     const groupedQuestions: Group[] = current_part.aspects.flatMap((aspect) => {
         const seenQuestionIds = new Set<number>();
-
         const subGroups = (aspect.subaspects || []).map((sub) => {
             sub.questions.forEach((q) => seenQuestionIds.add(q.id));
             return {
@@ -130,11 +128,9 @@ export default function SelfEvaluationStep() {
                 questions: sub.questions,
             };
         });
-
         const uniqueAspectQuestions = aspect.questions.filter(
             (q) => !seenQuestionIds.has(q.id)
         );
-
         const aspectOnly =
             uniqueAspectQuestions.length > 0
                 ? [
@@ -146,29 +142,64 @@ export default function SelfEvaluationStep() {
                       },
                   ]
                 : [];
-
         return [...subGroups, ...aspectOnly];
     });
 
     const currentGroup = groupedQuestions[currentIndex];
-    
-    // Check if we should go to last group (when coming from previous step navigation)
+
     useEffect(() => {
-        const shouldGoToLast = new URLSearchParams(window.location.search).get('goto_last') === '1';
+        const shouldGoToLast =
+            new URLSearchParams(window.location.search).get("goto_last") ===
+            "1";
         if (shouldGoToLast && groupedQuestions.length > 0) {
             setCurrentIndex(groupedQuestions.length - 1);
-            // Remove the parameter from URL
             const url = new URL(window.location.href);
-            url.searchParams.delete('goto_last');
-            window.history.replaceState({}, '', url.toString());
+            url.searchParams.delete("goto_last");
+            window.history.replaceState({}, "", url.toString());
         }
     }, [groupedQuestions.length]);
 
+    const autoSave = React.useCallback(async () => {
+        const currentAnswers = currentGroup?.questions.reduce((acc, q) => {
+            const val = answers[q.id];
+            if (val !== undefined && val !== "") acc[q.id] = val;
+            return acc;
+        }, {} as Record<number, any>);
+
+        if (!currentAnswers || Object.keys(currentAnswers).length === 0) return;
+
+        setSaveStatus('saving');
+        try {
+            await axios.post(route("evaluations.self.step", { step }), {
+                evaluation_id: evaluation.id,
+                part_id: current_part.id,
+                evaluatee_id: evaluatee_id ?? auth.user.id,
+                answers: currentAnswers,
+                fiscal_year: fiscal_year,
+            });
+            setSaveStatus('saved');
+            setTimeout(() => setSaveStatus('idle'), 3000);
+        } catch {
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus('idle'), 5000);
+        }
+    }, [answers, currentGroup, step, evaluation.id, current_part.id, evaluatee_id, auth.user.id, fiscal_year]);
+
+    useEffect(() => {
+        return () => {
+            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        };
+    }, []);
+
     const updateAnswer = (questionId: number, value: any) => {
         setAnswers((prev) => ({ ...prev, [questionId]: value }));
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+            autoSave();
+        }, 2000);
     };
 
-    const isGroupComplete = currentGroup.questions.every((q) => {
+    const isGroupComplete = currentGroup?.questions.every((q) => {
         const ans = answers[q.id];
         return (
             ans !== undefined &&
@@ -177,19 +208,26 @@ export default function SelfEvaluationStep() {
         );
     });
 
+    const answeredInGroup = currentGroup?.questions.filter((q) => {
+        const ans = answers[q.id];
+        return (
+            ans !== undefined &&
+            ans !== "" &&
+            !(Array.isArray(ans) && ans.length === 0)
+        );
+    }).length ?? 0;
+
     const handlePrevious = () => {
         if (currentIndex > 0) {
-            // Go to previous group within current step
             setCurrentIndex(currentIndex - 1);
+            window.scrollTo({ top: 0, behavior: "smooth" });
         } else {
-            // Go to previous step if we're at the first group of current step
             if (step > 1) {
                 setIsLoading(true);
-                // Add parameter to indicate we want to go to the last group of previous step
                 router.visit(
-                    route("evaluations.self.questions", { 
+                    route("evaluations.self.questions", {
                         step: step - 1,
-                        goto_last: 1  // Flag to indicate going to last group
+                        goto_last: 1,
                     }),
                     {
                         method: "get",
@@ -197,16 +235,17 @@ export default function SelfEvaluationStep() {
                         preserveState: false,
                         onFinish: () => {
                             setIsLoading(false);
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                            window.scrollTo({ top: 0, behavior: "smooth" });
                         },
                         onError: () => {
                             setIsLoading(false);
-                            toast.error("เกิดข้อผิดพลาดในการโหลดขั้นตอนก่อนหน้า");
-                        }
+                            toast.error(
+                                "เกิดข้อผิดพลาดในการโหลดขั้นตอนก่อนหน้า"
+                            );
+                        },
                     }
                 );
             } else {
-                // If we're at step 1, go back to dashboard
                 router.visit(route("dashboard"));
             }
         }
@@ -227,8 +266,11 @@ export default function SelfEvaluationStep() {
                     part_id: current_part.id,
                     evaluatee_id: evaluatee_id ?? auth.user.id,
                     answers: currentAnswers,
+                    fiscal_year: fiscal_year,
                 });
-                toast.success("บันทึกคำตอบเรียบร้อยแล้ว");
+                toast.success("บันทึกคำตอบเรียบร้อยแล้ว", {
+                    icon: <CheckCircle className="w-4 h-4 text-emerald-500" />,
+                });
             } catch (error) {
                 console.error("Error saving answers:", error);
                 toast.error("เกิดข้อผิดพลาดในการบันทึก กรุณาลองใหม่");
@@ -240,16 +282,17 @@ export default function SelfEvaluationStep() {
 
         if (currentIndex < groupedQuestions.length - 1) {
             setCurrentIndex(currentIndex + 1);
+            window.scrollTo({ top: 0, behavior: "smooth" });
         } else if (step >= total_steps) {
             setShowCompletionModal(true);
             setIsLoading(false);
         } else {
             setIsLoading(true);
             router.visit(
-                route("evaluations.self.questions", { step: step + 1 }),
+                route("evaluations.self.questions", { step: step + 1 }) + (fiscal_year ? `?fiscal_year=${fiscal_year}` : ''),
                 {
                     method: "get",
-                    preserveScroll: true,
+                    preserveScroll: false,
                     preserveState: false,
                 }
             );
@@ -265,251 +308,310 @@ export default function SelfEvaluationStep() {
     const isLastGroup = currentIndex === groupedQuestions.length - 1;
     const isLastStep = step === total_steps;
 
+    const overallProgress = Math.round(
+        (((step - 1) * groupedQuestions.length + currentIndex + 1) /
+            (total_steps * groupedQuestions.length)) *
+            100
+    );
+
     return (
         <MainLayout title="แบบประเมินตนเอง">
-            <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-violet-900/20">
-                <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-                    {/* Header */}
+            <div className="min-h-screen gradient-primary-soft">
+                <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+                    {/* Header Card */}
                     <motion.div
                         initial={{ opacity: 0, y: -20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="text-center mb-8"
+                        className="mb-8"
                     >
-                        <div className="flex items-center justify-center space-x-2 mb-4">
-                            <User
-                                className="text-violet-600 dark:text-violet-400"
-                                size={20}
-                            />
-                            <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 dark:text-white">
-                                แบบประเมินตนเอง
-                            </h1>
-                        </div>
+                        <div className="glass-card rounded-2xl p-6 sm:p-8">
+                            {/* Title Row */}
+                            <div className="flex items-center justify-between mb-6">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-lg shadow-violet-500/25">
+                                        <User className="w-5 h-5 text-white" />
+                                    </div>
+                                    <div>
+                                        <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
+                                            แบบประเมินตนเอง
+                                        </h1>
+                                        <p className="text-sm font-semibold text-violet-600 dark:text-violet-400">
+                                            {current_part.title}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="hidden sm:flex items-center gap-3">
+                                    {saveStatus !== 'idle' && (
+                                        <div className={cn(
+                                            "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                                            saveStatus === 'saving' && "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400",
+                                            saveStatus === 'saved' && "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400",
+                                            saveStatus === 'error' && "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                                        )}>
+                                            {saveStatus === 'saving' && <><Loader2 className="w-3 h-3 animate-spin" />กำลังบันทึก...</>}
+                                            {saveStatus === 'saved' && <><Save className="w-3 h-3" />บันทึกแล้ว</>}
+                                            {saveStatus === 'error' && <><AlertCircle className="w-3 h-3" />บันทึกไม่สำเร็จ</>}
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-sm font-medium">
+                                        <Sparkles className="w-4 h-4" />
+                                        {overallProgress}%
+                                    </div>
+                                </div>
+                            </div>
 
-                        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-gray-200/50 dark:border-gray-700/50">
-                            <h2 className="text-base sm:text-lg lg:text-xl font-semibold text-violet-700 dark:text-violet-400 mb-4">
-                                {current_part.title}
-                            </h2>
-
-                            <ProgressIndicator
-                                currentStep={step}
-                                totalSteps={total_steps}
-                                currentGroup={currentIndex}
-                                totalGroups={groupedQuestions.length}
-                            />
-                        </div>
-                    </motion.div>
-
-                    {/* Content */}
-                    <AnimatePresence mode="wait">
-                        <motion.div
-                            key={currentIndex}
-                            initial={{ opacity: 0, x: 50 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -50 }}
-                            transition={{ duration: 0.4, ease: "easeInOut" }}
-                            className="space-y-4 sm:space-y-6"
-                        >
-                           
-                            
-                            {/* Aspect-only Header - เมื่อไม่มีด้านย่อย */}
-                            {!currentGroup.subaspectName && currentGroup.aspectName && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="bg-gradient-to-r from-violet-500 to-indigo-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-white"
-                                >
-                                    <h3 className="text-base sm:text-lg lg:text-xl font-bold mb-2">
-                                        📋 {currentGroup.aspectName}
-                                    </h3>
-                                    <p className="text-sm sm:text-base text-violet-100 leading-relaxed">
-                                        คำถามในด้านนี้ ({currentGroup.questions.length} ข้อ)
-                                    </p>
-                                </motion.div>
-                            )}
-
-                            {/* Questions */}
-                            <div className="space-y-4 sm:space-y-6">
-                                {currentGroup.questions.map(
-                                    (question, index) => (
-                                        <QuestionCard
-                                            key={question.id}
-                                            question={question}
-                                            answer={answers[question.id]}
-                                            onAnswerChange={(value) =>
-                                                updateAnswer(question.id, value)
-                                            }
-                                            questionNumber={index + 1}
+                            {/* Step Progress */}
+                            <div className="flex items-center gap-2 mb-4">
+                                {Array.from(
+                                    { length: total_steps },
+                                    (_, i) => (
+                                        <div
+                                            key={i}
+                                            className={cn(
+                                                "h-2 flex-1 rounded-full transition-all duration-500",
+                                                i + 1 < step
+                                                    ? "bg-violet-500"
+                                                    : i + 1 === step
+                                                    ? "bg-gradient-to-r from-violet-500 to-purple-500"
+                                                    : "bg-gray-200 dark:bg-gray-700"
+                                            )}
                                         />
                                     )
                                 )}
                             </div>
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>
+                                    ตอนที่ {step} / {total_steps}
+                                </span>
+                                <span>
+                                    หัวข้อ {currentIndex + 1} /{" "}
+                                    {groupedQuestions.length}
+                                </span>
+                            </div>
+                        </div>
+                    </motion.div>
 
-                            {/* Completion Status */}
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                className={`flex items-center justify-center space-x-2 p-4 rounded-xl ${
-                                    isGroupComplete
-                                        ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
-                                        : "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400"
-                                }`}
-                            >
-                                {isGroupComplete ? (
-                                    <>
-                                        <CheckCircle size={20} />
-                                        <span className="font-medium">
-                                            ตอบครบทุกข้อแล้ว
-                                        </span>
-                                        {currentGroup.aspectName && (
-                                            <span className="text-xs bg-green-100 dark:bg-green-800/30 px-2 py-1 rounded">
-                                                ด้าน: {currentGroup.aspectName}
-                                            </span>
-                                        )}
-                                    </>
-                                ) : (
-                                    <>
-                                        <AlertCircle size={20} />
-                                        <span className="font-medium">
-                                            กรุณาตอบให้ครบทุกข้อ (
-                                            {
-                                                currentGroup.questions.filter(
-                                                    (q) => {
-                                                        const ans =
-                                                            answers[q.id];
-                                                        return (
-                                                            ans !== undefined &&
-                                                            ans !== "" &&
-                                                            !(
-                                                                Array.isArray(
-                                                                    ans
-                                                                ) &&
-                                                                ans.length === 0
-                                                            )
-                                                        );
+                    {/* Aspect Header */}
+                    <AnimatePresence mode="wait">
+                        <motion.div
+                            key={`header-${currentIndex}`}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="mb-6"
+                        >
+                            {currentGroup?.subaspectName ? (
+                                <div className="glass-card rounded-2xl p-5 border-l-4 border-violet-500">
+                                    <div className="flex items-start gap-3">
+                                        <BookOpen className="w-5 h-5 text-violet-500 mt-0.5 flex-shrink-0" />
+                                        <div>
+                                            <p className="text-xs font-medium text-violet-600 dark:text-violet-400 mb-1">
+                                                {currentGroup.aspectName}
+                                            </p>
+                                            <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white">
+                                                {currentGroup.subaspectName}
+                                            </h3>
+                                            {currentGroup.subaspectDescription && (
+                                                <p className="text-sm text-muted-foreground mt-1">
+                                                    {
+                                                        currentGroup.subaspectDescription
                                                     }
-                                                ).length
-                                            }
-                                            /{currentGroup.questions.length})
-                                        </span>
-                                        {currentGroup.aspectName && (
-                                            <span className="text-xs bg-orange-100 dark:bg-orange-800/30 px-2 py-1 rounded">
-                                                ด้าน: {currentGroup.aspectName}
-                                            </span>
-                                        )}
-                                    </>
-                                )}
-                            </motion.div>
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                currentGroup?.aspectName && (
+                                    <div className="rounded-2xl gradient-primary p-5 sm:p-6 text-white shadow-lg shadow-violet-500/20">
+                                        <div className="flex items-center gap-3">
+                                            <BookOpen className="w-5 h-5 flex-shrink-0" />
+                                            <div>
+                                                <h3 className="text-base sm:text-lg font-bold">
+                                                    {currentGroup.aspectName}
+                                                </h3>
+                                                <p className="text-sm text-white/80 mt-1">
+                                                    {
+                                                        currentGroup.questions
+                                                            .length
+                                                    }{" "}
+                                                    คำถาม
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )
+                            )}
                         </motion.div>
                     </AnimatePresence>
 
-                    {/* Navigation */}
+                    {/* Questions */}
+                    <AnimatePresence mode="wait">
+                        <motion.div
+                            key={currentIndex}
+                            initial={{ opacity: 0, x: 30 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -30 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="space-y-5"
+                        >
+                            {currentGroup?.questions.map((question, index) => (
+                                <motion.div
+                                    key={question.id}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.08 }}
+                                >
+                                    <QuestionCard
+                                        question={question}
+                                        answer={answers[question.id]}
+                                        onAnswerChange={(value) =>
+                                            updateAnswer(question.id, value)
+                                        }
+                                        questionNumber={index + 1}
+                                    />
+                                </motion.div>
+                            ))}
+                        </motion.div>
+                    </AnimatePresence>
+
+                    {/* Completion Status */}
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className={cn(
+                            "mt-6 flex items-center justify-center gap-2 p-4 rounded-xl border transition-all",
+                            isGroupComplete
+                                ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
+                                : "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800"
+                        )}
+                    >
+                        {isGroupComplete ? (
+                            <>
+                                <CheckCircle className="w-5 h-5" />
+                                <span className="font-medium">
+                                    ตอบครบทุกข้อแล้ว
+                                </span>
+                            </>
+                        ) : (
+                            <>
+                                <AlertCircle className="w-5 h-5" />
+                                <span className="font-medium">
+                                    ตอบแล้ว {answeredInGroup}/
+                                    {currentGroup?.questions.length ?? 0} ข้อ
+                                </span>
+                            </>
+                        )}
+                    </motion.div>
+
+                    {/* Navigation Bar */}
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="mt-6 sm:mt-8 p-4 sm:p-6 lg:p-8 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-gray-200/50 dark:border-gray-700/50 shadow-lg"
+                        className="mt-8 glass-card rounded-2xl p-5 sm:p-6"
                     >
-                        {/* Mobile-first layout */}
-                        <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-3 lg:gap-6 lg:items-center">
-                            {/* Left: Previous Button */}
-                            <div className="flex justify-start">
-                                <Button
-                                    variant="outline"
-                                    onClick={handlePrevious}
-                                    disabled={isLoading}
-                                    className="flex items-center space-x-2 px-4 py-2 sm:px-6 sm:py-3 w-auto min-w-[120px] transition-all duration-200 hover:scale-105 disabled:hover:scale-100"
-                                >
-                                    <ArrowLeft size={16} className="sm:w-5 sm:h-5" />
-                                    <span className="font-medium">ย้อนกลับ</span>
-                                </Button>
-                            </div>
+                        <div className="flex items-center justify-between gap-4">
+                            <Button
+                                variant="outline"
+                                onClick={handlePrevious}
+                                disabled={isLoading}
+                                className="flex items-center gap-2 px-5 py-3 rounded-xl border-2 hover:border-violet-300 transition-all"
+                            >
+                                <ArrowLeft className="w-4 h-4" />
+                                <span className="hidden sm:inline font-medium">
+                                    ย้อนกลับ
+                                </span>
+                            </Button>
 
-                            {/* Center: Progress Info */}
-                            <div className="text-center space-y-2 lg:space-y-3">
-                                <div className="space-y-1">
-                                    <p className="text-sm sm:text-base font-medium text-gray-700 dark:text-gray-300">
-                                        หัวข้อที่ {currentIndex + 1} จาก {groupedQuestions.length}
-                                    </p>
-                                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                                        ขั้นตอนที่ {step} จาก {total_steps}
-                                    </p>
+                            {/* Center info */}
+                            <div className="text-center">
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {currentIndex + 1} /{" "}
+                                    {groupedQuestions.length}
                                 </div>
-                                
-                                
-                                {/* Progress Bar */}
-                                <div className="w-full max-w-xs mx-auto">
-                                    <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
-                                        <span>ความคืบหน้า</span>
-                                        <span>{Math.round(((currentIndex + 1) / groupedQuestions.length) * 100)}%</span>
-                                    </div>
-                                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                                        <div 
-                                            className="bg-gradient-to-r from-violet-500 to-indigo-600 h-2 rounded-full transition-all duration-500 ease-out"
-                                            style={{ width: `${((currentIndex + 1) / groupedQuestions.length) * 100}%` }}
-                                        />
-                                    </div>
+                                <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-1.5">
+                                    <div
+                                        className="bg-gradient-to-r from-violet-500 to-purple-500 h-1.5 rounded-full transition-all duration-500"
+                                        style={{
+                                            width: `${
+                                                ((currentIndex + 1) /
+                                                    groupedQuestions.length) *
+                                                100
+                                            }%`,
+                                        }}
+                                    />
                                 </div>
                             </div>
 
-                            {/* Right: Next Button */}
-                            <div className="flex justify-end">
-                                <Button
-                                    onClick={handleNextGroup}
-                                    disabled={!isGroupComplete || isLoading}
-                                    className="flex items-center space-x-2 px-4 py-2 sm:px-6 sm:py-3 w-auto min-w-[140px] bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 transition-all duration-200 hover:scale-105 disabled:hover:scale-100 shadow-lg"
-                                >
-                                    {isLoading ? (
-                                        <>
-                                            <motion.div
-                                                animate={{ rotate: 360 }}
-                                                transition={{
-                                                    duration: 1,
-                                                    repeat: Infinity,
-                                                    ease: "linear",
-                                                }}
-                                                className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full"
-                                            />
-                                            <span className="font-medium">กำลังบันทึก...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span className="font-medium">
-                                                {isLastGroup
-                                                    ? isLastStep
-                                                        ? "ส่งแบบประเมิน"
-                                                        : "ไปยังตอนถัดไป"
-                                                    : "ถัดไป"}
-                                            </span>
-                                            {isLastGroup && isLastStep ? (
-                                                <Send size={16} className="sm:w-5 sm:h-5" />
-                                            ) : (
-                                                <ArrowRight size={16} className="sm:w-5 sm:h-5" />
-                                            )}
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
+                            <Button
+                                onClick={handleNextGroup}
+                                disabled={!isGroupComplete || isLoading}
+                                className={cn(
+                                    "flex items-center gap-2 px-5 py-3 rounded-xl font-medium shadow-lg transition-all",
+                                    isLastGroup && isLastStep
+                                        ? "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-emerald-500/25"
+                                        : "gradient-primary hover:opacity-90 shadow-violet-500/25"
+                                )}
+                            >
+                                {isLoading ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span className="hidden sm:inline">
+                                            บันทึก...
+                                        </span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="hidden sm:inline">
+                                            {isLastGroup
+                                                ? isLastStep
+                                                    ? "ส่งแบบประเมิน"
+                                                    : "ตอนถัดไป"
+                                                : "ถัดไป"}
+                                        </span>
+                                        {isLastGroup && isLastStep ? (
+                                            <Send className="w-4 h-4" />
+                                        ) : (
+                                            <ArrowRight className="w-4 h-4" />
+                                        )}
+                                    </>
+                                )}
+                            </Button>
                         </div>
                     </motion.div>
                 </div>
             </div>
+
             {/* Completion Modal */}
-            <Dialog open={showCompletionModal} onOpenChange={setShowCompletionModal}>
+            <Dialog
+                open={showCompletionModal}
+                onOpenChange={setShowCompletionModal}
+            >
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle className="text-center text-xl">
-                            การประเมินตนเองเสร็จสมบูรณ์แล้ว!
+                        <DialogTitle className="text-center text-xl font-bold">
+                            การประเมินตนเองเสร็จสมบูรณ์!
                         </DialogTitle>
                         <DialogDescription className="text-center">
-                            <p>คุณได้ทำแบบประเมินตนเองเรียบร้อยแล้ว</p>
+                            คุณได้ทำแบบประเมินตนเองเรียบร้อยแล้ว
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="flex justify-center py-4">
-                        <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                            <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
-                        </div>
+                    <div className="flex justify-center py-6">
+                        <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{
+                                type: "spring",
+                                stiffness: 200,
+                                damping: 15,
+                            }}
+                            className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/30"
+                        >
+                            <CheckCircle className="w-10 h-10 text-white" />
+                        </motion.div>
                     </div>
                     <DialogFooter className="sm:justify-center">
-                        <button
+                        <Button
                             onClick={() => {
                                 setShowCompletionModal(false);
                                 router.visit(route("dashboard"), {
@@ -518,10 +620,10 @@ export default function SelfEvaluationStep() {
                                     preserveState: false,
                                 });
                             }}
-                            className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                            className="gradient-primary text-white px-8 py-3 rounded-xl font-medium shadow-lg shadow-violet-500/25"
                         >
                             กลับหน้าหลัก
-                        </button>
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

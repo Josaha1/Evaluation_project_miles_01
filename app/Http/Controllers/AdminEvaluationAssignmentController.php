@@ -10,15 +10,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
+use App\Services\EvaluationLookupService;
 
 class AdminEvaluationAssignmentController extends Controller
 {
     public function index(Request $request)
     {
         // คำนวณปีงบประมาณปัจจุบัน (ตุลาคม - กันยายน)
-        $currentFiscalYear = Carbon::now()->month >= 10
-        ? Carbon::now()->addYear()->year
-        : Carbon::now()->year;
+        $currentFiscalYear = EvaluationLookupService::currentFiscalYear();
 
         $year    = $request->get('fiscal_year', $currentFiscalYear);
         $search  = $request->get('search', '');
@@ -68,13 +67,15 @@ class AdminEvaluationAssignmentController extends Controller
             $data['assignments'] = $assignments;
         }
 
-        // Cache fiscal years for better performance
-        $fiscalYears = \Cache::remember('fiscal_years', 3600, function() {
-            return EvaluationAssignment::select('fiscal_year')
-                ->distinct()
-                ->orderBy('fiscal_year', 'desc')
-                ->pluck('fiscal_year');
-        });
+        // Realtime fiscal years (always include current fiscal year)
+        $currentFiscalYear = EvaluationLookupService::currentFiscalYear();
+        $fiscalYears = EvaluationAssignment::select('fiscal_year')
+            ->distinct()
+            ->pluck('fiscal_year')
+            ->push($currentFiscalYear)
+            ->unique()
+            ->sortDesc()
+            ->values();
 
         // Simplified analytics - only basic stats
         $analytics = $this->getBasicAnalytics($year, $search);
@@ -133,6 +134,24 @@ class AdminEvaluationAssignmentController extends Controller
             }
         }
 
+        // Batch load: which evaluators have answers (single query for ALL evaluators)
+        $evaluatorIds = collect($grouped)->map(fn($g) => $g['evaluator'] ? $g['evaluator']->id : null)->filter()->values();
+        $evaluatorsWithAnswers = [];
+        if ($evaluatorIds->isNotEmpty()) {
+            $evaluatorsWithAnswers = DB::table('answers as a')
+                ->join('evaluation_assignments as ea', function($join) {
+                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                         ->on('a.user_id', '=', 'ea.evaluator_id')
+                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                })
+                ->whereIn('ea.evaluator_id', $evaluatorIds)
+                ->where('ea.fiscal_year', $year)
+                ->distinct()
+                ->pluck('ea.evaluator_id')
+                ->flip()
+                ->toArray();
+        }
+
         // คำนวณสถิติสำหรับแต่ละกลุ่ม
         foreach ($grouped as $key => &$group) {
             $totalEvaluatees = 0;
@@ -150,29 +169,14 @@ class AdminEvaluationAssignmentController extends Controller
                 $assignmentsCount += $evaluateeCount;
             }
 
-            // กำหนด required_angles และเงื่อนไขความครบถ้วนสำหรับผู้ประเมิน
-            // ผู้ประเมินจะ "ครบถ้วน" เมื่อมีการมอบหมายให้ประเมินแล้ว (ไม่ว่าจะกี่องศา)
             $requiredAngles = ['top', 'bottom', 'left', 'right'];
             $requiredAnglesCount = count($requiredAngles);
-            
-            // คำนวณสถานะความสมบูรณ์ - ตรวจสอบว่า evaluator นี้มี answers แล้วหรือไม่
+
             $evaluatorId = $group['evaluator'] ? $group['evaluator']->id : null;
-            $evaluatorHasAnswers = false;
-            
-            if ($evaluatorId) {
-                $evaluatorHasAnswers = DB::table('answers as a')
-                    ->join('evaluation_assignments as ea', function($join) {
-                        $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                             ->on('a.user_id', '=', 'ea.evaluator_id') 
-                             ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                    })
-                    ->where('ea.evaluator_id', $evaluatorId)
-                    ->where('ea.fiscal_year', $year)
-                    ->exists();
-            }
-            
-            $isComplete = $evaluatorHasAnswers; // มี answers = ครบถ้วน
-            $completionRate = $evaluatorHasAnswers ? 100 : 0; // 100% หรือ 0%
+            $evaluatorHasAnswers = $evaluatorId ? isset($evaluatorsWithAnswers[$evaluatorId]) : false;
+
+            $isComplete = $evaluatorHasAnswers;
+            $completionRate = $evaluatorHasAnswers ? 100 : 0;
 
             $group['required_angles'] = $requiredAngles;
             $group['stats'] = [
@@ -208,83 +212,51 @@ class AdminEvaluationAssignmentController extends Controller
     public function create(Request $request)
     {
         try {
-            // ดึงข้อมูล users ตามโครงสร้างฐานข้อมูลจริง
-            $users = User::select([
-                'id', 'emid', 'prename', 'fname', 'lname', 'grade', 'user_type',
-                'position_id', 'division_id', 'department_id', 'faction_id', 'sex',
-            ])
-                ->with(['position', 'division', 'department', 'faction'])
-                ->orderBy('fname')
+            // Realtime query with JOIN — no cache
+            $users = DB::table('users')
+                ->leftJoin('positions', 'users.position_id', '=', 'positions.id')
+                ->leftJoin('divisions', 'users.division_id', '=', 'divisions.id')
+                ->leftJoin('departments', 'users.department_id', '=', 'departments.id')
+                ->leftJoin('factions', 'users.faction_id', '=', 'factions.id')
+                ->select([
+                    'users.id', 'users.emid', 'users.prename', 'users.fname', 'users.lname',
+                    'users.grade', 'users.user_type', 'users.sex',
+                    'users.position_id', 'users.division_id', 'users.department_id', 'users.faction_id',
+                    DB::raw("COALESCE(positions.title, 'ไม่ระบุตำแหน่ง') as position_title"),
+                    DB::raw("COALESCE(divisions.name, 'ไม่ระบุสายงาน') as division_name"),
+                    DB::raw("COALESCE(departments.name, 'ไม่ระบุหน่วยงาน') as department_name"),
+                    DB::raw("COALESCE(factions.name, 'ไม่ระบุฝ่าย') as faction_name"),
+                ])
+                ->orderBy('users.fname')
                 ->get()
-                ->map(function ($user) {
-                    // แปลง user_type เป็น string ถ้าเป็น Enum
-                    $userType = $user->user_type instanceof \BackedEnum
-                    ? $user->user_type->value
-                    : $user->user_type;
+                ->map(fn($u) => [
+                    'id' => $u->id, 'emid' => $u->emid, 'prename' => $u->prename,
+                    'fname' => $u->fname, 'lname' => $u->lname,
+                    'grade' => (int) $u->grade, 'user_type' => $u->user_type, 'sex' => $u->sex,
+                    'position' => ['id' => $u->position_id, 'title' => $u->position_title],
+                    'division' => ['name' => $u->division_name],
+                    'department' => ['name' => $u->department_name],
+                    'faction' => ['name' => $u->faction_name],
+                    'division_id' => $u->division_id, 'department_id' => $u->department_id,
+                    'position_id' => $u->position_id, 'faction_id' => $u->faction_id,
+                    'position_title' => $u->position_title, 'department_name' => $u->department_name,
+                    'division_name' => $u->division_name, 'faction_name' => $u->faction_name,
+                ]);
 
-                    $positionTitle = $user->position ?
-                    trim($user->position->title) :
-                    'ไม่ระบุตำแหน่ง';
-
-                    $departmentName = $user->department ?
-                    trim($user->department->name) :
-                    'ไม่ระบุหน่วยงาน';
-
-                    $divisionName = $user->division ?
-                    trim($user->division->name) :
-                    'ไม่ระบุสายงาน';
-
-                    $factionName = $user->faction ?
-                    trim($user->faction->name) :
-                    'ไม่ระบุฝ่าย';
-
-                    return [
-                        'id'              => $user->id,
-                        'emid'            => $user->emid,
-                        'prename'         => $user->prename,
-                        'fname'           => $user->fname,
-                        'lname'           => $user->lname,
-                        'grade'           => (int) $user->grade,
-                        'user_type'       => $userType,
-                        'sex'             => $user->sex,
-                        // ส่งในโครงสร้างที่ frontend ต้องการ
-                        'position'        => [
-                            'id' => $user->position_id,
-                            'title' => $positionTitle,
-                        ],
-                        'division'        => [
-                            'name' => $divisionName,
-                        ],
-                        'department'      => [
-                            'name' => $departmentName,
-                        ],
-                        'faction'         => [
-                            'name' => $factionName,
-                        ],
-                        'division_id'     => $user->division_id,
-                        'department_id'   => $user->department_id,
-                        'position_id'     => $user->position_id,
-                        'faction_id'      => $user->faction_id,
-                        'position_title'  => $positionTitle,
-                        'department_name' => $departmentName,
-                        'division_name'   => $divisionName,
-                        'faction_name'    => $factionName,
-                    ];
-                });
-
-            // Get selected evaluatee data if provided
-            $selectedEvaluatee = $request->input('selectedEvaluatee');
+            // Fiscal years for dropdown
+            $currentFiscalYear = EvaluationLookupService::currentFiscalYear();
+            $fiscalYears = EvaluationAssignment::select('fiscal_year')
+                ->distinct()->pluck('fiscal_year')
+                ->push($currentFiscalYear)->unique()->sortDesc()->values();
 
             return Inertia::render('AdminEvaluationAssignmentForm', [
                 'users' => $users,
-                'selectedEvaluatee' => $selectedEvaluatee,
+                'selectedEvaluatee' => $request->input('selectedEvaluatee'),
+                'fiscal_years' => $fiscalYears,
+                'default_fiscal_year' => $currentFiscalYear,
             ]);
         } catch (\Exception $e) {
-            Log::error('Error in create method', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
+            Log::error('Error in create method', ['error' => $e->getMessage()]);
             return redirect()->route('assignments.index')
                 ->withErrors(['error' => 'เกิดข้อผิดพลาดในการโหลดข้อมูล']);
         }
@@ -297,6 +269,7 @@ class AdminEvaluationAssignmentController extends Controller
             'evaluator_id' => 'required|exists:users,id',
             'evaluatee_id' => 'required|exists:users,id|different:evaluator_id',
             'angle'        => ['required', Rule::in(['top', 'bottom', 'left', 'right'])],
+            'fiscal_year'  => 'nullable|integer|min:2020|max:2030',
         ], [
             'evaluator_id.required'  => 'กรุณาเลือกผู้ประเมิน',
             'evaluator_id.exists'    => 'ผู้ประเมินที่เลือกไม่มีในระบบ',
@@ -321,19 +294,14 @@ class AdminEvaluationAssignmentController extends Controller
             : $evaluatee->user_type;
 
             // ตรวจสอบว่าองศาที่เลือกเหมาะสมกับเกรดหรือไม่
-            if ($grade < 9 && in_array($validated['angle'], ['bottom', 'right'])) {
+            if (!EvaluationLookupService::supportsAngle($grade, $validated['angle'])) {
                 return redirect()->back()->withErrors([
-                    'angle' => 'ผู้ถูกประเมินเกรด C5-C8 สามารถประเมินได้เฉพาะองศาบนและซ้ายเท่านั้น',
+                    'angle' => 'ผู้ถูกประเมินเกรด C5-C8 สามารถประเมินได้เฉพาะผู้บังคับบัญชาและเพื่อนร่วมงานเท่านั้น',
                 ])->withInput();
             }
 
             // ค้นหา evaluation ที่เหมาะสม
-            $evaluation = Evaluation::where('user_type', $userType)
-                ->where('grade_min', '<=', $grade)
-                ->where('grade_max', '>=', $grade)
-                ->where('status', 'published')
-                ->latest()
-                ->first();
+            $evaluation = EvaluationLookupService::findByGrade($grade, $userType, (int) $validated['fiscal_year']);
 
             if (! $evaluation) {
                 Log::error('ไม่พบ evaluation ที่ตรงกับเงื่อนไข', [
@@ -347,10 +315,9 @@ class AdminEvaluationAssignmentController extends Controller
                 ])->withInput();
             }
 
-            // คำนวณปีงบประมาณ
-            $fiscalYear = Carbon::now()->month >= 10
-            ? Carbon::now()->addYear()->year
-            : Carbon::now()->year;
+            // ปีงบประมาณ — ใช้ค่าที่ส่งมา หรือคำนวณจากปีปัจจุบัน
+            $fiscalYear = $validated['fiscal_year']
+                ?? EvaluationLookupService::currentFiscalYear();
 
             // ตรวจสอบการซ้ำ
             $exists = EvaluationAssignment::where('evaluator_id', $validated['evaluator_id'])
@@ -406,17 +373,13 @@ class AdminEvaluationAssignmentController extends Controller
      */
     public function bulkStore(Request $request)
     {
-        Log::info('🚀 Bulk store request received', [
-            'data' => $request->all(),
-            'user' => auth()->user()->id ?? 'unknown',
-        ]);
-
         // Enhanced Validation - Updated for new workflow (evaluator -> evaluatees)
         $validated = $request->validate([
             'evaluator_id'               => 'required|exists:users,id',
             'assignments'                => 'required|array|min:1|max:50',
             'assignments.*.evaluatee_id' => 'required|exists:users,id|different:evaluator_id',
             'assignments.*.angle'        => ['required', Rule::in(['top', 'bottom', 'left', 'right'])],
+            'fiscal_year'                => 'nullable|integer|min:2020|max:2030',
         ], [
             'evaluator_id.required'                => 'กรุณาเลือกผู้ประเมิน',
             'evaluator_id.exists'                  => 'ผู้ประเมินที่เลือกไม่มีในระบบ',
@@ -435,16 +398,8 @@ class AdminEvaluationAssignmentController extends Controller
             // ดึงข้อมูลผู้ประเมิน
             $evaluator = User::findOrFail($validated['evaluator_id']);
             
-            Log::info('👤 Evaluator info', [
-                'id'        => $evaluator->id,
-                'name'      => $evaluator->fname . ' ' . $evaluator->lname,
-                'grade'     => $evaluator->grade,
-                'user_type' => $evaluator->user_type instanceof \BackedEnum ? $evaluator->user_type->value : $evaluator->user_type,
-            ]);
-
-            $fiscalYear = Carbon::now()->month >= 10
-            ? Carbon::now()->addYear()->year
-            : Carbon::now()->year;
+            $fiscalYear = $validated['fiscal_year']
+                ?? EvaluationLookupService::currentFiscalYear();
 
             // Statistics tracking
             $createdCount     = 0;
@@ -458,10 +413,8 @@ class AdminEvaluationAssignmentController extends Controller
             $evaluateeIds = collect($validated['assignments'])->pluck('evaluatee_id')->unique();
             $evaluatees   = User::whereIn('id', $evaluateeIds)->get()->keyBy('id');
 
-            Log::info('👥 Evaluatees loaded', [
-                'total_requested' => $evaluateeIds->count(),
-                'total_found'     => $evaluatees->count(),
-            ]);
+            // Batch pre-load all published evaluations (avoid N queries in loop)
+            $publishedEvaluations = Evaluation::where('status', 'published')->get();
 
             // ตรวจสอบการซ้ำล่วงหน้า - Updated for new workflow
             $existingAssignments = EvaluationAssignment::where('evaluator_id', $validated['evaluator_id'])
@@ -472,23 +425,6 @@ class AdminEvaluationAssignmentController extends Controller
                 ->mapWithKeys(function ($item) {
                     return ["{$item->evaluatee_id}_{$item->angle}" => true];
                 });
-
-            Log::info('🔍 Existing assignments check', [
-                'existing_count' => $existingAssignments->count(),
-            ]);
-
-            Log::info('🚀 Starting assignment processing', [
-                'total_assignments_to_process' => count($validated['assignments']),
-                'assignment_details' => collect($validated['assignments'])->map(function($a, $idx) use ($evaluatees) {
-                    $evaluatee = $evaluatees->get($a['evaluatee_id']);
-                    return [
-                        'index' => $idx + 1,
-                        'evaluatee_id' => $a['evaluatee_id'],
-                        'evaluatee_name' => $evaluatee ? ($evaluatee->fname . ' ' . $evaluatee->lname) : 'NOT_FOUND',
-                        'angle' => $a['angle'],
-                    ];
-                })->toArray(),
-            ]);
 
             // Process each assignment - Updated for new workflow
             foreach ($validated['assignments'] as $index => $assignment) {
@@ -513,42 +449,19 @@ class AdminEvaluationAssignmentController extends Controller
                 if (isset($existingAssignments[$assignmentKey])) {
                     $duplicateCount++;
                     $duplicateDetails[] = "{$evaluatee->fname} {$evaluatee->lname} (องศา{$this->translateAngleToThai($angle)})";
-                    Log::warning("❌ Duplicate assignment detected", [
-                        'index' => $index + 1,
-                        'evaluatee' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                        'assignment_key' => $assignmentKey,
-                    ]);
                     continue;
                 }
 
-                // ค้นหา evaluation ที่เหมาะสมสำหรับผู้ถูกประเมิน (ไม่จำกัดเกรด)
+                // ค้นหา evaluation ตาม grade + fiscal year (ใช้ service ที่ถูกต้อง)
                 $evaluateeUserType = $evaluatee->user_type instanceof \BackedEnum
                     ? $evaluatee->user_type->value
-                    : $evaluatee->user_type;
+                    : ($evaluatee->user_type ?? 'internal');
 
-                // ค้นหาแบบประเมินตาม user_type
-                $evaluation = Evaluation::where('user_type', $evaluateeUserType)
-                    ->where('status', 'published')
-                    ->latest()
-                    ->first();
-
-                // หากไม่พบ ให้ใช้แบบประเมิน internal เป็น default
-                if (! $evaluation) {
-                    $evaluation = Evaluation::where('user_type', 'internal')
-                        ->where('status', 'published')
-                        ->latest()
-                        ->first();
-                }
+                $evaluation = EvaluationLookupService::findByGrade($evaluateeGrade, $evaluateeUserType, (int) $fiscalYear);
 
                 if (! $evaluation) {
                     $invalidCount++;
                     $errorMessages[] = "ไม่พบแบบประเมินในระบบสำหรับ: {$evaluatee->fname} {$evaluatee->lname}";
-                    Log::warning("❌ No evaluation found at all", [
-                        'index' => $index + 1,
-                        'evaluatee' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                        'user_type' => $evaluateeUserType,
-                        'grade' => $evaluateeGrade,
-                    ]);
                     continue;
                 }
 
@@ -567,14 +480,6 @@ class AdminEvaluationAssignmentController extends Controller
 
                     // เพิ่ม assignment ใหม่ลงใน existing เพื่อป้องกันการซ้ำในลูปเดียวกัน
                     $existingAssignments[$assignmentKey] = true;
-
-                    Log::info("✅ Created assignment #{$createdCount}", [
-                        'index' => $index + 1,
-                        'evaluator' => $evaluator->fname . ' ' . $evaluator->lname,
-                        'evaluatee' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                        'angle' => $angle,
-                        'assignment_id' => $newAssignment->id,
-                    ]);
 
                 } catch (\Exception $e) {
                     $invalidCount++;
@@ -866,9 +771,7 @@ class AdminEvaluationAssignmentController extends Controller
                 }
 
                 // Get current fiscal year
-                $currentFiscalYear = Carbon::now()->month >= 10
-                    ? Carbon::now()->addYear()->year
-                    : Carbon::now()->year;
+                $currentFiscalYear = EvaluationLookupService::currentFiscalYear();
 
                 $assignment = EvaluationAssignment::create([
                     'evaluator_id' => $assignmentData['evaluator_id'],
@@ -1257,6 +1160,164 @@ class AdminEvaluationAssignmentController extends Controller
     }
 
     /**
+     * Import assignments from Excel file.
+     * Expected format (Sheet2):
+     *   A: รหัสพนักงาน (evaluatee emid)
+     *   F: ระดับ
+     *   J: ประเมินตนเอง (/ = yes)
+     *   K: องศาบน (evaluator names, comma/newline separated)
+     *   L: องศาล่าง
+     *   M: องศาซ้าย
+     */
+    public function importExcel(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls',
+            'fiscal_year' => 'required|integer|min:2020|max:2100',
+            'dry_run' => 'nullable|boolean',
+        ]);
+
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
+
+        try {
+            $fiscalYear = (int) $request->input('fiscal_year');
+            $dryRun = (bool) $request->input('dry_run', false);
+            $file = $request->file('file');
+
+            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($file->getPathname());
+            $spreadsheet = $reader->load($file->getPathname());
+
+            // Try Sheet2 first (assignment sheet), fallback to first sheet
+            $sheet = $spreadsheet->getSheetByName('Sheet2') ?? $spreadsheet->getActiveSheet();
+
+            // Build user lookups
+            $allUsers = User::all();
+            $byEmid = $allUsers->keyBy('emid');
+            $byName = [];
+            foreach ($allUsers as $u) {
+                $fullName = trim($u->prename . $u->fname . ' ' . $u->lname);
+                $byName[$fullName] = $u;
+                $shortName = trim($u->fname . ' ' . $u->lname);
+                if (!isset($byName[$shortName])) $byName[$shortName] = $u;
+            }
+
+            $findUser = function ($nameOrEmid) use ($byEmid, $byName) {
+                $nameOrEmid = trim($nameOrEmid);
+                if (isset($byEmid[$nameOrEmid])) return $byEmid[$nameOrEmid];
+                if (isset($byName[$nameOrEmid])) return $byName[$nameOrEmid];
+                // Fuzzy: remove prefix
+                $clean = preg_replace('/^(นาย|นาง|นางสาว|ว่าที่ร้อยตรี|ดร\.)\s*/u', '', $nameOrEmid);
+                foreach ($byName as $k => $v) {
+                    if (str_contains($k, $clean)) return $v;
+                }
+                return null;
+            };
+
+            $parseNames = function ($cellValue) {
+                if (!$cellValue || trim($cellValue) === '' || trim($cellValue) === 'ไม่มี') return [];
+                $parts = [];
+                foreach (explode("\n", $cellValue) as $line) {
+                    foreach (explode(',', $line) as $name) {
+                        $name = trim($name);
+                        if ($name && $name !== 'ไม่มี') $parts[] = $name;
+                    }
+                }
+                return $parts;
+            };
+
+            $created = 0;
+            $skipped = 0;
+            $notFound = 0;
+            $errors = [];
+            $details = [];
+
+            $highestRow = $sheet->getHighestRow();
+
+            for ($row = 2; $row <= $highestRow; $row++) {
+                $emid = trim((string) ($sheet->getCell("A{$row}")->getValue() ?? ''));
+                if (!$emid) continue;
+
+                $selfEval = trim((string) ($sheet->getCell("J{$row}")->getValue() ?? ''));
+                $topNames = $parseNames($sheet->getCell("K{$row}")->getValue());
+                $bottomNames = $parseNames($sheet->getCell("L{$row}")->getValue());
+                $leftNames = $parseNames($sheet->getCell("M{$row}")->getValue());
+
+                $evaluatee = $byEmid[$emid] ?? null;
+                if (!$evaluatee) {
+                    $errors[] = "ไม่พบผู้ถูกประเมิน: {$emid}";
+                    $notFound++;
+                    continue;
+                }
+
+                $grade = (int) $evaluatee->grade;
+                $userType = $evaluatee->user_type instanceof \BackedEnum ? $evaluatee->user_type->value : ($evaluatee->user_type ?? 'internal');
+                $eval = EvaluationLookupService::findByGrade($grade, $userType, $fiscalYear);
+                if (!$eval) {
+                    $errors[] = "ไม่พบแบบประเมินสำหรับ grade={$grade} fy={$fiscalYear}";
+                    $notFound++;
+                    continue;
+                }
+
+                // Collect all pairs for this evaluatee
+                $pairs = [];
+                if ($selfEval === '/') {
+                    $pairs[] = ['evaluator_id' => $evaluatee->id, 'angle' => 'self'];
+                }
+                foreach ($topNames as $name) {
+                    $u = $findUser($name);
+                    if ($u) $pairs[] = ['evaluator_id' => $u->id, 'angle' => 'top'];
+                    else { $errors[] = "ไม่พบผู้ประเมิน: {$name}"; $notFound++; }
+                }
+                foreach ($bottomNames as $name) {
+                    $u = $findUser($name);
+                    if ($u) $pairs[] = ['evaluator_id' => $u->id, 'angle' => 'bottom'];
+                    else { $errors[] = "ไม่พบผู้ประเมิน: {$name}"; $notFound++; }
+                }
+                foreach ($leftNames as $name) {
+                    $u = $findUser($name);
+                    if ($u) $pairs[] = ['evaluator_id' => $u->id, 'angle' => 'left'];
+                    else { $errors[] = "ไม่พบผู้ประเมิน: {$name}"; $notFound++; }
+                }
+
+                foreach ($pairs as $pair) {
+                    $exists = EvaluationAssignment::where('evaluator_id', $pair['evaluator_id'])
+                        ->where('evaluatee_id', $evaluatee->id)
+                        ->where('fiscal_year', $fiscalYear)
+                        ->where('angle', $pair['angle'])
+                        ->exists();
+
+                    if ($exists) { $skipped++; continue; }
+
+                    if (!$dryRun) {
+                        EvaluationAssignment::create([
+                            'evaluation_id' => $eval->id,
+                            'evaluator_id' => $pair['evaluator_id'],
+                            'evaluatee_id' => $evaluatee->id,
+                            'fiscal_year' => $fiscalYear,
+                            'angle' => $pair['angle'],
+                        ]);
+                    }
+                    $created++;
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'dry_run' => $dryRun,
+                'created' => $created,
+                'skipped' => $skipped,
+                'not_found' => $notFound,
+                'errors' => array_values(array_unique($errors)),
+                'message' => ($dryRun ? '[ทดสอบ] ' : '') . "สร้าง {$created} รายการ | ซ้ำ {$skipped} | ไม่พบ {$notFound}",
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Import Excel error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'เกิดข้อผิดพลาด: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * ส่งออกรายงาน
      */
     public function export(Request $request)
@@ -1497,54 +1558,45 @@ class AdminEvaluationAssignmentController extends Controller
     }
 
     /**
-     * Optimized card data preparation - single query approach
+     * Optimized card data preparation - batch query approach (no N+1)
      */
     private function getOptimizedCardData($baseQuery)
     {
-        // Get all assignments with minimal data in single query
         $assignments = $baseQuery->get();
-        
-        // Group by evaluator more efficiently
-        $grouped = $assignments->groupBy('evaluator_id')->map(function ($evaluatorAssignments, $evaluatorId) {
+
+        // Batch query: get evaluators who have VALID answers (question_id exists)
+        $evaluatorIds = $assignments->pluck('evaluator_id')->unique()->filter();
+        $evaluatorsWithAnswers = [];
+        if ($evaluatorIds->isNotEmpty()) {
+            $evaluatorsWithAnswers = DB::table('answers as a')
+                ->join('questions as q', 'a.question_id', '=', 'q.id')
+                ->whereIn('a.user_id', $evaluatorIds)
+                ->distinct()
+                ->pluck('a.user_id')
+                ->flip()
+                ->toArray();
+        }
+
+        $grouped = $assignments->groupBy('evaluator_id')->map(function ($evaluatorAssignments, $evaluatorId) use ($evaluatorsWithAnswers) {
             $evaluator = $evaluatorAssignments->first()->evaluator;
-            
-            $angleGroups = [
-                'top' => [],
-                'bottom' => [],
-                'left' => [],
-                'right' => []
-            ];
-            
+            $angleGroups = ['top' => [], 'bottom' => [], 'left' => [], 'right' => []];
             $totalEvaluatees = 0;
             $uniqueAngles = 0;
-            
+
             foreach ($evaluatorAssignments->groupBy('angle') as $angle => $angleAssignments) {
                 if (isset($angleGroups[$angle])) {
-                    $angleGroups[$angle] = $angleAssignments->map(function ($assignment) {
-                        return [
-                            'id' => $assignment->id,
-                            'evaluatee' => $assignment->evaluatee,
-                            'angle' => $assignment->angle,
-                            'created_at' => $assignment->created_at,
-                            'fiscal_year' => $assignment->fiscal_year,
-                        ];
-                    })->toArray();
-                    
+                    $angleGroups[$angle] = $angleAssignments->map(fn($a) => [
+                        'id' => $a->id, 'evaluatee' => $a->evaluatee,
+                        'angle' => $a->angle, 'created_at' => $a->created_at,
+                        'fiscal_year' => $a->fiscal_year,
+                    ])->toArray();
                     $totalEvaluatees += count($angleGroups[$angle]);
                     $uniqueAngles++;
                 }
             }
-            
-            // ตรวจสอบว่า evaluator นี้ตอบคำถามแล้วหรือไม่
-            $evaluatorHasAnswers = DB::table('answers as a')
-                ->join('evaluation_assignments as ea', function($join) {
-                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                         ->on('a.user_id', '=', 'ea.evaluator_id') 
-                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                })
-                ->where('ea.evaluator_id', $evaluatorId)
-                ->exists();
-            
+
+            $hasAnswers = isset($evaluatorsWithAnswers[$evaluatorId]);
+
             return [
                 'evaluator' => $evaluator,
                 'assignments' => $angleGroups,
@@ -1554,8 +1606,8 @@ class AdminEvaluationAssignmentController extends Controller
                     'assignments_count' => $totalEvaluatees,
                     'completed_angles' => $uniqueAngles,
                     'required_angles_count' => 4,
-                    'is_complete' => $evaluatorHasAnswers, // ครบถ้วนเมื่อตอบคำถามแล้ว
-                    'completion_rate' => $evaluatorHasAnswers ? 100 : 0, // 100% หรือ 0%
+                    'is_complete' => $hasAnswers,
+                    'completion_rate' => $hasAnswers ? 100 : 0,
                 ],
                 'required_angles' => ['top', 'bottom', 'left', 'right'],
             ];
@@ -1566,122 +1618,80 @@ class AdminEvaluationAssignmentController extends Controller
             'summary' => [
                 'total_evaluators' => $grouped->count(),
                 'total_relationships' => $assignments->count(),
-                'avg_evaluatees_per_evaluator' => $grouped->count() > 0 
-                    ? round($assignments->count() / $grouped->count(), 2) 
-                    : 0,
+                'avg_evaluatees_per_evaluator' => $grouped->count() > 0
+                    ? round($assignments->count() / $grouped->count(), 2) : 0,
             ],
         ];
     }
 
     /**
-     * Dashboard analytics matching AdminEvaluationReportController exactly
+     * Dashboard analytics — optimized: single query for counts, cached
      */
     private function getBasicAnalytics($fiscalYear, $search = '')
     {
-        // Use cache for expensive calculations  
         $cacheKey = "assignment_analytics_{$fiscalYear}_" . md5($search);
-        
-        return \Cache::remember($cacheKey, 300, function() use ($fiscalYear, $search) { // 5 min cache
-            
-            // ผู้เข้าร่วม: นับ unique evaluator_id จาก evaluation_assignments (เหมือน AdminEvaluationReportController)
-            $totalParticipantsQuery = DB::table('evaluation_assignments')
+
+        return (function() use ($fiscalYear, $search) {
+            // Single query for assignment stats
+            $statsQuery = DB::table('evaluation_assignments')
                 ->where('fiscal_year', $fiscalYear);
-                
+
             if (!empty($search)) {
-                $totalParticipantsQuery->join('users as evaluator', 'evaluation_assignments.evaluator_id', '=', 'evaluator.id')
+                $statsQuery->join('users as u', 'evaluation_assignments.evaluator_id', '=', 'u.id')
                     ->where(function($q) use ($search) {
-                        $q->where('evaluator.fname', 'like', "%{$search}%")
-                          ->orWhere('evaluator.lname', 'like', "%{$search}%")
-                          ->orWhereRaw("CONCAT(evaluator.fname, ' ', evaluator.lname) LIKE ?", ["%{$search}%"]);
+                        $q->where('u.fname', 'like', "%{$search}%")
+                          ->orWhere('u.lname', 'like', "%{$search}%");
                     });
             }
-            
-            $totalParticipants = $totalParticipantsQuery->distinct('evaluator_id')->count();
-            
-            // เสร็จสิ้น: นับ user_id จาก answers ที่ตอบคำถามครบทุกข้อแล้ว  
+
+            $stats = $statsQuery->selectRaw('
+                COUNT(*) as total_assignments,
+                COUNT(DISTINCT evaluator_id) as total_participants,
+                COUNT(DISTINCT evaluatee_id) as unique_evaluatees
+            ')->first();
+
+            $totalParticipants = $stats->total_participants ?? 0;
+            $totalAssignments = $stats->total_assignments ?? 0;
+            $uniqueEvaluatees = $stats->unique_evaluatees ?? 0;
+
+            // Completed evaluators (single query)
             $completedEvaluations = $this->getCompletedEvaluatorsCount($fiscalYear, $search);
-            
-            // รอดำเนินการ: ผู้เข้าร่วม - เสร็จสิ้น
             $pendingEvaluations = max(0, $totalParticipants - $completedEvaluations);
             $overallCompletionRate = $totalParticipants > 0 ? ($completedEvaluations / $totalParticipants) * 100 : 0;
-            
-            // Calculate weighted average score from actual answers
-            $averageScoreQuery = DB::table('answers as a')
-                ->join('evaluation_assignments as ea', function($join) {
-                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                         ->on('a.user_id', '=', 'ea.evaluator_id')
-                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                })
-                ->leftJoin('options as o', function($join) {
-                    $join->on(DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id');
-                })
-                ->where('ea.fiscal_year', $fiscalYear);
-                
-            if (!empty($search)) {
-                $averageScoreQuery->join('users as evaluator', 'ea.evaluator_id', '=', 'evaluator.id')
-                    ->where(function($q) use ($search) {
-                        $q->where('evaluator.fname', 'like', "%{$search}%")
-                          ->orWhere('evaluator.lname', 'like', "%{$search}%")
-                          ->orWhereRaw("CONCAT(evaluator.fname, ' ', evaluator.lname) LIKE ?", ["%{$search}%"]);
-                    });
-            }
-            
-            $averageScore = $averageScoreQuery->avg(DB::raw('COALESCE(o.score, 
-                CASE 
-                    WHEN a.value REGEXP "^[0-9]+$" THEN CAST(a.value AS UNSIGNED)
-                    ELSE 0 
-                END)')) ?? 0;
-            
-            // Count unique evaluatees and assignments
-            $uniqueEvaluateesQuery = DB::table('evaluation_assignments')
-                ->where('fiscal_year', $fiscalYear);
-                
-            $totalAssignmentsQuery = DB::table('evaluation_assignments')
-                ->where('fiscal_year', $fiscalYear);
-                
-            if (!empty($search)) {
-                $uniqueEvaluateesQuery->join('users as evaluator', 'evaluation_assignments.evaluator_id', '=', 'evaluator.id')
-                    ->where(function($q) use ($search) {
-                        $q->where('evaluator.fname', 'like', "%{$search}%")
-                          ->orWhere('evaluator.lname', 'like', "%{$search}%")
-                          ->orWhereRaw("CONCAT(evaluator.fname, ' ', evaluator.lname) LIKE ?", ["%{$search}%"]);
-                    });
-                    
-                $totalAssignmentsQuery->join('users as evaluator', 'evaluation_assignments.evaluator_id', '=', 'evaluator.id')
-                    ->where(function($q) use ($search) {
-                        $q->where('evaluator.fname', 'like', "%{$search}%")
-                          ->orWhere('evaluator.lname', 'like', "%{$search}%")
-                          ->orWhereRaw("CONCAT(evaluator.fname, ' ', evaluator.lname) LIKE ?", ["%{$search}%"]);
-                    });
-            }
-            
-            $uniqueEvaluatees = $uniqueEvaluateesQuery->distinct('evaluatee_id')->count();
-            $totalAssignments = $totalAssignmentsQuery->count();
-            
-            // Total questions and answers  
-            $totalQuestions = $this->getTotalQuestions();
-            $totalAnswers = DB::table('answers as a')
-                ->join('evaluation_assignments as ea', function($join) {
-                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                         ->on('a.user_id', '=', 'ea.evaluator_id')
-                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                })
-                ->where('ea.fiscal_year', $fiscalYear)
-                ->count();
 
-            // Return data structure matching AdminEvaluationReportController
+            // Average score + total answers — only count answers with valid question_id
+            $answerStats = DB::table('answers as a')
+                ->join('evaluation_assignments as ea', function($join) {
+                    $join->on('a.user_id', '=', 'ea.evaluator_id')
+                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                })
+                ->join('questions as q', 'a.question_id', '=', 'q.id')
+                ->where('ea.fiscal_year', $fiscalYear)
+                ->selectRaw('
+                    COUNT(*) as total_answers,
+                    AVG(CASE WHEN a.value REGEXP "^[1-5]$" THEN CAST(a.value AS UNSIGNED) ELSE NULL END) as avg_score
+                ')->first();
+
+            $totalQuestions = (function() {
+                return DB::table('questions as q')
+                    ->join('parts as p', 'q.part_id', '=', 'p.id')
+                    ->join('evaluations as e', 'p.evaluation_id', '=', 'e.id')
+                    ->where('e.status', 'published')
+                    ->count();
+            });
+
             return [
-                'totalParticipants' => $totalParticipants, // นับ unique evaluator_id จาก evaluation_assignments
-                'completedEvaluations' => $completedEvaluations, // นับ user_id ที่ตอบครบทุกข้อ
-                'pendingEvaluations' => $pendingEvaluations, // ผู้เข้าร่วม - เสร็จสิ้น
+                'totalParticipants' => $totalParticipants,
+                'completedEvaluations' => $completedEvaluations,
+                'pendingEvaluations' => $pendingEvaluations,
                 'overallCompletionRate' => round($overallCompletionRate, 1),
-                'averageScore' => round($averageScore, 2),
+                'averageScore' => round($answerStats->avg_score ?? 0, 2),
                 'totalQuestions' => $totalQuestions,
-                'totalAnswers' => $totalAnswers,
-                'uniqueEvaluators' => $totalParticipants, // Same as total participants
+                'totalAnswers' => $answerStats->total_answers ?? 0,
+                'uniqueEvaluators' => $totalParticipants,
                 'uniqueEvaluatees' => $uniqueEvaluatees,
                 'totalAssignments' => $totalAssignments,
-                'lastUpdated' => now()->toISOString()
+                'lastUpdated' => now()->toISOString(),
             ];
         });
     }
@@ -1699,63 +1709,28 @@ class AdminEvaluationAssignmentController extends Controller
     }
 
     /**
-     * Get count of evaluators who completed ALL their assigned evaluation questions
-     * Based on AdminEvaluationReportController logic
+     * Get count of evaluators who have answered at least 1 VALID question
+     * (answer must reference a question_id that exists in current evaluations)
      */
     private function getCompletedEvaluatorsCount($fiscalYear, $search = ''): int
     {
-        // Get all unique evaluators who have assignments in this fiscal year
-        $evaluatorsQuery = DB::table('evaluation_assignments')
-            ->where('fiscal_year', $fiscalYear);
-            
+        $query = DB::table('answers as a')
+            ->join('evaluation_assignments as ea', function($join) {
+                $join->on('a.user_id', '=', 'ea.evaluator_id')
+                     ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+            })
+            ->join('questions as q', 'a.question_id', '=', 'q.id') // Only count answers with valid question_id
+            ->where('ea.fiscal_year', $fiscalYear);
+
         if (!empty($search)) {
-            $evaluatorsQuery->join('users as evaluator', 'evaluation_assignments.evaluator_id', '=', 'evaluator.id')
+            $query->join('users as u', 'ea.evaluator_id', '=', 'u.id')
                 ->where(function($q) use ($search) {
-                    $q->where('evaluator.fname', 'like', "%{$search}%")
-                      ->orWhere('evaluator.lname', 'like', "%{$search}%")
-                      ->orWhereRaw("CONCAT(evaluator.fname, ' ', evaluator.lname) LIKE ?", ["%{$search}%"]);
+                    $q->where('u.fname', 'like', "%{$search}%")
+                      ->orWhere('u.lname', 'like', "%{$search}%");
                 });
         }
-        
-        $evaluators = $evaluatorsQuery->distinct('evaluator_id')->pluck('evaluator_id');
 
-        $completedCount = 0;
-
-        foreach ($evaluators as $evaluatorId) {
-            // Get all assignments for this evaluator in the fiscal year
-            $assignments = DB::table('evaluation_assignments')
-                ->where('evaluator_id', $evaluatorId)
-                ->where('fiscal_year', $fiscalYear)
-                ->get(['evaluation_id', 'evaluatee_id']);
-
-            // Calculate total questions this evaluator needs to answer
-            $totalRequiredQuestions = 0;
-            foreach ($assignments as $assignment) {
-                $questionCount = DB::table('questions as q')
-                    ->join('parts as p', 'q.part_id', '=', 'p.id')
-                    ->where('p.evaluation_id', $assignment->evaluation_id)
-                    ->count();
-                $totalRequiredQuestions += $questionCount;
-            }
-
-            // Count how many questions this evaluator actually answered
-            $actualAnswersCount = DB::table('answers as a')
-                ->join('evaluation_assignments as ea', function($join) {
-                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                         ->on('a.user_id', '=', 'ea.evaluator_id')
-                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                })
-                ->where('ea.evaluator_id', $evaluatorId)
-                ->where('ea.fiscal_year', $fiscalYear)
-                ->count();
-
-            // If they answered all required questions, count as completed
-            if ($actualAnswersCount >= $totalRequiredQuestions && $totalRequiredQuestions > 0) {
-                $completedCount++;
-            }
-        }
-
-        return $completedCount;
+        return $query->distinct('ea.evaluator_id')->count('ea.evaluator_id');
     }
 
 }

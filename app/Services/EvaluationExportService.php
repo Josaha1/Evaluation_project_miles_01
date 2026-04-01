@@ -21,17 +21,27 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 class EvaluationExportService
 {
     /**
+     * Ensure enough memory and time for large exports.
+     */
+    private function boostLimits(): void
+    {
+        ini_set('memory_limit', '1G');
+        set_time_limit(300);
+    }
+    /**
      * Export comprehensive evaluation report for internal executives (levels 9-12) and employees (levels 5-8)
      */
     public function exportComprehensiveEvaluationReport(array $filters = []): string
     {
         try {
+            $this->boostLimits();
             $spreadsheet = new Spreadsheet();
             
             // Create sheets for different evaluation types
             $this->createExecutiveEvaluationSheet($spreadsheet, $filters);
             $this->createEmployeeEvaluationSheet($spreadsheet, $filters);
             $this->createGovernorEvaluationSheet($spreadsheet, $filters);
+            $this->createExternalOrgSummarySheet($spreadsheet, $filters);
             $this->createSummarySheet($spreadsheet, $filters);
             $this->createQuestionMappingSheet($spreadsheet);
             
@@ -173,37 +183,47 @@ class EvaluationExportService
      */
     private function getCompletedEvaluatorIds(string $fiscalYear): array
     {
-        $evaluators = DB::table('evaluation_assignments')
+        // Batch load all assignments for this fiscal year
+        $allAssignments = DB::table('evaluation_assignments')
             ->where('fiscal_year', $fiscalYear)
-            ->distinct('evaluator_id')
-            ->pluck('evaluator_id');
+            ->get(['evaluator_id', 'evaluation_id', 'evaluatee_id']);
 
+        if ($allAssignments->isEmpty()) {
+            return [];
+        }
+
+        // Batch load question counts per evaluation_id (1 query instead of N)
+        $evaluationIds = $allAssignments->pluck('evaluation_id')->unique();
+        $questionCounts = DB::table('questions as q')
+            ->join('parts as p', 'q.part_id', '=', 'p.id')
+            ->whereIn('p.evaluation_id', $evaluationIds)
+            ->groupBy('p.evaluation_id')
+            ->pluck(DB::raw('COUNT(*)'), 'p.evaluation_id')
+            ->toArray();
+
+        // Batch load answer counts per evaluator (1 query instead of N)
+        $answerCounts = DB::table('answers as a')
+            ->join('evaluation_assignments as ea', function($join) {
+                $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                     ->on('a.user_id', '=', 'ea.evaluator_id')
+                     ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+            })
+            ->where('ea.fiscal_year', $fiscalYear)
+            ->groupBy('ea.evaluator_id')
+            ->pluck(DB::raw('COUNT(*)'), 'ea.evaluator_id')
+            ->toArray();
+
+        // Calculate in-memory
+        $grouped = $allAssignments->groupBy('evaluator_id');
         $completedEvaluatorIds = [];
 
-        foreach ($evaluators as $evaluatorId) {
-            $assignments = DB::table('evaluation_assignments')
-                ->where('evaluator_id', $evaluatorId)
-                ->where('fiscal_year', $fiscalYear)
-                ->get(['evaluation_id', 'evaluatee_id']);
-
+        foreach ($grouped as $evaluatorId => $assignments) {
             $totalRequiredQuestions = 0;
             foreach ($assignments as $assignment) {
-                $questionCount = DB::table('questions as q')
-                    ->join('parts as p', 'q.part_id', '=', 'p.id')
-                    ->where('p.evaluation_id', $assignment->evaluation_id)
-                    ->count();
-                $totalRequiredQuestions += $questionCount;
+                $totalRequiredQuestions += $questionCounts[$assignment->evaluation_id] ?? 0;
             }
 
-            $actualAnswersCount = DB::table('answers as a')
-                ->join('evaluation_assignments as ea', function($join) {
-                    $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
-                         ->on('a.user_id', '=', 'ea.evaluator_id')
-                         ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
-                })
-                ->where('ea.evaluator_id', $evaluatorId)
-                ->where('ea.fiscal_year', $fiscalYear)
-                ->count();
+            $actualAnswersCount = $answerCounts[$evaluatorId] ?? 0;
 
             if ($actualAnswersCount >= $totalRequiredQuestions && $totalRequiredQuestions > 0) {
                 $completedEvaluatorIds[] = $evaluatorId;
@@ -287,6 +307,22 @@ class EvaluationExportService
 
             if (!empty($filters['user_id'])) {
                 $query->where('evaluatee.id', $filters['user_id']);
+            }
+
+            if (!empty($filters['angle'])) {
+                $query->where('ea.angle', $filters['angle']);
+            }
+
+            if (!empty($filters['department_id'])) {
+                $query->where('evaluatee.department_id', $filters['department_id']);
+            }
+
+            if (!empty($filters['position_id'])) {
+                $query->where('evaluatee.position_id', $filters['position_id']);
+            }
+
+            if (!empty($filters['grade'])) {
+                $query->where('evaluatee.grade', $filters['grade']);
             }
 
             if (!empty($filters['only_completed']) && $filters['only_completed'] === 'true') {
@@ -684,8 +720,8 @@ class EvaluationExportService
     {
         $translations = [
             'self' => 'ประเมินตนเอง',
-            'top' => 'องศาบน',
-            'bottom' => 'องศาล่าง',
+            'top' => 'ผู้บังคับบัญชา',
+            'bottom' => 'ผู้ใต้บังคับบัญชา',
             'left' => 'องศาซ้าย',
             'right' => 'องศาขวา'
         ];
@@ -721,11 +757,85 @@ class EvaluationExportService
     }
 
     /**
+     * Create external org summary sheet for comprehensive export
+     */
+    private function createExternalOrgSummarySheet(Spreadsheet $spreadsheet, array $filters): void
+    {
+        $sheet = $spreadsheet->createSheet();
+        $sheet->setTitle('องค์กรภายนอก (องศาขวา)');
+
+        $fiscalYear = $filters['fiscal_year'] ?? date('Y');
+
+        // Header
+        $sheet->setCellValue('A1', 'รายงานคะแนนองค์กรภายนอก (องศาขวา)');
+        $sheet->mergeCells('A1:G1');
+        $sheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
+        $sheet->setCellValue('A2', 'ปีงบประมาณ: พ.ศ. ' . ($fiscalYear + 543));
+        $sheet->mergeCells('A2:G2');
+
+        // Column headers
+        $headers = ['A4' => 'องค์กร', 'B4' => 'รหัส', 'C4' => 'ผู้ถูกประเมิน', 'D4' => 'ระดับ', 'E4' => 'จำนวนคำตอบ', 'F4' => 'คะแนนเฉลี่ย', 'G4' => 'วันที่ประเมิน'];
+        foreach ($headers as $cell => $header) {
+            $sheet->setCellValue($cell, $header);
+        }
+        $sheet->getStyle('A4:G4')->getFont()->setBold(true);
+        $sheet->getStyle('A4:G4')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('7C3AED');
+        $sheet->getStyle('A4:G4')->getFont()->getColor()->setRGB('FFFFFF');
+
+        // Data: group by org + evaluatee
+        $results = DB::table('answers as a')
+            ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+            ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+            ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
+            ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
+            ->where('eac.fiscal_year', $fiscalYear)
+            ->whereNotNull('a.external_access_code_id')
+            ->groupBy('eo.id', 'eo.name', 'eo.org_code', 'evaluatee.id', 'evaluatee.fname', 'evaluatee.lname', 'evaluatee.grade')
+            ->select([
+                'eo.name as org_name',
+                DB::raw("COALESCE(eo.org_code, '') as org_code"),
+                DB::raw("CONCAT(evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
+                'evaluatee.grade',
+                DB::raw('COUNT(a.id) as answer_count'),
+                DB::raw('ROUND(AVG(CASE WHEN o.score IS NOT NULL THEN o.score WHEN a.value REGEXP "^[0-9]+(\\\\.?[0-9]*)$" THEN CAST(a.value AS DECIMAL(5,2)) ELSE NULL END), 2) as avg_score'),
+                DB::raw('MAX(a.created_at) as last_answer'),
+            ])
+            ->orderBy('eo.name')
+            ->orderBy('evaluatee.fname')
+            ->get();
+
+        $row = 5;
+        foreach ($results as $r) {
+            $sheet->setCellValue('A' . $row, $r->org_name);
+            $sheet->setCellValue('B' . $row, $r->org_code);
+            $sheet->setCellValue('C' . $row, $r->evaluatee_name);
+            $sheet->setCellValue('D' . $row, $r->grade);
+            $sheet->setCellValue('E' . $row, $r->answer_count);
+            $sheet->setCellValue('F' . $row, $r->avg_score);
+            $sheet->setCellValue('G' . $row, $r->last_answer ? date('d/m/Y', strtotime($r->last_answer)) : '-');
+            $row++;
+        }
+
+        // Auto-size columns
+        foreach (range('A', 'G') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Alternating row colors
+        for ($i = 5; $i < $row; $i++) {
+            if ($i % 2 === 0) {
+                $sheet->getStyle("A{$i}:G{$i}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F5F3FF');
+            }
+        }
+    }
+
+    /**
      * Export external organization evaluation report
      */
     public function exportExternalOrgReport(array $filters = []): string
     {
         try {
+            $this->boostLimits();
             $spreadsheet = new Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
             $sheet->setTitle('องค์กรภายนอก');
@@ -737,13 +847,16 @@ class EvaluationExportService
                 ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
                 ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
                 ->join('questions as q', 'a.question_id', '=', 'q.id')
-                ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
                 ->leftJoin('parts as p', 'q.part_id', '=', 'p.id')
                 ->leftJoin('aspects as asp', 'q.aspect_id', '=', 'asp.id')
                 ->leftJoin('divisions as div', 'evaluatee.division_id', '=', 'div.id')
                 ->leftJoin('positions as pos', 'evaluatee.position_id', '=', 'pos.id')
                 ->where('eac.fiscal_year', $fiscalYear)
                 ->whereNotNull('a.external_access_code_id')
+                ->when(!empty($filters['external_org_id']), function ($q) use ($filters) {
+                    $q->where('eo.id', $filters['external_org_id']);
+                })
                 ->select([
                     'eo.name as org_name',
                     DB::raw("COALESCE(eo.org_code, '') as org_code"),
@@ -829,15 +942,18 @@ class EvaluationExportService
             $orgSummary = DB::table('answers as a')
                 ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
                 ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
-                ->leftJoin('options as o', DB::raw('CAST(a.value AS UNSIGNED)'), '=', 'o.id')
+                ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
                 ->where('eac.fiscal_year', $fiscalYear)
                 ->whereNotNull('a.external_access_code_id')
+                ->when(!empty($filters['external_org_id']), function ($q) use ($filters) {
+                    $q->where('eo.id', $filters['external_org_id']);
+                })
                 ->groupBy('eo.id', 'eo.name', 'eo.org_code')
                 ->select([
                     'eo.name as org_name',
                     DB::raw("COALESCE(eo.org_code, '') as org_code"),
                     DB::raw('COUNT(DISTINCT a.id) as total_responses'),
-                    DB::raw('ROUND(AVG(o.score), 2) as avg_score'),
+                    DB::raw('ROUND(AVG(CASE WHEN o.score IS NOT NULL THEN o.score WHEN a.value REGEXP "^[0-9]+(\\\\.?[0-9]*)$" THEN CAST(a.value AS DECIMAL(5,2)) ELSE NULL END), 2) as avg_score'),
                     DB::raw('COUNT(DISTINCT a.evaluatee_id) as evaluatee_count'),
                 ])
                 ->orderBy('eo.name')
@@ -879,6 +995,7 @@ class EvaluationExportService
     public function exportByEvaluationType(int $evaluationId, array $filters = []): string
     {
         try {
+            $this->boostLimits();
             $evaluation = Evaluation::findOrFail($evaluationId);
             
             $spreadsheet = new Spreadsheet();
@@ -929,6 +1046,7 @@ class EvaluationExportService
     public function exportSelfEvaluationReport(array $filters = []): string
     {
         try {
+            $this->boostLimits();
             $spreadsheet = new Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
             $sheet->setTitle('การประเมินตนเอง');
@@ -1048,6 +1166,18 @@ class EvaluationExportService
                 $query->where('evaluatee.grade', $filters['grade']);
             }
 
+            if (!empty($filters['user_id'])) {
+                $query->where('evaluatee.id', $filters['user_id']);
+            }
+
+            if (!empty($filters['department_id'])) {
+                $query->where('evaluatee.department_id', $filters['department_id']);
+            }
+
+            if (!empty($filters['position_id'])) {
+                $query->where('evaluatee.position_id', $filters['position_id']);
+            }
+
             if (!empty($filters['only_completed']) && $filters['only_completed'] === 'true') {
                 $fiscalYear = $filters['fiscal_year'] ?? date('Y');
                 $completedEvaluatorIds = $this->getCompletedEvaluatorIds($fiscalYear);
@@ -1057,7 +1187,7 @@ class EvaluationExportService
                     return [];
                 }
             }
-            
+
             // Export all parts (no filtering by part_order)
 
             $results = $query->orderBy('evaluatee.id')

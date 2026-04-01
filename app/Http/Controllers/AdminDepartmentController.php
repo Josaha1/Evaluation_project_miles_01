@@ -28,7 +28,7 @@ class AdminDepartmentController extends Controller
 
         return Inertia::render('AdminDepartmentIndex', [
             'departments' => $departments,
-            'divisions'   => Divisions::orderBy('name')->get(),
+            'divisions'   => Divisions::select('id', 'name')->orderBy('name')->get(),
             'filters'     => [
                 'search'      => $search,
                 'division_id' => $divisionId,
@@ -40,7 +40,7 @@ class AdminDepartmentController extends Controller
     {
         return Inertia::render('AdminDepartmentForm', [
             'mode'      => 'create',
-            'divisions' => Divisions::orderBy('name')->get(),
+            'divisions' => Divisions::select('id', 'name')->orderBy('name')->get(),
         ]);
     }
 
@@ -64,7 +64,7 @@ class AdminDepartmentController extends Controller
         return Inertia::render('AdminDepartmentForm', [
             'mode'       => 'edit',
             'department' => $department,
-            'divisions'  => Divisions::orderBy('name')->get(),
+            'divisions'  => Divisions::select('id', 'name')->orderBy('name')->get(),
         ]);
     }
 

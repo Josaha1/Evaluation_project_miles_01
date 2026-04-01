@@ -1,12 +1,13 @@
 import MainLayout from '@/Layouts/MainLayout';
 import { usePage, router } from '@inertiajs/react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/Components/ui/accordion';
-import { Card, CardContent, CardHeader } from '@/Components/ui/card';
-import { Button } from '@/Components/ui/button';
 import Breadcrumb from '@/Components/ui/breadcrumb';
 import { toast } from 'sonner';
-import { Printer } from 'lucide-react';
-// ✅ Interfaces
+import { Printer, Eye, ArrowLeft, Send, ClipboardList, Layers, FileText, HelpCircle, BarChart3 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { motion } from 'framer-motion';
+
+// Interfaces
 interface Option {
     id: number;
     label: string;
@@ -16,6 +17,7 @@ interface Option {
 interface Question {
     id: number;
     title: string;
+    type?: string;
     options: Option[];
 }
 
@@ -30,6 +32,7 @@ interface Aspect {
     title: string | number | null;
     has_subaspects: boolean;
     subaspects?: SubAspect[];
+    sub_aspects?: SubAspect[];
     questions?: Question[];
 }
 
@@ -49,16 +52,54 @@ interface Evaluation {
     options_count: number;
 }
 
-// ✅ ฟังก์ชันช่วย render คำถาม
+const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+        opacity: 1,
+        transition: { staggerChildren: 0.08 },
+    },
+};
+
+const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+};
+
+// Default rating labels when no explicit options exist
+const DEFAULT_RATING_OPTIONS = [
+    { label: 'ดีเยี่ยม', score: 5 },
+    { label: 'ดีมาก', score: 4 },
+    { label: 'ดี', score: 3 },
+    { label: 'ต้องปรับปรุง', score: 2 },
+    { label: 'ต้องปรับปรุงอย่างมาก', score: 1 },
+];
+
+// Badge for question type
+function QuestionTypeBadge({ type }: { type?: string }) {
+    const config: Record<string, { label: string; color: string }> = {
+        rating: { label: 'Rating 1-5', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+        choice: { label: 'ตัวเลือก', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+        multiple_choice: { label: 'เลือกหลายข้อ', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' },
+        open_text: { label: 'ข้อความเปิด', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300' },
+    };
+    const c = config[type ?? 'rating'] ?? config.rating;
+    return <span className={cn('ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium', c.color)}>{c.label}</span>;
+}
+
+// Helper: render questions
 function renderQuestions(questions: Question[]) {
     return (
         <ul className="ml-6 mt-2 list-decimal space-y-2 text-sm">
             {questions.map((q, qIdx) => (
                 <li key={q.id}>
-                    <strong>Q{qIdx + 1}:</strong> {q.title}
+                    <strong className="text-violet-700 dark:text-violet-300">Q{qIdx + 1}:</strong>{' '}
+                    <span className="text-gray-700 dark:text-gray-300">{q.title}</span>
                     <ul className="ml-4 list-disc mt-1">
-                        {q.options.map((opt) => (
-                            <li key={opt.id}>{opt.label} ({opt.score})</li>
+                        {(q.options ?? []).map((opt) => (
+                            <li key={opt.id} className="text-gray-600 dark:text-gray-400">
+                                {opt.label}{' '}
+                                <span className="text-violet-600 dark:text-violet-400 font-medium">({opt.score})</span>
+                            </li>
                         ))}
                     </ul>
                 </li>
@@ -89,345 +130,206 @@ export default function AdminEvaluationPreview() {
     };
 
     const handlePrint = () => {
-        // Perfect print functionality with proper page margins and breaks
         const printStyles = `
-            /* Hide print-only content on screen */
-            .print-only {
-                display: none !important;
-            }
-            
             @page {
                 size: A4;
-                margin: 20mm 15mm 20mm 15mm;
-                counter-increment: page;
+                margin: 15mm;
             }
-            
+
             @media print {
-                /* Reset everything for print */
-                * {
-                    -webkit-print-color-adjust: exact !important;
-                    color-adjust: exact !important;
-                    box-sizing: border-box;
-                    margin: 0;
-                    padding: 0;
-                }
-                
-                /* Hide everything except print area */
-                body * {
-                    visibility: hidden;
-                }
-                
-                /* Show only print area content */
-                .print-area,
-                .print-area * {
-                    visibility: visible !important;
-                }
-                
-                /* Position print area */
-                .print-area {
-                    position: absolute !important;
-                    left: 0 !important;
-                    top: 0 !important;
-                    width: 100% !important;
-                    max-width: 210mm !important;
-                    margin: 0 !important;
-                    padding: 20mm 15mm !important;
-                }
-                
-                /* Body styles */
-                body {
-                    font-family: 'THSarabunNew', 'Sarabun', 'Arial Unicode MS', sans-serif !important;
-                    font-size: 14px !important;
-                    line-height: 1.5 !important;
+                html, body {
+                    font-family: 'Sarabun', sans-serif !important;
+                    font-size: 13px !important;
+                    line-height: 1.6 !important;
                     color: #000 !important;
                     background: white !important;
                     margin: 0 !important;
                     padding: 0 !important;
+                    width: 100% !important;
                     overflow: visible !important;
+                    -webkit-print-color-adjust: exact !important;
+                    color-adjust: exact !important;
                 }
-                
-                /* Hide non-print elements */
+
+                /* Hide screen-only elements */
                 .no-print {
                     display: none !important;
-                    visibility: hidden !important;
                 }
-                
-                /* Show print-only content during printing */
-                .print-only {
+
+                /* Show print-only elements */
+                .print-only-element {
                     display: block !important;
-                    visibility: visible !important;
                 }
-                
+
+                /* Print area takes full page */
+                .print-area {
+                    position: static !important;
+                    width: 100% !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+
                 /* Document Header */
                 .print-document-header {
                     text-align: center;
                     border-bottom: 3px double #000;
-                    padding-bottom: 15px;
-                    margin-bottom: 25px;
+                    padding-bottom: 12px;
+                    margin-bottom: 20px;
                     page-break-after: avoid;
                 }
-                
                 .print-main-title {
-                    font-size: 24px;
+                    font-size: 22px;
                     font-weight: bold;
                     color: #000 !important;
-                    margin-bottom: 10px;
-                    letter-spacing: 1px;
-                    line-height: 1.3;
+                    margin-bottom: 6px;
                 }
-                
                 .print-subtitle {
-                    font-size: 20px;
-                    font-weight: normal;
+                    font-size: 18px;
                     color: #000 !important;
-                    margin-bottom: 0;
-                    line-height: 1.3;
                 }
-                
+
                 /* Document Info */
                 .print-document-info {
-                    border: 2px solid #000;
-                    padding: 15px;
-                    margin-bottom: 30px;
-                    background: white;
+                    border: 1px solid #000;
+                    padding: 10px 15px;
+                    margin-bottom: 20px;
                     font-size: 12px;
-                    display: block;
                     page-break-after: avoid;
-                    border-radius: 3px;
                 }
-                
-                .print-summary {
-                    color: #000 !important;
-                    margin-bottom: 10px;
-                    font-weight: bold;
-                    line-height: 1.4;
-                }
-                
-                .print-date {
-                    color: #000 !important;
-                    font-style: italic;
-                    text-align: right;
-                    font-size: 11px;
-                    margin-top: 8px;
-                }
-                
-                /* Hide TOC */
-                .print-toc {
-                    display: none !important;
-                }
-                
-                /* Continuous Content */
+                .print-summary { color: #000 !important; font-weight: bold; }
+                .print-date { color: #000 !important; text-align: right; font-size: 11px; margin-top: 5px; }
+
+                /* TOC hidden */
+                .print-toc { display: none !important; }
+
+                /* Content flows naturally */
                 .print-continuous-content {
                     width: 100%;
-                    margin: 0;
-                    padding: 0;
                     overflow: visible;
                 }
-                
-                /* Parts - Smart page breaks */
+
+                /* Part - allow page break inside (important for large parts!) */
                 .print-part {
-                    margin-bottom: 20px;
-                    page-break-inside: avoid;
-                    orphans: 3;
-                    widows: 3;
+                    margin-bottom: 15px;
+                    page-break-inside: auto;
                 }
-                
-                .print-part:not(:first-child) {
-                    page-break-before: auto;
-                    margin-top: 25px;
-                }
-                
                 .print-part-header {
-                    background: white !important;
                     color: #000 !important;
-                    font-size: 18px;
-                    font-weight: bold;
-                    text-align: center;
-                    margin: 20px 0 15px 0;
-                    padding: 10px 0;
-                    border-top: 3px solid #000;
-                    border-bottom: 3px solid #000;
-                    letter-spacing: 0.8px;
-                    page-break-after: avoid;
-                    line-height: 1.3;
-                }
-                
-                .print-part-content {
-                    margin: 0;
-                    padding: 0;
-                }
-                
-                /* Aspects */
-                .print-aspect {
-                    margin: 15px 0;
-                    page-break-inside: avoid;
-                    orphans: 2;
-                    widows: 2;
-                }
-                
-                .print-aspect-title {
                     font-size: 16px;
                     font-weight: bold;
-                    color: #000 !important;
-                    margin: 12px 0 8px 0;
-                    text-decoration: underline;
-                    text-underline-offset: 4px;
-                    text-decoration-thickness: 2px;
-                    page-break-after: avoid;
-                    line-height: 1.3;
-                }
-                
-                /* Sub Aspects */
-                .print-subaspect {
-                    margin: 12px 0;
-                    page-break-inside: avoid;
-                    orphans: 2;
-                    widows: 2;
-                }
-                
-                .print-subaspect-title {
-                    font-size: 15px;
-                    font-weight: bold;
-                    color: #000 !important;
-                    margin: 10px 0 6px 0;
-                    padding-bottom: 3px;
+                    text-align: center;
+                    margin: 15px 0 10px;
+                    padding: 8px 0;
+                    border-top: 2px solid #000;
                     border-bottom: 2px solid #000;
-                    font-style: italic;
-                    page-break-after: avoid;
-                    line-height: 1.3;
-                }
-                
-                /* Questions - Better spacing and breaks */
-                .print-question {
-                    margin: 8px 0 12px 0;
-                    page-break-inside: avoid;
-                    padding-bottom: 4px;
-                    orphans: 2;
-                    widows: 2;
-                }
-                
-                .print-question-line {
-                    margin-bottom: 6px;
-                    line-height: 1.5;
                     page-break-after: avoid;
                 }
-                
-                .print-question-number {
+
+                /* Aspect */
+                .print-aspect {
+                    margin: 10px 0;
+                    page-break-inside: auto;
+                }
+                .print-aspect-title {
                     font-size: 14px;
                     font-weight: bold;
                     color: #000 !important;
-                    margin-right: 10px;
-                    display: inline-block;
-                    min-width: 30px;
+                    margin: 8px 0 5px;
+                    text-decoration: underline;
+                    page-break-after: avoid;
                 }
-                
+
+                /* Sub-aspect */
+                .print-subaspect {
+                    margin: 8px 0 8px 10px;
+                    page-break-inside: auto;
+                }
+                .print-subaspect-title {
+                    font-size: 13px;
+                    font-weight: bold;
+                    font-style: italic;
+                    color: #000 !important;
+                    margin: 6px 0 4px;
+                    padding-bottom: 2px;
+                    border-bottom: 1px solid #666;
+                    page-break-after: avoid;
+                }
+
+                /* Question - avoid break inside each question */
+                .print-question {
+                    margin: 5px 0 8px 5px;
+                    page-break-inside: avoid;
+                }
+                .print-question-line {
+                    margin-bottom: 3px;
+                    line-height: 1.5;
+                }
+                .print-question-number {
+                    font-weight: bold;
+                    color: #000 !important;
+                    margin-right: 8px;
+                    display: inline-block;
+                    min-width: 25px;
+                }
                 .print-question-title {
-                    font-size: 14px;
-                    font-weight: normal;
                     color: #000 !important;
                     display: inline;
-                    line-height: 1.5;
                 }
-                
-                /* Options - Better horizontal layout */
+
+                /* Options inline */
                 .print-options {
-                    margin: 6px 0 10px 30px;
-                    font-size: 12px;
-                    line-height: 1.4;
-                    border-left: 3px solid #e0e0e0;
-                    padding-left: 12px;
+                    margin: 3px 0 6px 25px;
+                    font-size: 11px;
+                    color: #000 !important;
                 }
-                
                 .print-option {
                     display: inline-block;
+                    margin-right: 10px;
                     color: #000 !important;
-                    margin-right: 12px;
-                    white-space: nowrap;
                 }
-                
-                .print-option-text {
-                    color: #000 !important;
-                    font-weight: normal;
-                }
-                
                 .print-option-score {
-                    color: #000 !important;
                     font-weight: bold;
                 }
-                
-                .print-option-score:before {
-                    content: " (";
-                    font-weight: normal;
-                }
-                
-                .print-option-score:after {
-                    content: ")";
-                    font-weight: normal;
-                }
-                
+                .print-option-score:before { content: " ("; font-weight: normal; }
+                .print-option-score:after { content: ")"; font-weight: normal; }
+
                 /* Footer */
                 .print-footer {
                     position: fixed;
-                    bottom: 15mm;
-                    left: 15mm;
-                    right: 15mm;
+                    bottom: 0;
+                    left: 0;
+                    right: 0;
                     text-align: center;
-                    font-size: 11px;
-                    color: #000 !important;
-                    border-top: 2px solid #000;
-                    padding-top: 8px;
-                    background: white;
-                    z-index: 1000;
-                }
-                
-                /* Intelligent page break control */
-                .print-part-header,
-                .print-aspect-title,
-                .print-subaspect-title {
-                    page-break-after: avoid !important;
-                }
-                
-                .print-question {
-                    page-break-inside: avoid !important;
-                }
-                
-                /* Prevent awkward breaks */
-                .print-aspect:has(.print-subaspect) {
-                    page-break-inside: avoid;
-                }
-                
-                /* Ensure content flows naturally */
-                .print-continuous-content > * {
-                    page-break-before: auto;
-                    page-break-after: auto;
-                }
-                
-                /* Better widow/orphan control */
-                p, div, .print-question, .print-aspect, .print-subaspect {
-                    orphans: 2;
-                    widows: 2;
+                    font-size: 10px;
+                    color: #666 !important;
+                    border-top: 1px solid #ccc;
+                    padding-top: 5px;
                 }
             }
         `;
-        
-        // Remove existing print styles
+
         const existingStyle = document.getElementById('print-styles');
         if (existingStyle) {
             existingStyle.remove();
         }
-        
-        // Add new print styles
+
         const styleElement = document.createElement('style');
         styleElement.id = 'print-styles';
         styleElement.type = 'text/css';
         styleElement.innerHTML = printStyles;
         document.head.appendChild(styleElement);
-        
-        // Trigger print
+
         setTimeout(() => {
             window.print();
         }, 100);
     };
+
+    const summaryItems = [
+        { label: 'Part', value: evaluation.parts.length, icon: Layers, color: 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300' },
+        { label: 'ด้าน', value: evaluation.aspects_count, icon: BarChart3, color: 'bg-fuchsia-100 dark:bg-fuchsia-900/30 text-fuchsia-700 dark:text-fuchsia-300' },
+        { label: 'หัวข้อย่อย', value: evaluation.subaspects_count, icon: FileText, color: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' },
+        { label: 'คำถาม', value: evaluation.questions_count, icon: HelpCircle, color: 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300' },
+    ];
 
     return (
         <MainLayout
@@ -442,201 +344,340 @@ export default function AdminEvaluationPreview() {
                 />
             }
         >
-            <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
-                <h1 className="text-3xl font-bold text-gray-800 dark:text-white no-print">
-                    👁️ Preview แบบประเมิน: {evaluation.title}
-                </h1>
-                
-                {/* Print Area */}
-                <div className="print-area">
-                    {/* Document Header */}
-                    <div className="print-document-header">
-                        <div className="print-main-title">รายงานแบบประเมิน 360 องศา</div>
-                        <div className="print-subtitle">{evaluation.title}</div>
-                    </div>
-                    
-                    {/* Document Info */}
-                    <div className="print-document-info">
-                        <div className="print-summary">
-                            <strong>สรุปเอกสาร:</strong> {evaluation.parts.length} ส่วน • {evaluation.aspects_count} ด้าน • {evaluation.subaspects_count} หัวข้อย่อย • {evaluation.questions_count} คำถาม • {evaluation.options_count} ตัวเลือก
+            <style dangerouslySetInnerHTML={{ __html: `.print-only-element { display: none !important; } @media print { .print-only-element { display: block !important; } }` }} />
+            <div className="gradient-primary-soft min-h-screen -my-6 px-4 sm:px-6 lg:px-8 py-6">
+                <motion.div
+                    className="max-w-6xl mx-auto px-2 sm:px-6 py-10 space-y-6"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                >
+                    {/* Header */}
+                    <motion.div variants={itemVariants} className="glass-card rounded-2xl p-8 no-print">
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 gradient-primary rounded-xl text-white shadow-lg shadow-violet-500/25">
+                                    <Eye className="w-7 h-7" />
+                                </div>
+                                <div>
+                                    <h1 className="text-2xl lg:text-3xl font-bold text-gradient-primary">
+                                        Preview แบบประเมิน
+                                    </h1>
+                                    <p className="text-gray-500 dark:text-gray-400 mt-1">{evaluation.title}</p>
+                                </div>
+                            </div>
                         </div>
-                        <div className="print-date">
-                            วันที่พิมพ์: {new Date().toLocaleDateString('th-TH', { 
-                                year: 'numeric', 
-                                month: 'long', 
-                                day: 'numeric' 
-                            })}
-                        </div>
-                    </div>
-                    
-                    {/* Table of Contents */}
-                    <div className="print-toc">
-                        <div className="print-toc-title">สารบัญ</div>
-                        {evaluation.parts.map((part, index) => (
-                            <div key={part.id} className="print-toc-item">
-                                <span>ส่วนที่ {index + 1}: {part.title}</span>
-                                <span>{part.aspects.length} ด้าน</span>
+                    </motion.div>
+
+                    {/* Summary Stats */}
+                    <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4 no-print">
+                        {summaryItems.map((item) => (
+                            <div key={item.label} className="glass-card rounded-2xl p-5">
+                                <div className="flex items-center gap-3">
+                                    <div className={cn('p-2 rounded-xl', item.color)}>
+                                        <item.icon className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <div className="text-2xl font-bold text-gray-900 dark:text-white">{item.value}</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">{item.label}</div>
+                                    </div>
+                                </div>
                             </div>
                         ))}
-                    </div>
+                    </motion.div>
 
-                    {evaluation.parts.map((part, index) => (
-                        <div key={part.id} className="print-card">
-                            <Card className="no-print">
-                                <CardHeader className="text-xl font-semibold">
-                                    Part {index + 1}: {part.title}
-                                </CardHeader>
-                                <CardContent>
-                                    <Accordion type="multiple" className="w-full">
-                                        {part.aspects.map((aspect) => (
-                                            <AccordionItem key={aspect.id} value={`aspect-${aspect.id}`}>
-                                                <AccordionTrigger>
-                                                    {String(aspect.title ?? '').trim() !== ''
-                                                        ? aspect.title
-                                                        : <span className="text-muted-foreground italic">*ไม่มีชื่อด้าน*</span>}
-                                                </AccordionTrigger>
-
-                                                <AccordionContent>
-                                                    {aspect.has_subaspects && aspect.subaspects?.length ? (
-                                                        <div className="space-y-4 mt-2">
-                                                            {aspect.subaspects.map((sub) => (
-                                                                <div key={sub.id}>
-                                                                    <h4 className="text-base font-medium">
-                                                                        {String(sub.title ?? '').trim() !== ''
-                                                                            ? sub.title
-                                                                            : <span className="text-muted-foreground italic">*ไม่มีชื่อหัวข้อย่อย*</span>}
-                                                                    </h4>
-                                                                    {renderQuestions(sub.questions)}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    ) : (
-                                                        renderQuestions(aspect.questions ?? [])
-                                                    )}
-                                                </AccordionContent>
-                                            </AccordionItem>
-                                        ))}
-                                    </Accordion>
-                                </CardContent>
-                            </Card>
+                    {/* Print Area */}
+                    <div className="print-area">
+                        {/* Document Header */}
+                        <div className="print-document-header print-only-element">
+                            <div className="print-main-title">รายงานแบบประเมิน 360 องศา</div>
+                            <div className="print-subtitle">{evaluation.title}</div>
                         </div>
-                    ))}
-                    
-                    {/* Print Version - Continuous Beautiful Flow */}
-                    <div className="print-only print-content">
+
+                        {/* Document Info */}
+                        <div className="print-document-info print-only-element">
+                            <div className="print-summary">
+                                <strong>สรุปเอกสาร:</strong> {evaluation.parts.length} ส่วน | {evaluation.aspects_count} ด้าน | {evaluation.subaspects_count} หัวข้อย่อย | {evaluation.questions_count} คำถาม | {evaluation.options_count} ตัวเลือก
+                            </div>
+                            <div className="print-date">
+                                วันที่พิมพ์: {new Date().toLocaleDateString('th-TH', {
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric'
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Table of Contents */}
+                        <div className="print-toc print-only-element">
+                            <div className="print-toc-title">สารบัญ</div>
+                            {evaluation.parts.map((part, index) => (
+                                <div key={part.id} className="print-toc-item">
+                                    <span>ส่วนที่ {index + 1}: {part.title}</span>
+                                    <span>{part.aspects.length} ด้าน</span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Parts - Screen View */}
                         {(() => {
-                            let globalQuestionCounter = 0;
-                            return (
-                                <div className="print-continuous-content">
-                                    {evaluation.parts.map((part, partIndex) => (
-                                        <div key={part.id} className="print-part">
-                                            <div className="print-part-header">
-                                                ส่วนที่ {partIndex + 1}: {part.title}
-                                            </div>
-                                            <div className="print-part-content">
-                                                {part.aspects.map((aspect) => (
-                                                    <div key={aspect.id} className="print-aspect">
-                                                        <div className="print-aspect-title">
-                                                            {String(aspect.title ?? '').trim() !== ''
-                                                                ? aspect.title
-                                                                : 'ไม่มีชื่อด้าน'}
+                            let globalQ = 0;
+                            return evaluation.parts.map((part, partIndex) => (
+                                <motion.div key={part.id} variants={itemVariants}>
+                                    <div className="glass-card rounded-2xl overflow-hidden no-print mb-6">
+                                        {/* Part Header */}
+                                        <div className="gradient-primary p-5">
+                                            <h2 className="text-lg font-bold text-white flex items-center gap-3">
+                                                <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center text-sm font-bold">
+                                                    {partIndex + 1}
+                                                </div>
+                                                <div>
+                                                    <span>{part.title}</span>
+                                                    <p className="text-sm text-white/70 font-normal mt-0.5">
+                                                        {part.aspects.length} ด้าน | {part.aspects.reduce((sum, a) => sum + (a.questions?.length || 0) + (a.subaspects?.reduce((s, sub) => s + sub.questions.length, 0) || 0), 0)} คำถาม
+                                                    </p>
+                                                </div>
+                                            </h2>
+                                        </div>
+
+                                        <div className="p-6 space-y-6">
+                                            {part.aspects.map((aspect, aspectIndex) => (
+                                                <div key={aspect.id}>
+                                                    {/* Aspect Header */}
+                                                    <div className="flex items-center gap-3 mb-4">
+                                                        <div className="w-1.5 h-8 rounded-full bg-violet-500" />
+                                                        <div>
+                                                            <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                                                                ด้านที่ {aspectIndex + 1}: {String(aspect.title ?? '').trim() !== '' ? aspect.title : <span className="text-muted-foreground italic">ไม่มีชื่อด้าน</span>}
+                                                            </h3>
                                                         </div>
-                                                        {aspect.has_subaspects && aspect.subaspects?.length ? (
-                                                            <>
-                                                                {aspect.subaspects.map((sub) => (
-                                                                    <div key={sub.id} className="print-subaspect">
-                                                                        <div className="print-subaspect-title">
-                                                                            {String(sub.title ?? '').trim() !== ''
-                                                                                ? sub.title
-                                                                                : 'ไม่มีชื่อหัวข้อย่อย'}
-                                                                        </div>
-                                                                        {sub.questions.map((q) => {
-                                                                            globalQuestionCounter++;
+                                                    </div>
+
+                                                    {/* Sub-aspects or Questions */}
+                                                    {aspect.has_subaspects && (aspect.subaspects?.length || aspect.sub_aspects?.length) ? (
+                                                        <div className="space-y-5 ml-4">
+                                                            {(aspect.subaspects ?? aspect.sub_aspects ?? []).map((sub) => (
+                                                                <div key={sub.id}>
+                                                                    <div className="flex items-center gap-2 mb-3">
+                                                                        <div className="w-1 h-5 rounded-full bg-fuchsia-400" />
+                                                                        <h4 className="text-sm font-semibold text-fuchsia-700 dark:text-fuchsia-300">
+                                                                            {String(sub.title ?? '').trim() !== '' ? sub.title : <span className="italic opacity-60">ไม่มีชื่อหัวข้อย่อย</span>}
+                                                                        </h4>
+                                                                        <span className="text-xs text-gray-400">({(sub.questions ?? []).length} ข้อ)</span>
+                                                                    </div>
+                                                                    <div className="space-y-3 ml-3">
+                                                                        {(sub.questions ?? []).map((q) => {
+                                                                            globalQ++;
+                                                                            const opts = (q.options ?? []).length > 0 ? q.options : (q.type === 'rating' ? DEFAULT_RATING_OPTIONS.map((o, i) => ({ ...o, id: -i })) : []);
                                                                             return (
-                                                                                <div key={q.id} className="print-question">
-                                                                                    <div className="print-question-line">
-                                                                                        <span className="print-question-number">{globalQuestionCounter}.</span>
-                                                                                        <span className="print-question-title">{q.title}</span>
-                                                                                    </div>
-                                                                                    <div className="print-options">
-                                                                                        {q.options.map((opt, optIndex) => (
-                                                                                            <span key={opt.id} className="print-option">
-                                                                                                <span className="print-option-text">{opt.label}</span>
-                                                                                                <span className="print-option-score">{opt.score}</span>
-                                                                                                {optIndex < q.options.length - 1 ? ' | ' : ''}
-                                                                                            </span>
-                                                                                        ))}
+                                                                                <div key={q.id} className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
+                                                                                    <div className="flex items-start gap-3">
+                                                                                        <span className="w-7 h-7 rounded-lg bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                                                                            {globalQ}
+                                                                                        </span>
+                                                                                        <div className="flex-1">
+                                                                                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                                                                                                {q.title}
+                                                                                                <QuestionTypeBadge type={q.type} />
+                                                                                            </p>
+                                                                                            {q.type === 'open_text' ? (
+                                                                                                <div className="mt-2 p-3 bg-gray-100 dark:bg-gray-700/50 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 text-xs text-gray-400">
+                                                                                                    พื้นที่สำหรับพิมพ์ข้อความ...
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                                                                    {opts.map((opt) => (
+                                                                                                        <span key={opt.id} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+                                                                                                            {opt.label} <span className="font-bold">({opt.score})</span>
+                                                                                                        </span>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
                                                                                     </div>
                                                                                 </div>
                                                                             );
                                                                         })}
                                                                     </div>
-                                                                ))}
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                {(aspect.questions ?? []).map((q) => {
-                                                                    globalQuestionCounter++;
-                                                                    return (
-                                                                        <div key={q.id} className="print-question">
-                                                                            <div className="print-question-line">
-                                                                                <span className="print-question-number">{globalQuestionCounter}.</span>
-                                                                                <span className="print-question-title">{q.title}</span>
-                                                                            </div>
-                                                                            <div className="print-options">
-                                                                                {q.options.map((opt, optIndex) => (
-                                                                                    <span key={opt.id} className="print-option">
-                                                                                        <span className="print-option-text">{opt.label}</span>
-                                                                                        <span className="print-option-score">{opt.score}</span>
-                                                                                        {optIndex < q.options.length - 1 ? ' | ' : ''}
-                                                                                    </span>
-                                                                                ))}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-3 ml-4">
+                                                            {(aspect.questions ?? []).map((q) => {
+                                                                globalQ++;
+                                                                const opts = (q.options ?? []).length > 0 ? q.options : (q.type === 'rating' ? DEFAULT_RATING_OPTIONS.map((o, i) => ({ ...o, id: -i })) : []);
+                                                                return (
+                                                                    <div key={q.id} className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
+                                                                        <div className="flex items-start gap-3">
+                                                                            <span className="w-7 h-7 rounded-lg bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                                                                {globalQ}
+                                                                            </span>
+                                                                            <div className="flex-1">
+                                                                                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                                                                                    {q.title}
+                                                                                    <QuestionTypeBadge type={q.type} />
+                                                                                </p>
+                                                                                {q.type === 'open_text' ? (
+                                                                                    <div className="mt-2 p-3 bg-gray-100 dark:bg-gray-700/50 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 text-xs text-gray-400">
+                                                                                        พื้นที่สำหรับพิมพ์ข้อความ...
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="flex flex-wrap gap-2 mt-2">
+                                                                                        {opts.map((opt) => (
+                                                                                            <span key={opt.id} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+                                                                                                {opt.label} <span className="font-bold">({opt.score})</span>
+                                                                                            </span>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                )}
                                                                             </div>
                                                                         </div>
-                                                                    );
-                                                                })}
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Divider between aspects */}
+                                                    {aspectIndex < part.aspects.length - 1 && (
+                                                        <hr className="my-6 border-gray-200 dark:border-gray-700" />
+                                                    )}
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
-                            );
+                                    </div>
+                                </motion.div>
+                            ));
                         })()}
+
+                        {/* Print Version - Continuous Beautiful Flow */}
+                        <div className="print-only print-content print-only-element">
+                            {(() => {
+                                let globalQuestionCounter = 0;
+                                return (
+                                    <div className="print-continuous-content">
+                                        {evaluation.parts.map((part, partIndex) => (
+                                            <div key={part.id} className="print-part">
+                                                <div className="print-part-header">
+                                                    ส่วนที่ {partIndex + 1}: {part.title}
+                                                </div>
+                                                <div className="print-part-content">
+                                                    {part.aspects.map((aspect) => (
+                                                        <div key={aspect.id} className="print-aspect">
+                                                            <div className="print-aspect-title">
+                                                                {String(aspect.title ?? '').trim() !== ''
+                                                                    ? aspect.title
+                                                                    : 'ไม่มีชื่อด้าน'}
+                                                            </div>
+                                                            {aspect.has_subaspects && aspect.subaspects?.length ? (
+                                                                <>
+                                                                    {aspect.subaspects.map((sub) => (
+                                                                        <div key={sub.id} className="print-subaspect">
+                                                                            <div className="print-subaspect-title">
+                                                                                {String(sub.title ?? '').trim() !== ''
+                                                                                    ? sub.title
+                                                                                    : 'ไม่มีชื่อหัวข้อย่อย'}
+                                                                            </div>
+                                                                            {sub.questions.map((q) => {
+                                                                                globalQuestionCounter++;
+                                                                                return (
+                                                                                    <div key={q.id} className="print-question">
+                                                                                        <div className="print-question-line">
+                                                                                            <span className="print-question-number">{globalQuestionCounter}.</span>
+                                                                                            <span className="print-question-title">{q.title}</span>
+                                                                                        </div>
+                                                                                        <div className="print-options">
+                                                                                            {q.options.map((opt, optIndex) => (
+                                                                                                <span key={opt.id} className="print-option">
+                                                                                                    <span className="print-option-text">{opt.label}</span>
+                                                                                                    <span className="print-option-score">{opt.score}</span>
+                                                                                                    {optIndex < q.options.length - 1 ? ' | ' : ''}
+                                                                                                </span>
+                                                                                            ))}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    ))}
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    {(aspect.questions ?? []).map((q) => {
+                                                                        globalQuestionCounter++;
+                                                                        return (
+                                                                            <div key={q.id} className="print-question">
+                                                                                <div className="print-question-line">
+                                                                                    <span className="print-question-number">{globalQuestionCounter}.</span>
+                                                                                    <span className="print-question-title">{q.title}</span>
+                                                                                </div>
+                                                                                <div className="print-options">
+                                                                                    {q.options.map((opt, optIndex) => (
+                                                                                        <span key={opt.id} className="print-option">
+                                                                                            <span className="print-option-text">{opt.label}</span>
+                                                                                            <span className="print-option-score">{opt.score}</span>
+                                                                                            {optIndex < q.options.length - 1 ? ' | ' : ''}
+                                                                                        </span>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                );
+                            })()}
+                        </div>
+
+                        {/* Print Footer */}
+                        <div className="print-footer print-only-element">
+                            <div>รายงานแบบประเมิน 360 องศา | สร้างโดยระบบประเมินการปฏิบัติงาน | หน้า <span className="print-page-number"></span></div>
+                        </div>
                     </div>
 
-                    {/* Print Footer */}
-                    <div className="print-footer">
-                        <div>รายงานแบบประเมิน 360 องศา | สร้างโดยระบบประเมินการปฏิบัติงาน | หน้า <span className="print-page-number"></span></div>
-                    </div>
-                </div>
-                
-                {/* Summary */}
-                <div className="rounded-xl border p-4 shadow-sm bg-muted no-print">
-                    <p className="text-gray-800 dark:text-white">
-                        📊 <strong>สรุป:</strong> Part: {evaluation.parts.length} | ด้าน: {evaluation.aspects_count} | หัวข้อย่อย: {evaluation.subaspects_count} | คำถาม: {evaluation.questions_count} | ตัวเลือก: {evaluation.options_count}
-                    </p>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 no-print">
-                    <Button 
-                        variant="outline" 
-                        onClick={handlePrint}
-                        className="bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 font-medium"
-                    >
-                        <Printer className="w-4 h-4 mr-2" />
-                        พิมพ์รายงานแบบประเมิน
-                    </Button>
-                    <Button variant="outline" onClick={handleBack}>
-                        🔙 แก้ไขแบบประเมิน
-                    </Button>
-                    <Button variant="default" onClick={handlePublish}>
-                        🚀 เผยแพร่
-                    </Button>
-                </div>
+                    {/* Action Buttons */}
+                    <motion.div variants={itemVariants} className="flex flex-col sm:flex-row justify-end gap-3 no-print">
+                        <button
+                            onClick={handlePrint}
+                            className={cn(
+                                "inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all duration-200",
+                                "bg-violet-100 hover:bg-violet-200 text-violet-700 dark:bg-violet-900/30 dark:hover:bg-violet-900/50 dark:text-violet-300",
+                                "border border-violet-200 dark:border-violet-700"
+                            )}
+                        >
+                            <Printer className="w-4 h-4" />
+                            พิมพ์รายงานแบบประเมิน
+                        </button>
+                        <button
+                            onClick={handleBack}
+                            className={cn(
+                                "inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all duration-200",
+                                "bg-white/80 hover:bg-gray-50 text-gray-700 border border-gray-200",
+                                "dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-300 dark:border-gray-700"
+                            )}
+                        >
+                            <ArrowLeft className="w-4 h-4" />
+                            แก้ไขแบบประเมิน
+                        </button>
+                        <button
+                            onClick={handlePublish}
+                            className={cn(
+                                "inline-flex items-center gap-2 px-6 py-2.5 gradient-primary text-white rounded-xl font-medium",
+                                "hover:shadow-lg hover:shadow-violet-500/25 transition-all duration-200"
+                            )}
+                        >
+                            <Send className="w-4 h-4" />
+                            เผยแพร่
+                        </button>
+                    </motion.div>
+                </motion.div>
             </div>
         </MainLayout>
     );

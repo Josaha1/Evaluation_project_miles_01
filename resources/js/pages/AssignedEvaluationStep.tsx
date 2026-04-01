@@ -11,6 +11,8 @@ import {
     Clock,
     CheckCircle,
     AlertCircle,
+    Loader2,
+    Save,
 } from "lucide-react";
 import axios from "axios";
 import { ProgressIndicator } from "@/Components/ProgressIndicator";
@@ -20,6 +22,7 @@ import { MultiEvaluateeQuestionCard } from "@/Components/MultiEvaluateeQuestionC
 import EvaluateeSelector from "@/Components/EvaluateeSelector";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/Components/ui/dialog";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface Option {
     id: number;
@@ -82,6 +85,7 @@ export default function AssignedEvaluationStep() {
         groupIndex,
         totalGroups,
         existingAnswers,
+        fiscal_year,
     } = usePage<{
         evaluation: { id: number };
         current_part: { id: number; title: string; aspects: Aspect[] };
@@ -104,11 +108,12 @@ export default function AssignedEvaluationStep() {
         groupIndex: number;
         totalGroups: number;
         existingAnswers?: { [questionId: number]: any };
+        fiscal_year?: number;
     }>().props;
 
     // Get evaluatees for this angle (fallback to current evaluatee if no others)
-    const evaluateesForRating = all_evaluatees_in_angle && all_evaluatees_in_angle.length > 0 
-        ? all_evaluatees_in_angle 
+    const evaluateesForRating = all_evaluatees_in_angle && all_evaluatees_in_angle.length > 0
+        ? all_evaluatees_in_angle
         : [{
             id: evaluatee_id,
             name: current_evaluatee.name,
@@ -121,73 +126,55 @@ export default function AssignedEvaluationStep() {
 
     // Log evaluatees info for debugging
     React.useEffect(() => {
-      
+
     }, [current_angle, all_evaluatees_in_angle, evaluateesForRating]);
 
     const [answers, setAnswers] = useState<{ [questionId: number]: { [evaluateeId: number]: any } }>({});
     const [currentIndex, setCurrentIndex] = useState(groupIndex || 0);
     const [isLoading, setIsLoading] = useState(false);
     const [showCompletionModal, setShowCompletionModal] = useState(false);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+    const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // โหลดคำตอบที่มีอยู่แล้วเมื่อเริ่มต้น
+    // Load existing answers
     useEffect(() => {
         if (existingAnswers) {
-
-
-            // Convert existing answers to new format - รองรับการโหลดข้อมูลทุกคน
             const convertedAnswers: { [questionId: number]: { [evaluateeId: number]: any } } = {};
-            
+
             Object.entries(existingAnswers).forEach(([questionId, answersByEvaluatee]) => {
-             
-                
-                // Initialize question answers if not exists
                 const questionIdNum = parseInt(questionId);
                 if (!convertedAnswers[questionIdNum]) {
                     convertedAnswers[questionIdNum] = {};
                 }
-                
-                // answersByEvaluatee ควรจะเป็น object ที่มี key เป็น evaluatee_id และ value เป็นคำตอบ
+
                 if (typeof answersByEvaluatee === "object" && answersByEvaluatee !== null) {
                     Object.entries(answersByEvaluatee).forEach(([evaluateeIdStr, answer]) => {
                         const evaluateeIdNum = parseInt(evaluateeIdStr);
-                        
-                        // Validate that this evaluatee is in our current evaluatees list
                         const isValidEvaluatee = evaluateesForRating.some(e => e.id === evaluateeIdNum);
-                        
+
                         if (isValidEvaluatee) {
                             convertedAnswers[questionIdNum][evaluateeIdNum] = answer;
-                         
-                        } else {
-                          
                         }
                     });
                 } else {
-                    // Fallback: if the data is not in the expected format, assign to current evaluatee
-                
                     convertedAnswers[questionIdNum][evaluatee_id] = answersByEvaluatee;
                 }
             });
-          
-            // นับจำนวนคำตอบต่อคนเพื่อให้เห็นสถานะการโหลดข้อมูล
+
             const answerCount: { [evaluateeId: number]: number } = {};
             Object.entries(convertedAnswers).forEach(([questionId, questionAnswers]) => {
-             
                 Object.keys(questionAnswers).forEach(evaluateeIdStr => {
                     const evaluateeId = parseInt(evaluateeIdStr);
                     answerCount[evaluateeId] = (answerCount[evaluateeId] || 0) + 1;
                 });
             });
-            
-          
+
             evaluateesForRating.forEach(evaluatee => {
                 const count = answerCount[evaluatee.id] || 0;
-               
             });
-            
+
             setAnswers(convertedAnswers);
         } else {
-         
-            // ถ้าไม่มีข้อมูลเก่า ให้ตั้งค่าโครงสร้างว่าง
             setAnswers({});
         }
     }, [existingAnswers, evaluatee_id, evaluateesForRating, all_evaluatees_in_angle]);
@@ -216,41 +203,36 @@ export default function AssignedEvaluationStep() {
     });
 
     const currentGroup = groupedQuestions[currentIndex];
-    
+
     // Check if we should go to last group (when coming from previous step navigation)
     useEffect(() => {
         const shouldGoToLast = new URLSearchParams(window.location.search).get('goto_last') === '1';
         if (shouldGoToLast && groupedQuestions.length > 0) {
             setCurrentIndex(groupedQuestions.length - 1);
-            // Remove the parameter from URL
             const url = new URL(window.location.href);
             url.searchParams.delete('goto_last');
             window.history.replaceState({}, '', url.toString());
         }
     }, [groupedQuestions.length]);
-    
+
     // Check if all questions are answered for all evaluatees in the angle
     const isGroupComplete = currentGroup.questions.every((q) => {
         const questionAnswers = answers[q.id] || {};
-        
-        // For multi-evaluatee mode (any question type)
+
         if (evaluateesForRating && evaluateesForRating.length > 1) {
             return evaluateesForRating.every(evaluatee => {
                 const ans = questionAnswers[evaluatee.id];
-                
-                // Check based on question type
+
                 switch (q.type) {
                     case "rating":
                         return ans !== undefined && ans !== "" && ans !== null;
                     case "choice":
-                        // Handle both simple value and object with other_text
                         if (typeof ans === 'object' && ans !== null) {
                             return ans.value !== undefined && ans.value !== "" && ans.value !== null;
                         } else {
                             return ans !== undefined && ans !== "" && ans !== null;
                         }
                     case "multiple_choice":
-                        // Handle both simple array and object with other_text
                         if (typeof ans === 'object' && ans !== null && !Array.isArray(ans)) {
                             return Array.isArray(ans.value) && ans.value.length > 0;
                         } else {
@@ -263,21 +245,18 @@ export default function AssignedEvaluationStep() {
                 }
             });
         }
-        
-        // For single evaluatee mode
+
         const ans = questionAnswers[evaluatee_id];
         switch (q.type) {
             case "rating":
                 return ans !== undefined && ans !== "" && ans !== null;
             case "choice":
-                // Handle both simple value and object with other_text
                 if (typeof ans === 'object' && ans !== null) {
                     return ans.value !== undefined && ans.value !== "" && ans.value !== null;
                 } else {
                     return ans !== undefined && ans !== "" && ans !== null;
                 }
             case "multiple_choice":
-                // Handle both simple array and object with other_text
                 if (typeof ans === 'object' && ans !== null && !Array.isArray(ans)) {
                     return Array.isArray(ans.value) && ans.value.length > 0;
                 } else {
@@ -290,6 +269,77 @@ export default function AssignedEvaluationStep() {
         }
     });
 
+    const autoSave = React.useCallback(async () => {
+        if (!currentGroup) return;
+
+        const currentAnswers: Record<string, any> = {};
+        currentGroup.questions.forEach((q) => {
+            const questionAnswers = answers[q.id];
+            if (questionAnswers) {
+                if (evaluateesForRating && evaluateesForRating.length > 1) {
+                    evaluateesForRating.forEach(evaluatee => {
+                        const val = questionAnswers[evaluatee.id];
+                        if (val !== undefined && val !== "" && val !== null) {
+                            const key = `${q.id}_${evaluatee.id}`;
+                            const answerData: any = {
+                                question_id: q.id,
+                                evaluatee_id: evaluatee.id,
+                                value: val
+                            };
+                            if (typeof val === 'object' && val !== null && val.other_text) {
+                                answerData.other_text = val.other_text;
+                                answerData.value = val.value;
+                            }
+                            currentAnswers[key] = answerData;
+                        }
+                    });
+                } else {
+                    const val = questionAnswers[evaluatee_id];
+                    if (val !== undefined && val !== "" && val !== null) {
+                        currentAnswers[q.id] = val;
+                    }
+                }
+            }
+        });
+
+        if (Object.keys(currentAnswers).length === 0) return;
+
+        setSaveStatus('saving');
+        try {
+            await axios.post(
+                route("assigned-evaluations.step", {
+                    evaluatee: evaluatee_id,
+                    step,
+                }),
+                {
+                    evaluation_id: evaluation.id,
+                    part_id: current_part.id,
+                    evaluatee_id,
+                    answers: currentAnswers,
+                    fiscal_year: fiscal_year,
+                }
+            );
+            setSaveStatus('saved');
+            setTimeout(() => setSaveStatus('idle'), 3000);
+        } catch {
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus('idle'), 5000);
+        }
+    }, [answers, currentGroup, step, evaluation.id, current_part.id, evaluatee_id, evaluateesForRating, fiscal_year]);
+
+    useEffect(() => {
+        return () => {
+            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        };
+    }, []);
+
+    const triggerAutoSave = () => {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+            autoSave();
+        }, 2000);
+    };
+
     const updateAnswer = (questionId: number, evaluateeId: number, value: any) => {
         setAnswers((prev) => ({
             ...prev,
@@ -298,9 +348,9 @@ export default function AssignedEvaluationStep() {
                 [evaluateeId]: value
             }
         }));
+        triggerAutoSave();
     };
-    
-    // Legacy updateAnswer for backward compatibility with single evaluatee questions
+
     const updateSingleAnswer = (questionId: number, value: any) => {
         setAnswers((prev) => ({
             ...prev,
@@ -309,22 +359,20 @@ export default function AssignedEvaluationStep() {
                 [evaluatee_id]: value
             }
         }));
+        triggerAutoSave();
     };
 
     const handlePrevious = () => {
         if (currentIndex > 0) {
-            // Go to previous group within current step
             setCurrentIndex(currentIndex - 1);
         } else {
-            // Go to previous step if we're at the first group of current step
             if (step > 1) {
                 setIsLoading(true);
-                // Add parameter to indicate we want to go to the last group of previous step
                 router.visit(
                     route("assigned-evaluations.questions", {
                         evaluatee: evaluatee_id,
                         step: step - 1,
-                        goto_last: 1  // Flag to indicate going to last group
+                        goto_last: 1
                     }),
                     {
                         method: "get",
@@ -341,38 +389,33 @@ export default function AssignedEvaluationStep() {
                     }
                 );
             } else {
-                // If we're at step 1, go back to dashboard
                 router.visit(route("dashboard"));
             }
         }
     };
 
     const handleNextGroup = async () => {
-        const currentAnswers: Record<number, any> = {};
-        
-        // Scroll to top when moving to next group within the same step
+        const currentAnswers: Record<string, any> = {};
+
         if (currentIndex < groupedQuestions.length - 1) {
             setTimeout(() => {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }, 100);
         }
-        
+
         currentGroup.questions.forEach((q) => {
             const questionAnswers = answers[q.id];
             if (questionAnswers) {
-                // For multi-evaluatee mode (any question type)
                 if (evaluateesForRating && evaluateesForRating.length > 1) {
                     evaluateesForRating.forEach(evaluatee => {
                         const val = questionAnswers[evaluatee.id];
-                        
-                        // Validate answer based on question type
+
                         let isValidAnswer = false;
                         switch (q.type) {
                             case "rating":
                                 isValidAnswer = val !== undefined && val !== "" && val !== null;
                                 break;
                             case "choice":
-                                // Handle both simple value and object with other_text
                                 if (typeof val === 'object' && val !== null) {
                                     isValidAnswer = val.value !== undefined && val.value !== "" && val.value !== null;
                                 } else {
@@ -380,7 +423,6 @@ export default function AssignedEvaluationStep() {
                                 }
                                 break;
                             case "multiple_choice":
-                                // Handle both simple array and object with other_text
                                 if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
                                     isValidAnswer = Array.isArray(val.value) && val.value.length > 0;
                                 } else {
@@ -393,31 +435,27 @@ export default function AssignedEvaluationStep() {
                             default:
                                 isValidAnswer = val !== undefined && val !== "" && val !== null;
                         }
-                        
+
                         if (isValidAnswer) {
-                            // Create a unique key for each question-evaluatee combination
                             const key = `${q.id}_${evaluatee.id}`;
-                            
-                            // Handle other_text for choice and multiple_choice questions
-                            let answerData = {
+
+                            const answerData: any = {
                                 question_id: q.id,
                                 evaluatee_id: evaluatee.id,
                                 value: val
                             };
-                            
+
                             if (typeof val === 'object' && val !== null && val.other_text) {
                                 answerData.other_text = val.other_text;
                                 answerData.value = val.value;
                             }
-                            
+
                             currentAnswers[key] = answerData;
                         }
                     });
                 } else {
-                    // For single evaluatee mode
                     const val = questionAnswers[evaluatee_id];
-                    
-                    // Validate answer based on question type
+
                     let isValidAnswer = false;
                     switch (q.type) {
                         case "rating":
@@ -433,7 +471,7 @@ export default function AssignedEvaluationStep() {
                         default:
                             isValidAnswer = val !== undefined && val !== "" && val !== null;
                     }
-                    
+
                     if (isValidAnswer) {
                         currentAnswers[q.id] = val;
                     }
@@ -454,6 +492,7 @@ export default function AssignedEvaluationStep() {
                         part_id: current_part.id,
                         evaluatee_id,
                         answers: currentAnswers,
+                        fiscal_year: fiscal_year,
                     }
                 );
                 toast.success("บันทึกคำตอบเรียบร้อยแล้ว");
@@ -469,26 +508,20 @@ export default function AssignedEvaluationStep() {
         if (currentIndex < groupedQuestions.length - 1) {
             setCurrentIndex(currentIndex + 1);
         } else {
-            // Current group completed, determine next action
             setIsLoading(true);
-            
-            // Check if this is the last group in the last step
+
             if (step >= total_steps && currentIndex >= groupedQuestions.length - 1) {
-                // Complete evaluation, show success message and go back to dashboard
                 setShowCompletionModal(true);
                 setIsLoading(false);
                 return;
             }
-            
-            // Check if this is the last group in current step but not last step
+
             if (currentIndex >= groupedQuestions.length - 1 && step < total_steps) {
-                // Go to next step
-                router.visit(
-                    route("assigned-evaluations.questions", {
-                        evaluatee: evaluatee_id,
-                        step: step + 1,
-                    }),
-                    {
+                const nextUrl = route("assigned-evaluations.questions", {
+                    evaluatee: evaluatee_id,
+                    step: step + 1,
+                }) + (fiscal_year ? `?fiscal_year=${fiscal_year}` : '');
+                router.visit(nextUrl, {
                         method: "get",
                         preserveScroll: false,
                         preserveState: false,
@@ -503,13 +536,11 @@ export default function AssignedEvaluationStep() {
                     }
                 );
             } else {
-                // Stay in current step, but refresh to go to next appropriate group
-                router.visit(
-                    route("assigned-evaluations.questions", {
-                        evaluatee: evaluatee_id,
-                        step: step,
-                    }),
-                    {
+                const sameStepUrl = route("assigned-evaluations.questions", {
+                    evaluatee: evaluatee_id,
+                    step: step,
+                }) + (fiscal_year ? `?fiscal_year=${fiscal_year}` : '');
+                router.visit(sameStepUrl, {
                         method: "get",
                         preserveScroll: false,
                         preserveState: false,
@@ -532,7 +563,7 @@ export default function AssignedEvaluationStep() {
 
     return (
         <MainLayout title="แบบประเมินผู้ได้รับมอบหมาย">
-            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-purple-900/20">
+            <div className="gradient-primary-soft min-h-screen">
                 <div className="max-w-4xl mx-auto px-6 py-8">
                     {/* Header */}
                     <motion.div
@@ -542,7 +573,7 @@ export default function AssignedEvaluationStep() {
                     >
                         <div className="flex items-center justify-center space-x-2 mb-4">
                             <Users
-                                className="text-indigo-600 dark:text-indigo-400"
+                                className="text-violet-600 dark:text-violet-400"
                                 size={24}
                             />
                             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -550,10 +581,24 @@ export default function AssignedEvaluationStep() {
                             </h1>
                         </div>
 
-                        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50">
-                            <h2 className="text-xl font-semibold text-indigo-700 dark:text-indigo-400 mb-4">
-                                {current_part.title}
-                            </h2>
+                        <div className="glass-card rounded-2xl p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-xl font-semibold text-violet-700 dark:text-violet-400">
+                                    {current_part.title}
+                                </h2>
+                                {saveStatus !== 'idle' && (
+                                    <div className={cn(
+                                        "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                                        saveStatus === 'saving' && "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400",
+                                        saveStatus === 'saved' && "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400",
+                                        saveStatus === 'error' && "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                                    )}>
+                                        {saveStatus === 'saving' && <><Loader2 className="w-3 h-3 animate-spin" />กำลังบันทึก...</>}
+                                        {saveStatus === 'saved' && <><Save className="w-3 h-3" />บันทึกแล้ว</>}
+                                        {saveStatus === 'error' && <><AlertCircle className="w-3 h-3" />บันทึกไม่สำเร็จ</>}
+                                    </div>
+                                )}
+                            </div>
 
                             <ProgressIndicator
                                 currentStep={step}
@@ -564,63 +609,58 @@ export default function AssignedEvaluationStep() {
                         </div>
                     </motion.div>
 
-                    {/* Evaluatees Info Card - แสดงเมื่อมีหลายคน */}
+                    {/* Evaluatees Info Card */}
                     {evaluateesForRating.length > 1 && (
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 border border-gray-200/50 dark:border-gray-700/50 mb-6"
+                            className="glass-card rounded-2xl p-4 mb-6"
                         >
                             <div className="flex items-center space-x-2 mb-4">
-                                <Users size={16} className="text-indigo-600 dark:text-indigo-400" />
+                                <Users size={16} className="text-violet-600 dark:text-violet-400" />
                                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
                                     รายชื่อผู้ถูกประเมินทั้งหมด
                                 </h3>
-                                <span className="text-xs px-2 py-1 rounded-full font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                                <span className="text-xs px-2 py-1 rounded-full font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
                                     {evaluateesForRating.length} คน
                                 </span>
                             </div>
-                            
-                            {/* Group by angle */}
+
                             <div className="space-y-4">
                                 {['top', 'bottom', 'left', 'right'].map((angle) => {
                                     const angleEvaluatees = evaluateesForRating.filter(e => e.angle === angle);
                                     if (angleEvaluatees.length === 0) return null;
-                                    
+
                                     const angleConfig = {
-                                        top: { 
-                                            label: 'องศาบน', 
-                                            icon: '⬆️', 
-                                            color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-                                            bgColor: 'bg-blue-50 dark:bg-blue-900/10'
+                                        top: {
+                                            label: 'ผู้บังคับบัญชา',
+                                            color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
+                                            bgColor: 'bg-violet-50 dark:bg-violet-900/10'
                                         },
-                                        bottom: { 
-                                            label: 'องศาล่าง', 
-                                            icon: '⬇️', 
-                                            color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-                                            bgColor: 'bg-green-50 dark:bg-green-900/10'
+                                        bottom: {
+                                            label: 'ผู้ใต้บังคับบัญชา',
+                                            color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+                                            bgColor: 'bg-emerald-50 dark:bg-emerald-900/10'
                                         },
-                                        left: { 
-                                            label: 'องศาซ้าย', 
-                                            icon: '⬅️', 
-                                            color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-                                            bgColor: 'bg-yellow-50 dark:bg-yellow-900/10'
+                                        left: {
+                                            label: 'องศาซ้าย',
+                                            color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+                                            bgColor: 'bg-amber-50 dark:bg-amber-900/10'
                                         },
-                                        right: { 
-                                            label: 'องศาขวา', 
-                                            icon: '➡️', 
+                                        right: {
+                                            label: 'องศาขวา',
                                             color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
                                             bgColor: 'bg-purple-50 dark:bg-purple-900/10'
                                         }
                                     };
-                                    
+
                                     const config = angleConfig[angle];
-                                    
+
                                     return (
-                                        <div key={angle} className={`rounded-lg p-3 ${config.bgColor} border border-gray-200/50 dark:border-gray-700/50`}>
+                                        <div key={angle} className={`rounded-xl p-3 ${config.bgColor} border border-gray-200/50 dark:border-gray-700/50`}>
                                             <div className="flex items-center space-x-2 mb-2">
                                                 <span className={`text-xs px-2 py-1 rounded-full font-medium ${config.color}`}>
-                                                    {config.icon} {config.label}
+                                                    {config.label}
                                                 </span>
                                                 <span className="text-xs text-gray-500 dark:text-gray-400">
                                                     {angleEvaluatees.length} คน
@@ -673,13 +713,13 @@ export default function AssignedEvaluationStep() {
                                 <motion.div
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-6 text-white"
+                                    className="gradient-primary rounded-2xl p-6 text-white shadow-lg"
                                 >
                                     <h3 className="text-xl font-bold mb-2">
-                                        📋 {currentGroup.subaspectName}
+                                        {currentGroup.subaspectName}
                                     </h3>
                                     {currentGroup.subaspectDescription && (
-                                        <p className="text-indigo-100 leading-relaxed">
+                                        <p className="text-violet-100 leading-relaxed">
                                             {currentGroup.subaspectDescription}
                                         </p>
                                     )}
@@ -690,11 +730,9 @@ export default function AssignedEvaluationStep() {
                             <div className="space-y-6">
                                 {currentGroup.questions.map(
                                     (question, index) => {
-                                        // Use MultiEvaluateeQuestionCard for all questions when there are multiple evaluatees
                                         if (evaluateesForRating.length > 1) {
                                             const questionAnswers = answers[question.id] || {};
-                                          
-                                            
+
                                             return (
                                                 <MultiEvaluateeQuestionCard
                                                     key={question.id}
@@ -708,8 +746,7 @@ export default function AssignedEvaluationStep() {
                                                 />
                                             );
                                         }
-                                        
-                                        // Use regular QuestionCard for single evaluatee
+
                                         return (
                                             <QuestionCard
                                                 key={question.id}
@@ -731,8 +768,8 @@ export default function AssignedEvaluationStep() {
                                 animate={{ opacity: 1 }}
                                 className={`flex items-center justify-center space-x-2 p-4 rounded-xl ${
                                     isGroupComplete
-                                        ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
-                                        : "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400"
+                                        ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+                                        : "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
                                 }`}
                             >
                                 {isGroupComplete ? (
@@ -751,24 +788,21 @@ export default function AssignedEvaluationStep() {
                                                 currentGroup.questions.filter(
                                                     (q) => {
                                                         const questionAnswers = answers[q.id] || {};
-                                                        
-                                                        // For multi-evaluatee mode
+
                                                         if (evaluateesForRating && evaluateesForRating.length > 1) {
                                                             return evaluateesForRating.every(evaluatee => {
                                                                 const ans = questionAnswers[evaluatee.id];
-                                                                
+
                                                                 switch (q.type) {
                                                                     case "rating":
                                                                         return ans !== undefined && ans !== "" && ans !== null;
                                                                     case "choice":
-                                                                        // Handle both simple value and object with other_text
                                                                         if (typeof ans === 'object' && ans !== null) {
                                                                             return ans.value !== undefined && ans.value !== "" && ans.value !== null;
                                                                         } else {
                                                                             return ans !== undefined && ans !== "" && ans !== null;
                                                                         }
                                                                     case "multiple_choice":
-                                                                        // Handle both simple array and object with other_text
                                                                         if (typeof ans === 'object' && ans !== null && !Array.isArray(ans)) {
                                                                             return Array.isArray(ans.value) && ans.value.length > 0;
                                                                         } else {
@@ -781,21 +815,18 @@ export default function AssignedEvaluationStep() {
                                                                 }
                                                             });
                                                         }
-                                                        
-                                                        // For single evaluatee mode
+
                                                         const ans = questionAnswers[evaluatee_id];
                                                         switch (q.type) {
                                                             case "rating":
                                                                 return ans !== undefined && ans !== "" && ans !== null;
                                                             case "choice":
-                                                                // Handle both simple value and object with other_text
                                                                 if (typeof ans === 'object' && ans !== null) {
                                                                     return ans.value !== undefined && ans.value !== "" && ans.value !== null;
                                                                 } else {
                                                                     return ans !== undefined && ans !== "" && ans !== null;
                                                                 }
                                                             case "multiple_choice":
-                                                                // Handle both simple array and object with other_text
                                                                 if (typeof ans === 'object' && ans !== null && !Array.isArray(ans)) {
                                                                     return Array.isArray(ans.value) && ans.value.length > 0;
                                                                 } else {
@@ -810,7 +841,7 @@ export default function AssignedEvaluationStep() {
                                                 ).length
                                             }
                                             /{currentGroup.questions.length}
-                                            {evaluateesForRating.length > 1 && ` • ${evaluateesForRating.length} คน`})
+                                            {evaluateesForRating.length > 1 && ` | ${evaluateesForRating.length} คน`})
                                         </span>
                                     </>
                                 )}
@@ -822,9 +853,8 @@ export default function AssignedEvaluationStep() {
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="mt-6 sm:mt-8 p-4 sm:p-6 lg:p-8 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-gray-200/50 dark:border-gray-700/50 shadow-lg"
+                        className="mt-6 sm:mt-8 glass-card rounded-2xl p-4 sm:p-6 lg:p-8 shadow-lg"
                     >
-                        {/* Mobile-first layout */}
                         <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-3 lg:gap-6 lg:items-center">
                             {/* Left: Previous Button */}
                             <div className="flex justify-start">
@@ -832,7 +862,7 @@ export default function AssignedEvaluationStep() {
                                     variant="outline"
                                     onClick={handlePrevious}
                                     disabled={isLoading}
-                                    className="flex items-center space-x-2 px-4 py-2 sm:px-6 sm:py-3 w-auto min-w-[120px] transition-all duration-200 hover:scale-105 disabled:hover:scale-100"
+                                    className="flex items-center space-x-2 px-4 py-2 sm:px-6 sm:py-3 w-auto min-w-[120px] rounded-xl border-2 border-violet-200 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all duration-200 hover:scale-105 disabled:hover:scale-100"
                                 >
                                     <ArrowLeft size={16} className="sm:w-5 sm:h-5" />
                                     <span className="font-medium">ย้อนกลับ</span>
@@ -848,11 +878,8 @@ export default function AssignedEvaluationStep() {
                                     <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
                                         ขั้นตอนที่ {step} จาก {total_steps}
                                     </p>
-                                    
                                 </div>
-                                
-                                
-                                
+
                                 {/* Progress Bar */}
                                 <div className="w-full max-w-xs mx-auto">
                                     <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -860,8 +887,8 @@ export default function AssignedEvaluationStep() {
                                         <span>{Math.round(((currentIndex + 1) / groupedQuestions.length) * 100)}%</span>
                                     </div>
                                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                                        <div 
-                                            className="bg-gradient-to-r from-indigo-500 to-purple-600 h-2 rounded-full transition-all duration-500 ease-out"
+                                        <div
+                                            className="gradient-primary h-2 rounded-full transition-all duration-500 ease-out"
                                             style={{ width: `${((currentIndex + 1) / groupedQuestions.length) * 100}%` }}
                                         />
                                     </div>
@@ -873,7 +900,7 @@ export default function AssignedEvaluationStep() {
                                 <Button
                                     onClick={handleNextGroup}
                                     disabled={!isGroupComplete || isLoading}
-                                    className="flex items-center space-x-2 px-4 py-2 sm:px-6 sm:py-3 w-auto min-w-[140px] bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 hover:scale-105 disabled:hover:scale-100 shadow-lg"
+                                    className="flex items-center space-x-2 px-4 py-2 sm:px-6 sm:py-3 w-auto min-w-[140px] gradient-primary text-white rounded-xl transition-all duration-200 hover:scale-105 disabled:hover:scale-100 shadow-lg hover:shadow-xl disabled:opacity-50"
                                 >
                                     {isLoading ? (
                                         <>
@@ -912,9 +939,9 @@ export default function AssignedEvaluationStep() {
             </div>
             {/* Completion Modal */}
             <Dialog open={showCompletionModal} onOpenChange={setShowCompletionModal}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="sm:max-w-md glass-card rounded-2xl">
                     <DialogHeader>
-                        <DialogTitle className="text-center text-xl">
+                        <DialogTitle className="text-center text-xl text-gray-900 dark:text-white">
                             การประเมินเสร็จสมบูรณ์แล้ว!
                         </DialogTitle>
                         <DialogDescription className="text-center space-y-2">
@@ -922,8 +949,8 @@ export default function AssignedEvaluationStep() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex justify-center py-4">
-                        <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                            <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+                        <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                            <CheckCircle className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
                         </div>
                     </div>
                     <DialogFooter className="sm:justify-center">
@@ -936,7 +963,7 @@ export default function AssignedEvaluationStep() {
                                     preserveState: false,
                                 });
                             }}
-                            className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                            className="px-6 py-2.5 gradient-primary text-white rounded-xl hover:opacity-90 transition-opacity font-medium shadow-lg"
                         >
                             กลับหน้าหลัก
                         </button>

@@ -169,7 +169,7 @@ class ProfileController extends Controller
         $fileName = 'user_' . $userId . '_' . time() . '.' . $photo->getClientOriginalExtension();
 
         // สำหรับ Shared Hosting - บันทึกไปที่ public_html/storage
-        $publicHtmlStoragePath = base_path('../public_html/storage/images/users');
+        $publicHtmlStoragePath = public_path('storage/images/users');
 
         // สร้างโฟลเดอร์ถ้ายังไม่มี
         if (! file_exists($publicHtmlStoragePath)) {
@@ -198,7 +198,7 @@ class ProfileController extends Controller
         }
 
         // ลบจาก public_html/storage (Shared hosting)
-        $publicHtmlFile = base_path('../public_html/storage/' . $photoPath);
+        $publicHtmlFile = public_path('storage/' . $photoPath);
         if (file_exists($publicHtmlFile)) {
             unlink($publicHtmlFile);
         }
@@ -208,12 +208,7 @@ class ProfileController extends Controller
 
     public function show()
     {
-        $user = Auth::user();
-        $user->load(['division', 'department', 'faction', 'position']);
-
-        return Inertia::render('ProfileShow', [
-            'user' => $user,
-        ]);
+        return redirect()->route('profile.edit');
     }
 
     // Helper method สำหรับสร้างหน่วยงานใหม่

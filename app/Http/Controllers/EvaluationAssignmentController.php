@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
+use App\Services\EvaluationLookupService;
 
 class EvaluationAssignmentController extends Controller
 {
@@ -16,10 +17,26 @@ class EvaluationAssignmentController extends Controller
         $user = auth()->user();
 
         $userId     = $user->id;
-        $fiscalYear = $request->input('fiscal_year', now()->month >= 10 ? now()->addYear()->year : now()->year);
+        $defaultFiscalYear = EvaluationLookupService::currentFiscalYear();
+        $fiscalYear = $request->input('fiscal_year', $defaultFiscalYear);
+
+        // If no assignments in requested year, fall back to latest year with data for this user
+        $hasData = EvaluationAssignment::where('fiscal_year', $fiscalYear)
+            ->where(function ($q) use ($userId) {
+                $q->where('evaluator_id', $userId)->orWhere('evaluatee_id', $userId);
+            })->exists();
+
+        if (!$hasData && !$request->has('fiscal_year')) {
+            $latestYear = EvaluationAssignment::where(function ($q) use ($userId) {
+                $q->where('evaluator_id', $userId)->orWhere('evaluatee_id', $userId);
+            })->max('fiscal_year');
+            if ($latestYear) {
+                $fiscalYear = $latestYear;
+            }
+        }
 
         // Use grade-based evaluation selection for self-evaluation
-        $evaluation = $this->getSelfEvaluationByGrade($user->grade);
+        $evaluation = $this->getSelfEvaluationByGrade($user->grade, $fiscalYear);
 
         $parts = collect();
         if ($evaluation) {
@@ -31,117 +48,104 @@ class EvaluationAssignmentController extends Controller
             $parts = $evaluation->parts->sortBy('order')->values();
         }
 
-        $fiscalYears = EvaluationAssignment::select('fiscal_year')->distinct()->orderBy('fiscal_year', 'desc')->pluck('fiscal_year');
+        $currentFiscalYear = EvaluationLookupService::currentFiscalYear();
+        $fiscalYears = EvaluationAssignment::select('fiscal_year')->distinct()->pluck('fiscal_year')
+            ->push($currentFiscalYear)->unique()->sortDesc()->values();
 
-        // Fix assignments with wrong evaluation_id for C9-12
-        $this->fixEvaluationIds($userId, $fiscalYear);
+        // Pre-load all published evaluations with nested structure (only ~6 records)
+        $allEvaluations = Evaluation::with([
+            'parts.questions',
+            'parts.aspects.questions',
+            'parts.aspects.subaspects.questions',
+        ])->where('status', 'published')->get()->keyBy('id');
 
-        // Assigned Evaluations with evaluation_id information
-        $assignments = EvaluationAssignment::with([
-            'evaluatee.position.department.division', // ✅ preload
-            'evaluation' // ✅ load evaluation details
+        // Pre-compute question IDs per evaluation (cached in memory)
+        $evalQuestionIds = [];
+        $evalPartQuestionIds = [];
+        foreach ($allEvaluations as $evalId => $eval) {
+            $evalParts = $eval->parts->sortBy('order')->values();
+            $allQIds = $evalParts->flatMap(function ($part) {
+                return collect()
+                    ->merge($part->questions->pluck('id'))
+                    ->merge($part->aspects->flatMap(fn($a) =>
+                        collect()
+                            ->merge($a->questions->pluck('id'))
+                            ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
+                    ));
+            })->unique()->filter();
+            $evalQuestionIds[$evalId] = $allQIds;
+
+            $partQIds = [];
+            foreach ($evalParts as $index => $part) {
+                $partQIds[$index] = collect()
+                    ->merge($part->questions->pluck('id'))
+                    ->merge($part->aspects->flatMap(fn($aspect) =>
+                        collect()
+                            ->merge($aspect->questions->pluck('id'))
+                            ->merge(optional($aspect->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
+                    ));
+            }
+            $evalPartQuestionIds[$evalId] = $partQIds;
+        }
+
+        // Load assignments with eager-loaded relations
+        $rawAssignments = EvaluationAssignment::with([
+            'evaluatee.position', 'evaluatee.department', 'evaluatee.division',
+            'evaluation',
         ])
             ->where('evaluator_id', $userId)
             ->where('fiscal_year', $fiscalYear)
+            ->whereHas('evaluatee')
+            ->get();
+
+        // Batch load all answers for this user in one query (filtered by fiscal year)
+        $evaluateeIds = $rawAssignments->pluck('evaluatee_id')->unique();
+        $answeredQuestions = Answer::where('user_id', $userId)
+            ->where('fiscal_year', $fiscalYear)
+            ->whereIn('evaluatee_id', $evaluateeIds)
+            ->select('evaluation_id', 'evaluatee_id', 'question_id')
             ->get()
-            ->filter(fn($a) => $a->evaluatee !== null)
-            ->map(function ($a) use ($userId) {
+            ->groupBy(fn($a) => $a->evaluation_id . '_' . $a->evaluatee_id)
+            ->map(fn($group) => $group->pluck('question_id'));
+
+        $assignments = $rawAssignments->map(function ($a) use ($userId, $allEvaluations, $evalQuestionIds, $evalPartQuestionIds, $answeredQuestions) {
                 $stepToResume = 1;
                 $progress     = 0;
 
-                // Find evaluation by evaluatee's user type and grade if evaluation_id is missing
-                $evaluation = null;
-                if ($a->evaluation_id) {
-                    $evaluation = Evaluation::with([
-                        'parts.questions',
-                        'parts.aspects.questions',
-                        'parts.aspects.subaspects.questions',
-                    ])->find($a->evaluation_id);
-                }
-                
-                // Fallback: find appropriate evaluation by evaluatee's grade and user_type
+                // Resolve evaluation from pre-loaded cache
+                $evaluation = $a->evaluation_id ? ($allEvaluations[$a->evaluation_id] ?? null) : null;
+
+                // Fallback: find by grade
                 if (!$evaluation && $a->evaluatee) {
-                    $userType = $a->evaluatee->user_type instanceof \BackedEnum 
-                        ? $a->evaluatee->user_type->value 
-                        : $a->evaluatee->user_type;
-                    
                     $grade = $a->evaluatee->grade;
-                    
-                    // Priority search: Find evaluation specifically for this grade range
-                    $evaluation = Evaluation::with([
-                        'parts.questions',
-                        'parts.aspects.questions',
-                        'parts.aspects.subaspects.questions',
-                    ])
-                    ->where('user_type', $userType)
-                    ->where('grade_min', '<=', $grade)
-                    ->where('grade_max', '>=', $grade)
-                    ->where('status', 'published')
-                    // For C9-12, prefer evaluations that have title containing "9-12" or "ผู้บริหาร"
-                    ->when($grade >= 9 && $grade <= 12, function($query) {
-                        return $query->where(function($q) {
-                            $q->where('title', 'LIKE', '%9-12%')
-                              ->orWhere('title', 'LIKE', '%ผู้บริหาร%')
-                              ->orWhere('title', 'LIKE', '%บริหาร%');
-                        });
-                    })
-                    ->orderByRaw('
-                        CASE
-                            WHEN title LIKE "%9-12%" THEN 1
-                            WHEN title LIKE "%ผู้บริหาร%" THEN 2
-                            WHEN title LIKE "%บริหาร%" THEN 3
-                            ELSE 4
-                        END
-                    ')
-                    ->latest()
-                    ->first();
+                    $evaluation = $allEvaluations->first(function ($eval) use ($grade) {
+                        return $eval->user_type === 'internal'
+                            && $eval->grade_min <= $grade
+                            && $eval->grade_max >= $grade
+                            && !str_contains($eval->title, 'ตนเอง');
+                    });
                 }
 
                 if ($evaluation) {
-                    $parts = $evaluation->parts->sortBy('order')->values();
-
-                    $questionIds = $parts->flatMap(function ($part) {
-                        return collect()
-                            ->merge($part->questions->pluck('id'))
-                            ->merge($part->aspects->flatMap(fn($a) =>
-                                collect()
-                                    ->merge($a->questions->pluck('id'))
-                                    ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
-                            ));
-                    })->unique()->filter();
-
-                    $answeredCount = Answer::where('evaluation_id', $evaluation->id)
-                        ->where('user_id', $userId)
-                        ->where('evaluatee_id', $a->evaluatee_id)
-                        ->whereIn('question_id', $questionIds)
-                        ->count();
+                    $questionIds = $evalQuestionIds[$evaluation->id] ?? collect();
+                    $cacheKey = $evaluation->id . '_' . $a->evaluatee_id;
+                    $answered = $answeredQuestions[$cacheKey] ?? collect();
+                    $answeredInEval = $answered->intersect($questionIds);
 
                     $totalQuestions = $questionIds->count();
-                    $progress       = $totalQuestions > 0 ? round(($answeredCount / $totalQuestions) * 100, 2) : 0;
+                    $progress = $totalQuestions > 0 ? round(($answeredInEval->count() / $totalQuestions) * 100, 2) : 0;
 
-                    foreach ($parts as $index => $part) {
-                        $partQuestionIds = collect()
-                            ->merge($part->questions->pluck('id'))
-                            ->merge($part->aspects->flatMap(fn($aspect) =>
-                                collect()
-                                    ->merge($aspect->questions->pluck('id'))
-                                    ->merge(optional($aspect->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
-                            ));
-
-                        $answeredInPart = Answer::where('evaluation_id', $evaluation->id)
-                            ->where('user_id', $userId)
-                            ->where('evaluatee_id', $a->evaluatee_id)
-                            ->whereIn('question_id', $partQuestionIds)
-                            ->pluck('question_id');
-
-                        if ($partQuestionIds->diff($answeredInPart)->isNotEmpty()) {
+                    // Find step to resume from cached part question IDs
+                    $partQIds = $evalPartQuestionIds[$evaluation->id] ?? [];
+                    foreach ($partQIds as $index => $partQuestionIds) {
+                        if ($partQuestionIds->diff($answered)->isNotEmpty()) {
                             $stepToResume = $index + 1;
                             break;
                         }
                     }
                 }
 
-                $result = [
+                return [
                     'id'              => $a->id,
                     'evaluatee_id'    => $a->evaluatee_id,
                     'evaluatee_name'  => trim("{$a->evaluatee->prename} {$a->evaluatee->fname} {$a->evaluatee->lname}"),
@@ -156,20 +160,6 @@ class EvaluationAssignmentController extends Controller
                     'evaluation_id'   => $evaluation ? $evaluation->id : ($a->evaluation_id ?? null),
                     'evaluation_title'=> $evaluation ? $evaluation->title : ($a->evaluation ? $a->evaluation->title : 'ไม่ระบุ'),
                 ];
-
-
-                // Debug log for C9-12 to verify correct evaluation_id
-                if ($a->evaluatee && $a->evaluatee->grade >= 9 && $a->evaluatee->grade <= 12) {
-                    \Log::info('C9-12 Final Assignment Data', [
-                        'evaluatee_name' => $result['evaluatee_name'],
-                        'grade' => $result['grade'],
-                        'progress' => $progress,
-                        'evaluation_id' => $result['evaluation_id'],
-                        'evaluation_title' => $result['evaluation_title'],
-                    ]);
-                }
-
-                return $result;
             });
 
         // Group assignments by evaluation and angle for better dashboard display
@@ -200,7 +190,7 @@ class EvaluationAssignmentController extends Controller
             ];
         });
 
-        // Self Evaluation
+        // Self Evaluation — single query for all self-evaluation answers
         $selfProgress = 0;
         $selfStep     = 1;
 
@@ -215,15 +205,18 @@ class EvaluationAssignmentController extends Controller
                     ));
             })->unique()->filter();
 
-            $answeredCount = Answer::where('evaluation_id', $evaluation->id)
+            // Single query: load all self-evaluation answered question IDs (filtered by fiscal year)
+            $selfAnsweredIds = Answer::where('evaluation_id', $evaluation->id)
                 ->where('user_id', $userId)
                 ->where('evaluatee_id', $userId)
+                ->where('fiscal_year', $fiscalYear)
                 ->whereIn('question_id', $questionIds)
-                ->count();
+                ->pluck('question_id');
 
             $totalQuestions = $questionIds->count();
-            $selfProgress   = $totalQuestions > 0 ? round(($answeredCount / $totalQuestions) * 100, 2) : 0;
+            $selfProgress   = $totalQuestions > 0 ? round(($selfAnsweredIds->count() / $totalQuestions) * 100, 2) : 0;
 
+            // Find step to resume using in-memory check (no extra queries)
             foreach ($parts as $i => $part) {
                 $partQ = collect()
                     ->merge($part->questions->pluck('id'))
@@ -233,13 +226,7 @@ class EvaluationAssignmentController extends Controller
                             ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
                     ));
 
-                $ans = Answer::where('evaluation_id', $evaluation->id)
-                    ->where('user_id', $userId)
-                    ->where('evaluatee_id', $userId)
-                    ->whereIn('question_id', $partQ)
-                    ->pluck('question_id');
-
-                if ($partQ->diff($ans)->isNotEmpty()) {
+                if ($partQ->diff($selfAnsweredIds)->isNotEmpty()) {
                     $selfStep = $i + 1;
                     break;
                 }
@@ -308,41 +295,19 @@ class EvaluationAssignmentController extends Controller
 
     /**
      * Get self-evaluation form based on user grade
-     * Uses specific evaluation forms for self-evaluation with 'ประเมินตนเอง' in title
      */
-    private function getSelfEvaluationByGrade($userGrade)
+    private function getSelfEvaluationByGrade($userGrade, ?int $fiscalYear = null)
     {
-        $evaluationQuery = Evaluation::where('status', 'published')
-            ->where('user_type', 'internal');
-        
-        if ($userGrade >= 9 && $userGrade <= 12) {
-            // Executive level (grades 9-12) - use specific self-evaluation form
-            $evaluation = $evaluationQuery->where('grade_min', '<=', 12)
-                ->where('grade_max', '>=', 9)
-                ->where('title', 'LIKE', '%ประเมินตนเอง%')
-                ->first();
-        } elseif ($userGrade >= 4 && $userGrade <= 8) {
-            // Staff level (grades 4-8) - use specific self-evaluation form
-            $evaluation = $evaluationQuery->where('grade_min', '<=', 8)
-                ->where('grade_max', '>=', 4)
-                ->where('title', 'LIKE', '%ประเมินตนเอง%')
-                ->first();
-        } else {
-            // Fallback to original logic for other grades
-            $evaluation = $evaluationQuery->where('grade_min', '<=', $userGrade)
-                ->where('grade_max', '>=', $userGrade)
-                ->where('title', 'LIKE', '%ประเมินตนเอง%')
-                ->first();
-        }
-
-        return $evaluation;
+        return EvaluationLookupService::findSelfEvalByGrade((int) $userGrade, $fiscalYear);
     }
 
     public function create()
     {
         $users = User::orderBy('fname')->get(['id', 'fname', 'lname', 'position_id']);
 
-        $fiscalYears = EvaluationAssignment::select('fiscal_year')->distinct()->pluck('fiscal_year')->sortDesc()->values();
+        $currentFiscalYear = EvaluationLookupService::currentFiscalYear();
+        $fiscalYears = EvaluationAssignment::select('fiscal_year')->distinct()->pluck('fiscal_year')
+            ->push($currentFiscalYear)->unique()->sortDesc()->values();
 
         if ($fiscalYears->isEmpty()) {
             $fiscalYears = collect(range(now()->year + 1, now()->year - 4))->values();
@@ -397,47 +362,53 @@ class EvaluationAssignmentController extends Controller
             'evaluatee_ids.*' => 'exists:users,id|different:evaluator_id',
         ]);
 
-        $fiscalYear = now()->month >= 10 ? now()->addYear()->year : now()->year;
+        $fiscalYear = EvaluationLookupService::currentFiscalYear();
         $created    = 0;
         $notMatched = [];
 
+        // Batch load: all evaluatees and published evaluations in 2 queries
+        $evaluatees = User::whereIn('id', $data['evaluatee_ids'])->get()->keyBy('id');
+        $publishedEvaluations = Evaluation::where('status', 'published')->get();
+
+        // Batch check existing assignments in 1 query
+        $existingPairs = EvaluationAssignment::where('evaluator_id', $data['evaluator_id'])
+            ->whereIn('evaluatee_id', $data['evaluatee_ids'])
+            ->where('fiscal_year', $fiscalYear)
+            ->where('angle', $data['angle'])
+            ->pluck('evaluatee_id')
+            ->flip();
+
         foreach ($data['evaluatee_ids'] as $evaluateeId) {
-            $evaluatee = User::findOrFail($evaluateeId);
+            if ($existingPairs->has($evaluateeId)) {
+                continue;
+            }
+
+            $evaluatee = $evaluatees[$evaluateeId] ?? null;
+            if (!$evaluatee) continue;
 
             $userType = $evaluatee->user_type instanceof \BackedEnum
-            ? $evaluatee->user_type->value
-            : $evaluatee->user_type;
+                ? $evaluatee->user_type->value
+                : $evaluatee->user_type;
 
-            $grade = $evaluatee->grade;
+            $evaluation = $publishedEvaluations->first(function ($eval) use ($userType, $evaluatee) {
+                return $eval->user_type === $userType
+                    && $eval->grade_min <= $evaluatee->grade
+                    && $eval->grade_max >= $evaluatee->grade;
+            });
 
-            $evaluation = Evaluation::where('user_type', $userType)
-                ->where('grade_min', '<=', $grade)
-                ->where('grade_max', '>=', $grade)
-                ->where('status', 'published')
-                ->latest()
-                ->first();
-
-            if (! $evaluation) {
+            if (!$evaluation) {
                 $notMatched[] = "{$evaluatee->fname} {$evaluatee->lname}";
-               
+                continue;
             }
 
-            $alreadyExists = EvaluationAssignment::where('evaluator_id', $data['evaluator_id'])
-                ->where('evaluatee_id', $evaluateeId)
-                ->where('fiscal_year', $fiscalYear)
-                ->where('angle', $data['angle'])
-                ->exists();
-
-            if (! $alreadyExists) {
-                EvaluationAssignment::create([
-                    'evaluation_id' => $evaluation->id,
-                    'evaluator_id'  => $data['evaluator_id'],
-                    'evaluatee_id'  => $evaluateeId,
-                    'fiscal_year'   => $fiscalYear,
-                    'angle'         => $data['angle'],
-                ]);
-                $created++;
-            }
+            EvaluationAssignment::create([
+                'evaluation_id' => $evaluation->id,
+                'evaluator_id'  => $data['evaluator_id'],
+                'evaluatee_id'  => $evaluateeId,
+                'fiscal_year'   => $fiscalYear,
+                'angle'         => $data['angle'],
+            ]);
+            $created++;
         }
 
         if ($created > 0) {
@@ -477,38 +448,10 @@ class EvaluationAssignmentController extends Controller
             
             $grade = $assignment->evaluatee->grade;
             
-            $evaluation = Evaluation::where('user_type', $userType)
-                ->where('grade_min', '<=', $grade)
-                ->where('grade_max', '>=', $grade)
-                ->where('status', 'published')
-                ->when($grade >= 9 && $grade <= 12, function($query) {
-                    return $query->where(function($q) {
-                        $q->where('title', 'LIKE', '%9-12%')
-                          ->orWhere('title', 'LIKE', '%ผู้บริหาร%')
-                          ->orWhere('title', 'LIKE', '%บริหาร%');
-                    });
-                })
-                ->orderByRaw('
-                    CASE
-                        WHEN title LIKE "%9-12%" THEN 1
-                        WHEN title LIKE "%ผู้บริหาร%" THEN 2
-                        WHEN title LIKE "%บริหาร%" THEN 3
-                        ELSE 4
-                    END
-                ')
-                ->latest()
-                ->first();
+            $evaluation = EvaluationLookupService::findByGrade((int) $grade, $userType, (int) $assignment->fiscal_year);
 
             if ($evaluation && $assignment->evaluation_id !== $evaluation->id) {
                 $assignment->update(['evaluation_id' => $evaluation->id]);
-                \Log::info('Fixed evaluation_id for assignment', [
-                    'assignment_id' => $assignment->id,
-                    'evaluatee_name' => $assignment->evaluatee->fname . ' ' . $assignment->evaluatee->lname,
-                    'evaluatee_grade' => $grade,
-                    'old_evaluation_id' => $assignment->evaluation_id,
-                    'new_evaluation_id' => $evaluation->id,
-                    'evaluation_title' => $evaluation->title
-                ]);
             }
         }
     }
@@ -518,20 +461,10 @@ class EvaluationAssignmentController extends Controller
      */
     private function getSatisfactionEvaluationStatus($userId, $fiscalYear)
     {
-        \Log::info('=== Checking satisfaction evaluation status ===', [
-            'user_id' => $userId,
-            'fiscal_year' => $fiscalYear
-        ]);
-
         // Check if user has completed all assigned evaluations
         $allEvaluationsCompleted = $this->hasUserCompletedAllEvaluations($userId, $fiscalYear);
-        
-        \Log::info('All evaluations completed check:', [
-            'result' => $allEvaluationsCompleted
-        ]);
-        
+
         if (!$allEvaluationsCompleted) {
-            \Log::info('Not all evaluations completed - hiding satisfaction card');
             return null; // Don't show satisfaction card if main evaluations aren't complete
         }
 
@@ -541,12 +474,7 @@ class EvaluationAssignmentController extends Controller
             ->latest()
             ->first();
 
-        \Log::info('Found evaluation for satisfaction:', [
-            'evaluation' => $evaluation ? ['id' => $evaluation->id, 'title' => $evaluation->title] : null
-        ]);
-
         if (!$evaluation) {
-            \Log::info('No published evaluation found - hiding satisfaction card');
             return null;
         }
 
@@ -557,10 +485,6 @@ class EvaluationAssignmentController extends Controller
             $fiscalYear
         );
 
-        \Log::info('Satisfaction evaluation completion check:', [
-            'completed' => $hasCompletedSatisfaction
-        ]);
-
         $result = [
             'show_card' => true,
             'completed' => $hasCompletedSatisfaction,
@@ -568,8 +492,6 @@ class EvaluationAssignmentController extends Controller
             'evaluation_title' => $evaluation->title,
             'fiscal_year' => $fiscalYear,
         ];
-
-        \Log::info('Satisfaction evaluation status result:', $result);
 
         return $result;
     }
@@ -579,69 +501,39 @@ class EvaluationAssignmentController extends Controller
      */
     private function hasUserCompletedAllEvaluations($userId, $fiscalYear)
     {
-        // Check assigned evaluations completion - ประเมินครบทุกคนที่ได้รับมอบหมาย
-        // First check the specified fiscal year
+        // Single query: count assignments vs completed assignments using EXISTS subquery
         $assignments = EvaluationAssignment::where('evaluator_id', $userId)
             ->where('fiscal_year', $fiscalYear)
+            ->select('id', 'evaluatee_id', 'evaluation_id')
             ->get();
 
-        // If no assignments in specified year, check current/recent fiscal years
         if ($assignments->isEmpty()) {
-            $currentYear = now()->month >= 10 ? now()->addYear()->year : now()->year;
+            $currentYear = EvaluationLookupService::currentFiscalYear();
             $assignments = EvaluationAssignment::where('evaluator_id', $userId)
                 ->whereIn('fiscal_year', [$currentYear, $currentYear - 1, $currentYear + 1])
+                ->select('id', 'evaluatee_id', 'evaluation_id')
                 ->get();
         }
 
-        \Log::info('Found assignments for user:', [
-            'user_id' => $userId,
-            'search_fiscal_year' => $fiscalYear,
-            'assignment_count' => $assignments->count(),
-            'assignments' => $assignments->map(function($a) {
-                return [
-                    'id' => $a->id,
-                    'evaluatee_id' => $a->evaluatee_id,
-                    'evaluation_id' => $a->evaluation_id,
-                    'angle' => $a->angle,
-                    'fiscal_year' => $a->fiscal_year
-                ];
-            })->toArray()
-        ]);
-
         if ($assignments->isEmpty()) {
-            \Log::info('No assignments found in any year - cannot show satisfaction evaluation');
-            return false; // No assignments means can't show satisfaction evaluation
+            return false;
         }
 
-        $completedCount = 0;
-        foreach ($assignments as $assignment) {
-            $hasAnsweredForThisAssignment = Answer::where('user_id', $userId)
-                ->where('evaluatee_id', $assignment->evaluatee_id)
-                ->where('evaluation_id', $assignment->evaluation_id)
-                ->exists();
+        // Single batch query: get all answered (evaluatee_id, evaluation_id) pairs for this fiscal year
+        $answeredPairs = Answer::where('user_id', $userId)
+            ->where('fiscal_year', $fiscalYear)
+            ->whereIn('evaluatee_id', $assignments->pluck('evaluatee_id')->unique())
+            ->select('evaluatee_id', 'evaluation_id')
+            ->distinct()
+            ->get()
+            ->map(fn($a) => $a->evaluation_id . '_' . $a->evaluatee_id)
+            ->flip();
 
-            \Log::info('Checking assignment completion:', [
-                'assignment_id' => $assignment->id,
-                'evaluatee_id' => $assignment->evaluatee_id,
-                'evaluation_id' => $assignment->evaluation_id,
-                'fiscal_year' => $assignment->fiscal_year,
-                'has_answered' => $hasAnsweredForThisAssignment
-            ]);
+        $completedCount = $assignments->filter(function ($a) use ($answeredPairs) {
+            return $answeredPairs->has($a->evaluation_id . '_' . $a->evaluatee_id);
+        })->count();
 
-            if ($hasAnsweredForThisAssignment) {
-                $completedCount++;
-            }
-        }
-
-        $allCompleted = $completedCount === $assignments->count();
-        
-        \Log::info('Assignment completion summary:', [
-            'total_assignments' => $assignments->count(),
-            'completed_assignments' => $completedCount,
-            'all_completed' => $allCompleted
-        ]);
-
-        return $allCompleted;
+        return $completedCount === $assignments->count();
     }
 
 }

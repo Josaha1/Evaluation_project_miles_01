@@ -3,17 +3,31 @@ namespace App\Http\Controllers;
 
 use App\Models\Answer;
 use App\Models\Evaluation;
+use App\Models\EvaluationAssignment;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use App\Services\EvaluationLookupService;
 
 class SelfEvaluationController extends Controller
 {
+    /**
+     * Get fiscal year from request or fallback to current fiscal year (Oct-Sep)
+     */
+    private function getFiscalYear(Request $request): int
+    {
+        if ($request->has('fiscal_year') && $request->fiscal_year) {
+            return (int) $request->fiscal_year;
+        }
+        return EvaluationLookupService::currentFiscalYear();
+    }
+
     public function index(Request $request)
     {
         $user = auth()->user();
+        $fiscalYear = $this->getFiscalYear($request);
 
         // Use grade-based evaluation selection for self-evaluation
-        $evaluation = $this->getEvaluationByGrade($user->grade);
+        $evaluation = $this->getEvaluationByGrade($user->grade, $fiscalYear);
 
         if (!$evaluation) {
             return redirect()->route('dashboard')->with('error', 'ไม่พบแบบประเมินสำหรับระดับตำแหน่งของคุณ');
@@ -23,16 +37,15 @@ class SelfEvaluationController extends Controller
             'aspects.questions.options',
             'aspects.subaspects.questions.options',
         ])->orderBy('order')->get();
-        
-        // Get existing answers for this evaluation
+
+        // Get existing answers for this evaluation (filtered by fiscal year)
         $existingAnswers = Answer::where('evaluation_id', $evaluation->id)
             ->where('user_id', $user->id)
             ->where('evaluatee_id', $user->id)
+            ->where('fiscal_year', $fiscalYear)
             ->get()
             ->pluck('value', 'question_id')
             ->toArray();
-            
-        \Log::info('SelfEvaluationController index - existingAnswers:', $existingAnswers);
 
         return Inertia::render('SelfEvaluationStep', [
             'evaluation'      => $evaluation,
@@ -43,15 +56,17 @@ class SelfEvaluationController extends Controller
             'is_self'         => true,
             'auth'            => ['user' => $user],
             'existingAnswers' => $existingAnswers,
+            'fiscal_year'     => $fiscalYear,
         ]);
     }
 
     public function resume(Request $request)
     {
         $user = auth()->user();
+        $fiscalYear = $this->getFiscalYear($request);
 
         // Use grade-based evaluation selection for self-evaluation
-        $evaluation = $this->getEvaluationByGrade($user->grade);
+        $evaluation = $this->getEvaluationByGrade($user->grade, $fiscalYear);
 
         if (!$evaluation) {
             return redirect()->route('dashboard')->with('error', 'ไม่พบแบบประเมินสำหรับระดับตำแหน่งของคุณ');
@@ -63,12 +78,12 @@ class SelfEvaluationController extends Controller
             'questions.options',
         ])->orderBy('order')->get();
 
-        // Get all existing answers for this evaluation
-        $existingAnswers = Answer::where('evaluation_id', $evaluation->id)
+        // Get answered question IDs for resume logic (only need IDs, not full models)
+        $answeredQuestionIds = Answer::where('evaluation_id', $evaluation->id)
             ->where('user_id', $user->id)
             ->where('evaluatee_id', $user->id)
-            ->get()
-            ->keyBy('question_id');
+            ->where('fiscal_year', $fiscalYear)
+            ->pluck('question_id');
 
         $stepToResume       = 1;
         $groupIndexToResume = 0;
@@ -76,10 +91,8 @@ class SelfEvaluationController extends Controller
 
         // Find the first incomplete question group
         foreach ($parts as $partIndex => $part) {
-            // เตรียมกลุ่มคำถามแบบ grouped
             $groups = [];
 
-            // Add questions from subaspects
             foreach ($part->aspects as $aspect) {
                 foreach ($aspect->subaspects ?? [] as $sub) {
                     if ($sub->questions->isNotEmpty()) {
@@ -91,7 +104,6 @@ class SelfEvaluationController extends Controller
                     }
                 }
 
-                // Add questions from aspects (direct questions)
                 if ($aspect->questions->isNotEmpty()) {
                     $groups[] = [
                         'type' => 'aspect',
@@ -101,7 +113,6 @@ class SelfEvaluationController extends Controller
                 }
             }
 
-            // Add questions from parts (direct questions)
             if ($part->questions->isNotEmpty()) {
                 $groups[] = [
                     'type' => 'part',
@@ -110,29 +121,32 @@ class SelfEvaluationController extends Controller
                 ];
             }
 
-            // Check each group for incomplete questions
             foreach ($groups as $index => $group) {
                 $questionIds = $group['questions']->pluck('id');
-                $answeredIds = $existingAnswers->whereIn('question_id', $questionIds->toArray())
-                    ->pluck('question_id');
-
-                $remaining = $questionIds->diff($answeredIds);
+                $remaining = $questionIds->diff($answeredQuestionIds);
 
                 if ($remaining->isNotEmpty()) {
                     $stepToResume       = $partIndex + 1;
                     $groupIndexToResume = $index;
                     $foundIncomplete    = true;
-                    break 2; // ออกจากทั้งสอง loop
+                    break 2;
                 }
             }
         }
 
-        // If all questions are completed, redirect to dashboard
         if (!$foundIncomplete) {
             return redirect()->route('dashboard')->with('success', 'การประเมินตนเองเสร็จสมบูรณ์แล้ว');
         }
 
         $currentPart = $parts->get($stepToResume - 1);
+
+        // Load answer values only for the page render (separate lean query)
+        $existingAnswerValues = Answer::where('evaluation_id', $evaluation->id)
+            ->where('user_id', $user->id)
+            ->where('evaluatee_id', $user->id)
+            ->where('fiscal_year', $fiscalYear)
+            ->pluck('value', 'question_id')
+            ->toArray();
 
         return Inertia::render('SelfEvaluationStep', [
             'evaluation'            => $evaluation,
@@ -143,13 +157,15 @@ class SelfEvaluationController extends Controller
             'evaluatee_id'          => $user->id,
             'is_self'               => true,
             'auth'                  => ['user' => $user],
-            'existingAnswers'       => $existingAnswers->pluck('value', 'question_id')->toArray(),
+            'existingAnswers'       => $existingAnswerValues,
+            'fiscal_year'           => $fiscalYear,
         ]);
     }
 
     public function step($step, Request $request)
     {
         $user = auth()->user();
+        $fiscalYear = $this->getFiscalYear($request);
 
         $data = $request->validate([
             'evaluation_id' => 'required|exists:evaluations,id',
@@ -159,19 +175,25 @@ class SelfEvaluationController extends Controller
 
         $evaluateeId = $request->get('evaluatee_id') ?? $user->id;
 
+        $upsertData = [];
         foreach ($data['answers'] as $question_id => $value) {
-            Answer::updateOrCreate(
-                [
-                    'evaluation_id' => $data['evaluation_id'],
-                    'user_id'       => $user->id,
-                    'evaluatee_id'  => $evaluateeId,
-                    'question_id'   => $question_id,
-                ],
-                [
-                    'value' => is_array($value) ? json_encode($value) : $value,
-                ]
-            );
+            $upsertData[] = [
+                'evaluation_id' => $data['evaluation_id'],
+                'user_id'       => $user->id,
+                'evaluatee_id'  => $evaluateeId,
+                'question_id'   => $question_id,
+                'value'         => is_array($value) ? json_encode($value) : $value,
+                'fiscal_year'   => $fiscalYear,
+                'updated_at'    => now(),
+                'created_at'    => now(),
+            ];
         }
+
+        Answer::upsert(
+            $upsertData,
+            ['evaluation_id', 'user_id', 'evaluatee_id', 'question_id'],
+            ['value', 'fiscal_year', 'updated_at']
+        );
 
         return response()->json(['success' => true]);
     }
@@ -179,9 +201,10 @@ class SelfEvaluationController extends Controller
     public function showStep($step, Request $request)
     {
         $user = auth()->user();
+        $fiscalYear = $this->getFiscalYear($request);
 
         // Use grade-based evaluation selection for self-evaluation
-        $evaluation = $this->getEvaluationByGrade($user->grade);
+        $evaluation = $this->getEvaluationByGrade($user->grade, $fiscalYear);
 
         if (!$evaluation) {
             return redirect()->route('dashboard')->with('error', 'ไม่พบแบบประเมินสำหรับระดับตำแหน่งของคุณ');
@@ -197,16 +220,15 @@ class SelfEvaluationController extends Controller
         if (! $currentPart) {
             return redirect()->route('dashboard')->with('error', 'ไม่พบตอนที่ต้องการ');
         }
-        
-        // Get existing answers for this evaluation
+
+        // Get existing answers for this evaluation (filtered by fiscal year)
         $existingAnswers = Answer::where('evaluation_id', $evaluation->id)
             ->where('user_id', $user->id)
             ->where('evaluatee_id', $user->id)
+            ->where('fiscal_year', $fiscalYear)
             ->get()
             ->pluck('value', 'question_id')
             ->toArray();
-            
-        \Log::info('SelfEvaluationController showStep - existingAnswers:', $existingAnswers);
 
         return Inertia::render('SelfEvaluationStep', [
             'evaluation'      => $evaluation,
@@ -217,6 +239,7 @@ class SelfEvaluationController extends Controller
             'is_self'         => true,
             'auth'            => ['user' => $user],
             'existingAnswers' => $existingAnswers,
+            'fiscal_year'     => $fiscalYear,
         ]);
     }
 
@@ -225,6 +248,7 @@ class SelfEvaluationController extends Controller
         $userId       = auth()->id();
         $evaluationId = $request->get('evaluation_id');
         $evaluateeId  = $request->get('evaluatee_id') ?? $userId;
+        $fiscalYear   = $this->getFiscalYear($request);
 
         $data = $request->validate([
             'answers'               => 'required|array',
@@ -232,52 +256,33 @@ class SelfEvaluationController extends Controller
             'answers.*.value'       => 'nullable',
         ]);
 
+        $upsertData = [];
         foreach ($data['answers'] as $answerData) {
-            Answer::updateOrCreate(
-                [
-                    'evaluation_id' => $evaluationId,
-                    'user_id'       => $userId,
-                    'evaluatee_id'  => $evaluateeId,
-                    'question_id'   => $answerData['question_id'],
-                ],
-                [
-                    'value' => $answerData['value'],
-                ]
-            );
+            $upsertData[] = [
+                'evaluation_id' => $evaluationId,
+                'user_id'       => $userId,
+                'evaluatee_id'  => $evaluateeId,
+                'question_id'   => $answerData['question_id'],
+                'value'         => $answerData['value'],
+                'fiscal_year'   => $fiscalYear,
+                'updated_at'    => now(),
+                'created_at'    => now(),
+            ];
         }
+        Answer::upsert(
+            $upsertData,
+            ['evaluation_id', 'user_id', 'evaluatee_id', 'question_id'],
+            ['value', 'fiscal_year', 'updated_at']
+        );
 
         return redirect()->route('dashboard')->with('success', 'บันทึกผลเรียบร้อยแล้ว');
     }
 
     /**
      * Get evaluation form based on user grade for self-evaluation
-     * Uses specific evaluation forms: ID 4 for grades 9-12, ID 5 for grades 4-8
      */
-    private function getEvaluationByGrade($userGrade)
+    private function getEvaluationByGrade($userGrade, ?int $fiscalYear = null)
     {
-        $evaluationQuery = Evaluation::where('status', 'published')
-            ->where('user_type', 'internal');
-        
-        if ($userGrade >= 9 && $userGrade <= 12) {
-            // Executive level (grades 9-12) - use specific self-evaluation form (ID 4)
-            $evaluation = $evaluationQuery->where('grade_min', '<=', 12)
-                ->where('grade_max', '>=', 9)
-                ->where('title', 'LIKE', '%ประเมินตนเอง%')
-                ->first();
-        } elseif ($userGrade >= 4 && $userGrade <= 8) {
-            // Staff level (grades 4-8) - use specific self-evaluation form (ID 5)
-            $evaluation = $evaluationQuery->where('grade_min', '<=', 8)
-                ->where('grade_max', '>=', 4)
-                ->where('title', 'LIKE', '%ประเมินตนเอง%')
-                ->first();
-        } else {
-            // Fallback to original logic for other grades
-            $evaluation = $evaluationQuery->where('grade_min', '<=', $userGrade)
-                ->where('grade_max', '>=', $userGrade)
-                ->where('title', 'LIKE', '%ประเมินตนเอง%')
-                ->first();
-        }
-
-        return $evaluation;
+        return EvaluationLookupService::findSelfEvalByGrade((int) $userGrade, $fiscalYear);
     }
 }

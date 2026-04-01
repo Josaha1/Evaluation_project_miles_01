@@ -39,6 +39,7 @@ class EvaluationController extends Controller
             'user_type'   => 'required|in:internal,external',
             'grade_min'   => 'required|integer',
             'grade_max'   => 'required|integer',
+            'fiscal_year' => 'nullable|integer|min:2020|max:2100',
         ]);
 
         $evaluation = Evaluation::create($validated);
@@ -86,6 +87,7 @@ class EvaluationController extends Controller
             'user_type'   => 'required|in:internal,external',
             'grade_min'   => 'required|integer',
             'grade_max'   => 'required|integer',
+            'fiscal_year' => 'nullable|integer|min:2020|max:2100',
         ]);
 
         $evaluation->update($validated);
@@ -119,18 +121,23 @@ class EvaluationController extends Controller
     public function preview(Evaluation $evaluation)
     {
         $evaluation->load([
-            'parts.aspects.subaspects.questions.options',
+            'parts' => fn($q) => $q->orderBy('order'),
+            'parts.aspects.subAspects.questions' => fn($q) => $q->orderBy('order'),
+            'parts.aspects.subAspects.questions.options',
+            'parts.aspects.questions' => fn($q) => $q->orderBy('order'),
             'parts.aspects.questions.options',
         ]);
 
-        // 🔁 mapping title fields
+        // 🔁 mapping title fields + ensure subaspects key for frontend
         foreach ($evaluation->parts as $part) {
             foreach ($part->aspects as $aspect) {
-                $aspect->title = $aspect->name; // <== ✅ ให้มี field title สำหรับ frontend
+                $aspect->title = $aspect->name;
+                // Ensure 'subaspects' key exists for frontend (Laravel serializes as sub_aspects)
+                $aspect->setAttribute('subaspects', $aspect->subAspects);
 
-                if ($aspect->has_subaspects && $aspect->subaspects) {
-                    foreach ($aspect->subaspects as $sub) {
-                        $sub->title = $sub->name; // <== ✅ เช่นกัน
+                if ($aspect->has_subaspects && $aspect->subAspects) {
+                    foreach ($aspect->subAspects as $sub) {
+                        $sub->title = $sub->name;
                     }
                 }
             }

@@ -23,6 +23,11 @@ class AdminAccessCodeController extends Controller
             $query->where('external_organization_id', $request->organization_id);
         }
 
+        // Filter by fiscal_year first (indexed, reduces result set early)
+        if ($request->filled('fiscal_year')) {
+            $query->where('fiscal_year', $request->fiscal_year);
+        }
+
         if ($request->filled('status')) {
             switch ($request->status) {
                 case 'unused':
@@ -54,13 +59,22 @@ class AdminAccessCodeController extends Controller
 
         $codes = $query->orderBy('id', 'desc')->paginate(15)->withQueryString();
 
+        $fiscalYears = cache()->remember('access_code_fiscal_years', 3600, function () {
+            return ExternalAccessCode::select('fiscal_year')
+                ->distinct()
+                ->orderBy('fiscal_year', 'desc')
+                ->pluck('fiscal_year')
+                ->toArray();
+        });
+
         $organizations = ExternalOrganization::where('is_active', true)
             ->orderBy('name')->get(['id', 'name']);
 
         return Inertia::render('AdminAccessCodeIndex', [
             'codes' => $codes,
             'organizations' => $organizations,
-            'filters' => $request->only(['search', 'organization_id', 'status']),
+            'fiscalYears' => $fiscalYears,
+            'filters' => $request->only(['search', 'organization_id', 'status', 'fiscal_year']),
         ]);
     }
 
@@ -75,8 +89,12 @@ class AdminAccessCodeController extends Controller
         $evaluations = Evaluation::where('status', 'published')
             ->orderBy('title')->get(['id', 'title', 'user_type', 'grade_min', 'grade_max']);
 
-        // Get evaluatees who have any evaluation assignment
-        $evaluatees = User::whereHas('assignmentsAsEvaluatee')
+        // Get evaluatee IDs via a single subquery (faster than whereHas)
+        $evaluateeIds = EvaluationAssignment::select('evaluatee_id')
+            ->distinct()
+            ->pluck('evaluatee_id');
+
+        $evaluatees = User::whereIn('id', $evaluateeIds)
             ->get(['id', 'fname', 'lname', 'grade', 'emid']);
 
         return Inertia::render('AdminAccessCodeGenerate', [
@@ -95,37 +113,59 @@ class AdminAccessCodeController extends Controller
             'organization_id' => 'required|exists:external_organizations,id',
             'evaluation_id' => 'required|exists:evaluations,id',
             'evaluatee_ids' => 'required|array|min:1',
-            'evaluatee_ids.*' => 'exists:users,id',
-            'fiscal_year' => 'required|integer|min:2500',
+            'evaluatee_ids.*' => 'integer',
+            'fiscal_year' => 'required|integer|min:2020|max:2100',
             'expires_at' => 'nullable|date|after:today',
         ]);
 
-        $generatedCodes = [];
+        // Validate evaluatee IDs in a single query (instead of N queries)
+        $validIds = User::whereIn('id', $validated['evaluatee_ids'])->pluck('id')->toArray();
+        if (count($validIds) !== count($validated['evaluatee_ids'])) {
+            return back()->withErrors(['evaluatee_ids' => 'มีผู้ถูกประเมินที่ไม่พบในระบบ'])->withInput();
+        }
 
-        foreach ($validated['evaluatee_ids'] as $evaluateeId) {
-            // Find an assignment for this evaluatee in the given fiscal year
-            $assignment = EvaluationAssignment::where('evaluatee_id', $evaluateeId)
-                ->where('fiscal_year', $validated['fiscal_year'])
-                ->first();
+        // Batch load all relevant assignments in 1 query
+        $allAssignments = EvaluationAssignment::where('evaluation_id', $validated['evaluation_id'])
+            ->where('fiscal_year', $validated['fiscal_year'])
+            ->whereIn('evaluatee_id', $validated['evaluatee_ids'])
+            ->get()
+            ->groupBy('evaluatee_id');
 
-            $organization = ExternalOrganization::findOrFail($validated['organization_id']);
-            $code = $this->generateUniqueCode($organization->org_code);
+        // Load organization once
+        $organization = ExternalOrganization::findOrFail($validated['organization_id']);
 
-            $accessCode = ExternalAccessCode::create([
-                'code' => $code,
+        // Pre-generate all unique codes at once (avoid N exists() queries)
+        $codes = $this->generateUniqueCodes($organization->org_code, count($validated['evaluatee_ids']));
+
+        // Prepare bulk insert data
+        $now = now();
+        $insertData = [];
+        foreach ($validated['evaluatee_ids'] as $i => $evaluateeId) {
+            $evaluateeAssignments = $allAssignments->get($evaluateeId, collect());
+            $assignment = $evaluateeAssignments->firstWhere('angle', 'right')
+                ?? $evaluateeAssignments->first();
+
+            $insertData[] = [
+                'code' => $codes[$i],
                 'external_organization_id' => $validated['organization_id'],
-                'evaluation_assignment_id' => $assignment ? $assignment->id : null,
+                'evaluation_assignment_id' => $assignment?->id,
                 'evaluatee_id' => $evaluateeId,
                 'evaluation_id' => $validated['evaluation_id'],
                 'fiscal_year' => $validated['fiscal_year'],
                 'expires_at' => $validated['expires_at'] ?? null,
-            ]);
-
-            $generatedCodes[] = $accessCode;
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
         }
 
+        // Bulk insert in a single query
+        ExternalAccessCode::insert($insertData);
+
+        // Clear fiscal years cache
+        cache()->forget('access_code_fiscal_years');
+
         return redirect()->route('admin.access-codes.index')
-            ->with('success', "สร้าง Access Code สำเร็จ " . count($generatedCodes) . " รายการ");
+            ->with('success', "สร้าง Access Code สำเร็จ " . count($insertData) . " รายการ");
     }
 
     /**
@@ -207,6 +247,28 @@ class AdminAccessCodeController extends Controller
     }
 
     /**
+     * Regenerate an expired or used access code with a new code.
+     */
+    public function regenerate(ExternalAccessCode $accessCode)
+    {
+        // Look up the organization to get org_code for the code format
+        $organization = $accessCode->organization;
+        $orgCode = $organization ? $organization->org_code : null;
+
+        // Generate a new unique code
+        $newCode = $this->generateUniqueCode($orgCode);
+
+        $accessCode->update([
+            'code'    => $newCode,
+            'is_used' => false,
+            'used_at' => null,
+        ]);
+
+        return redirect()->back()
+            ->with('success', 'สร้าง Access Code ใหม่เรียบร้อยแล้ว: ' . $newCode);
+    }
+
+    /**
      * Delete unused access code.
      */
     public function destroy(ExternalAccessCode $accessCode)
@@ -280,15 +342,32 @@ class AdminAccessCodeController extends Controller
     /**
      * Generate a unique access code in format IEAT-[ORG_CODE]-[RANDOM6].
      */
-    private function generateUniqueCode(?string $orgCode = null): string
+    /**
+     * Generate multiple unique codes in batch (1 query instead of N).
+     */
+    private function generateUniqueCodes(?string $orgCode, int $count): array
     {
         $prefix = $orgCode ? "IEAT-{$orgCode}-" : 'IEAT-';
+        $codes = [];
 
-        do {
-            $random = strtoupper(Str::random(6));
-            $code = $prefix . $random;
-        } while (ExternalAccessCode::where('code', $code)->exists());
+        // Generate candidates
+        while (count($codes) < $count) {
+            $candidate = $prefix . strtoupper(Str::random(6));
+            $codes[$candidate] = $candidate; // use key to deduplicate
+        }
 
-        return $code;
+        // Check all at once against DB
+        $existing = ExternalAccessCode::whereIn('code', array_values($codes))->pluck('code')->toArray();
+        $codes = array_values(array_diff($codes, $existing));
+
+        // If some collided, generate more
+        while (count($codes) < $count) {
+            $candidate = $prefix . strtoupper(Str::random(6));
+            if (!in_array($candidate, $codes) && !in_array($candidate, $existing)) {
+                $codes[] = $candidate;
+            }
+        }
+
+        return array_slice($codes, 0, $count);
     }
 }

@@ -7,59 +7,40 @@ use App\Models\EvaluationAssignment;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\User;
+use App\Services\EvaluationLookupService;
 class AssignedEvaluationController extends Controller
 {
-    public function show($evaluateeId)
+    public function show($evaluateeId, Request $request)
     {
         $user = auth()->user();
 
-        $assignment = EvaluationAssignment::with('evaluatee')
+        $query = EvaluationAssignment::with('evaluatee')
             ->where('evaluator_id', $user->id)
-            ->where('evaluatee_id', $evaluateeId)
-            ->firstOrFail();
+            ->where('evaluatee_id', $evaluateeId);
+
+        // If fiscal_year specified, filter by it; otherwise get latest
+        if ($request->has('fiscal_year') && $request->fiscal_year) {
+            $query->where('fiscal_year', (int) $request->fiscal_year);
+        } else {
+            $query->orderByDesc('fiscal_year');
+        }
+
+        $assignment = $query->firstOrFail();
 
         $evaluatee = $assignment->evaluatee;
 
-        // Get all evaluatees for this evaluator in this fiscal year
-        $allAssignments = EvaluationAssignment::with('evaluatee')
-            ->where('evaluator_id', $user->id)
-            ->where('fiscal_year', now()->month >= 10 ? now()->addYear()->year : now()->year)
-            ->get();
-
-        // Determine evaluation type based on grade ranges
-        $evaluationQuery = Evaluation::where('status', 'published')
-            ->where('user_type', 'internal'); // Always use internal evaluations for assigned evaluations
-        
-        // Find the evaluation form based on the target evaluatee's grade
-        $targetGrade = $evaluatee->grade;
-        if ($targetGrade >= 13) {
-            // Governor level - use 9-12 form but for higher grades (excluding self-evaluation forms)
-            $evaluation = $evaluationQuery->where('grade_min', '<=', 12)
-                ->where('grade_max', '>=', 9)
-                ->where('title', 'NOT LIKE', '%ประเมินตนเอง%')
-                ->latest()
+        // Use evaluation from assignment first (preserves correct form for the fiscal year)
+        $evaluation = null;
+        if ($assignment->evaluation_id) {
+            $evaluation = Evaluation::where('id', $assignment->evaluation_id)
+                ->where('status', 'published')
                 ->first();
-        } elseif ($targetGrade >= 9 && $targetGrade <= 12) {
-            // Executive level - use 9-12 form (excluding self-evaluation forms)
-            $evaluation = $evaluationQuery->where('grade_min', '<=', 12)
-                ->where('grade_max', '>=', 9)
-                ->where('title', 'NOT LIKE', '%ประเมินตนเอง%')
-                ->latest()
-                ->first();
-        } elseif ($targetGrade >= 4 && $targetGrade <= 8) {
-            // Staff level - use 4-8 form (excluding self-evaluation forms)
-            $evaluation = $evaluationQuery->where('grade_min', '<=', 8)
-                ->where('grade_max', '>=', 4)
-                ->where('title', 'NOT LIKE', '%ประเมินตนเอง%')
-                ->latest()
-                ->first();
-        } else {
-            // Fallback to original logic
-            $evaluation = $evaluationQuery->where('grade_min', '<=', $evaluatee->grade)
-                ->where('grade_max', '>=', $evaluatee->grade)
-                ->where('title', 'NOT LIKE', '%ประเมินตนเอง%')
-                ->latest()
-                ->first();
+        }
+        // Fallback: find by grade + fiscal year from assignment
+        if (!$evaluation) {
+            $targetGrade = (int) $evaluatee->grade;
+            $assignmentFiscalYear = $assignment->fiscal_year ? (int) $assignment->fiscal_year : null;
+            $evaluation = EvaluationLookupService::findByGrade($targetGrade, $evaluatee->user_type ?? 'internal', $assignmentFiscalYear);
         }
 
         if (!$evaluation) {
@@ -88,36 +69,28 @@ class AssignedEvaluationController extends Controller
         $answeredCount = Answer::where('evaluation_id', $evaluation->id)
             ->where('user_id', $user->id)
             ->where('evaluatee_id', $evaluateeId)
+            ->where('fiscal_year', $assignment->fiscal_year)
             ->whereIn('question_id', $allQuestionIds)
             ->count();
 
         if ($answeredCount === $allQuestionIds->count()) {
             // ✅ ตอบครบแล้ว ส่งกลับหน้ารวม
-            return redirect()->route('dashboard')->with('success', 'ประเมินเสร็จสมบูรณ์แล้ว');
+            return redirect()->route('dashboard', ['fiscal_year' => $assignment->fiscal_year])->with('success', 'ประเมินเสร็จสมบูรณ์แล้ว');
         }
 
         // ⛔ ถ้ายังไม่ครบ หาหัวข้อล่าสุดที่ประเมินแล้วจริงๆ (รองรับการประเมินหลายคน)
         
-        // Get all assignments for this evaluator in this fiscal year for the new system
+        // Get all assignments for this evaluator in the same fiscal year
         $allAssignments = EvaluationAssignment::with('evaluatee')
             ->where('evaluator_id', $user->id)
-            ->where('fiscal_year', now()->month >= 10 ? now()->addYear()->year : now()->year)
+            ->where('fiscal_year', $assignment->fiscal_year)
             ->get();
 
-        // Get target grade for filtering
         $targetGrade = $evaluatee->grade;
 
-        // Filter evaluatees by grade range that matches the current evaluation
+        // Filter evaluatees by same grade group using centralized logic
         $filteredEvaluatees = $allAssignments->filter(function ($assignment) use ($targetGrade) {
-            $evalGrade = $assignment->evaluatee->grade;
-            if ($targetGrade >= 13) {
-                return $evalGrade >= 13; // Governor level
-            } elseif ($targetGrade >= 9 && $targetGrade <= 12) {
-                return $evalGrade >= 9 && $evalGrade <= 12; // Executive level
-            } elseif ($targetGrade >= 5 && $targetGrade <= 8) {
-                return $evalGrade >= 5 && $evalGrade <= 8; // Staff level
-            }
-            return true;
+            return EvaluationLookupService::isSameGradeGroup($targetGrade, (int) $assignment->evaluatee->grade);
         });
 
         // Get IDs of evaluatees in the same grade range
@@ -126,47 +99,23 @@ class AssignedEvaluationController extends Controller
         // Keep compatibility with existing system
         $sameAngleEvaluateeIds = $this->getEvaluateeIdsInSameAngle($user->id, $evaluateeId, $evaluation->id);
 
-        // Validation: Check for expected vs actual evaluatee count in show() method
-        $currentAssignment = EvaluationAssignment::where('evaluator_id', $user->id)
-            ->where('evaluatee_id', $evaluateeId)
-            ->first();
-        
-        if ($currentAssignment) {
-            $expectedCountFromDb = EvaluationAssignment::where('evaluator_id', $user->id)
-                ->where('angle', $currentAssignment->angle)
-                ->count();
-            
-            \Log::info("=== show() Evaluatee Count Validation ===", [
-                'evaluator_id' => $user->id,
-                'target_evaluatee_id' => $evaluateeId,
-                'evaluation_id' => $evaluation->id,
-                'current_angle' => $currentAssignment->angle,
-                'expected_count_from_db' => $expectedCountFromDb,
-                'actual_count_returned' => count($sameAngleEvaluateeIds),
-                'same_angle_evaluatee_ids' => $sameAngleEvaluateeIds
-            ]);
-            
-            if (count($sameAngleEvaluateeIds) != $expectedCountFromDb) {
-                \Log::warning("EVALUATEE COUNT MISMATCH DETECTED in show()!", [
-                    'expected_count_from_db' => $expectedCountFromDb,
-                    'actual_count_returned' => count($sameAngleEvaluateeIds),
-                    'missing_count' => $expectedCountFromDb - count($sameAngleEvaluateeIds),
-                    'angle' => $currentAssignment->angle,
-                    'evaluator_id' => $user->id,
-                    'evaluation_id' => $evaluation->id
-                ]);
-            }
-        }
+        // Use the already loaded assignment
+        $currentAssignment = $assignment;
+
+        // BATCH: Load ALL answers for this user + evaluation + all evaluatees in ONE query (filtered by fiscal year)
+        $allAnsweredSet = Answer::where('evaluation_id', $evaluation->id)
+            ->where('user_id', $user->id)
+            ->where('fiscal_year', $assignment->fiscal_year)
+            ->whereIn('evaluatee_id', $sameRangeEvaluateeIds)
+            ->select('evaluatee_id', 'question_id')
+            ->get()
+            ->map(fn($a) => $a->evaluatee_id . '_' . $a->question_id)
+            ->flip();
 
         $lastCompletedStep  = 1;
         $lastCompletedGroup = 0;
-        $hasAnyAnswers      = false;
+        $hasAnyAnswers      = $allAnsweredSet->isNotEmpty();
         $foundIncompleteGroup = false;
-
-        \Log::info("=== Finding last completed step/group (Multi-evaluatee) ===");
-        \Log::info("User ID: {$user->id}, Evaluatee ID: {$evaluateeId}, Evaluation ID: {$evaluation->id}");
-        \Log::info("Same range evaluatees: " . implode(',', $sameRangeEvaluateeIds));
-        \Log::info("Same angle evaluatees (legacy): " . implode(',', $sameAngleEvaluateeIds));
 
         foreach ($parts as $partIndex => $part) {
             $grouped = collect();
@@ -190,18 +139,11 @@ class AssignedEvaluationController extends Controller
             foreach ($grouped as $groupIndex => $questionIds) {
                 $allAnswered = true;
                 $hasPartialAnswers = false;
-                
-                // ตรวจสอบว่าทุกคำถามของทุกคนในกลุ่มนี้ตอบครบหรือไม่ (ใช้ระบบใหม่ที่กรองตาม grade range)
+
+                // In-memory check using pre-loaded answer set (no DB queries!)
                 foreach ($questionIds as $questionId) {
                     foreach ($sameRangeEvaluateeIds as $evalId) {
-                        $answered = Answer::where('evaluation_id', $evaluation->id)
-                            ->where('user_id', $user->id)
-                            ->where('evaluatee_id', $evalId)
-                            ->where('question_id', $questionId)
-                            ->exists();
-                        
-                        if ($answered) {
-                            $hasAnyAnswers = true;
+                        if ($allAnsweredSet->has($evalId . '_' . $questionId)) {
                             $hasPartialAnswers = true;
                         } else {
                             $allAnswered = false;
@@ -209,57 +151,43 @@ class AssignedEvaluationController extends Controller
                     }
                 }
 
-                \Log::info("Step " . ($partIndex + 1) . ", Group {$groupIndex}: " . ($allAnswered ? 'Complete' : 'Incomplete') . 
-                          " (Has partial: " . ($hasPartialAnswers ? 'Yes' : 'No') . ")");
-
                 if ($allAnswered) {
-                    // Group นี้เสร็จสมบูรณ์แล้ว
                     $lastCompletedStep = $partIndex + 1;
                     $lastCompletedGroup = $groupIndex;
-                    \Log::info("Updated last completed: Step {$lastCompletedStep}, Group {$lastCompletedGroup}");
                 } else {
-                    // Group นี้ยังไม่เสร็จ
-                    \Log::info("Found incomplete group: Step " . ($partIndex + 1) . ", Group {$groupIndex}");
-                    
                     if (!$foundIncompleteGroup) {
                         $foundIncompleteGroup = true;
-                        
-                        // ถ้ายังไม่เคยทำอะไรเลย ให้เริ่มจากขั้นตอนแรก
+
                         if (!$hasAnyAnswers) {
-                            \Log::info("No answers yet, going to Step 1, Group 0");
                             return redirect()->route('assigned-evaluations.questions', [
                                 'evaluatee' => $evaluateeId,
                                 'step'      => 1,
                                 'group'     => 0,
-                            ]);
+                            'fiscal_year' => $assignment->fiscal_year,
+                        ]);
                         }
                         
-                        // ถ้า group นี้มีคำตอบบางข้อแล้ว ให้ไปต่อที่ group นี้
                         if ($hasPartialAnswers) {
-                            \Log::info("Group has partial answers, continuing at Step " . ($partIndex + 1) . ", Group {$groupIndex} (RESUME TO LAST INCOMPLETE)");
                             return redirect()->route('assigned-evaluations.questions', [
                                 'evaluatee' => $evaluateeId,
                                 'step'      => $partIndex + 1,
                                 'group'     => $groupIndex,
+                                'fiscal_year' => $assignment->fiscal_year,
                             ]);
                         }
                         
-                        // ถ้า group นี้ยังไม่มีคำตอบเลย แต่มี group อื่นที่ทำแล้ว
-                        // ให้ไปที่ group ถัดไปที่ยังไม่เสร็จ
-                        \Log::info("Group has no answers, going to this incomplete group: Step " . ($partIndex + 1) . ", Group {$groupIndex}");
                         return redirect()->route('assigned-evaluations.questions', [
                             'evaluatee' => $evaluateeId,
                             'step'      => $partIndex + 1,
                             'group'     => $groupIndex,
+                        'fiscal_year' => $assignment->fiscal_year,
                         ]);
                     }
                 }
             }
         }
 
-        // ถ้าทุก group ทำเสร็จหมดแล้ว กลับไปหน้า Dashboard
-        \Log::info("All groups completed, redirecting to dashboard");
-        return redirect()->route('dashboard')->with('success', 'การประเมินเสร็จสมบูรณ์แล้ว');
+        return redirect()->route('dashboard', ['fiscal_year' => $assignment->fiscal_year])->with('success', 'การประเมินเสร็จสมบูรณ์แล้ว');
     }
 
     public function step($evaluateeId, $step, Request $request)
@@ -273,22 +201,22 @@ class AssignedEvaluationController extends Controller
             'answers.*'     => 'nullable', // Allow various answer formats
         ]);
 
-        \Log::info("=== AssignedEvaluationController::step ===", [
-            'user_id' => $user->id,
-            'evaluatee_id' => $evaluateeId,
-            'step' => $step,
-            'evaluation_id' => $data['evaluation_id'],
-            'answers_count' => count($data['answers']),
-            'answers_keys' => array_keys($data['answers'])
-        ]);
+        // Get fiscal_year from request first, then from assignment, then fallback to current
+        if ($request->has('fiscal_year') && $request->fiscal_year) {
+            $fiscalYear = (int) $request->fiscal_year;
+        } else {
+            $currentAssignment = EvaluationAssignment::where('evaluator_id', $user->id)
+                ->where('evaluatee_id', $evaluateeId)
+                ->orderByDesc('fiscal_year')
+                ->first();
+            $fiscalYear = $currentAssignment ? $currentAssignment->fiscal_year : EvaluationLookupService::currentFiscalYear();
+        }
 
-        // ✅ บันทึกคำตอบ - รองรับทุกประเภทคำถามและหลายคน
+        // บันทึกคำตอบ - รองรับทุกประเภทคำถามและหลายคน
         $savedAnswersCount = 0;
         $errors = [];
         
         foreach ($data['answers'] as $key => $value) {
-            \Log::info("Processing answer key: {$key}", ['value' => $value]);
-            
             try {
                 // Check if this is a multi-evaluatee answer (format: questionId_evaluateeId)
                 if (is_array($value) && isset($value['question_id']) && isset($value['evaluatee_id']) && isset($value['value'])) {
@@ -298,20 +226,11 @@ class AssignedEvaluationController extends Controller
                 $answerValue = $value['value'];
                 $otherText = isset($value['other_text']) ? $value['other_text'] : null;
                 
-                \Log::info("Multi-evaluatee answer", [
-                    'question_id' => $questionId,
-                    'evaluatee_id' => $targetEvaluateeId,
-                    'value' => $answerValue,
-                    'other_text' => $otherText
-                ]);
-                
-                // จัดการข้อมูลตามประเภทคำถาม - ให้สม่ำเสมอ
+                // จัดการข้อมูลตามประเภทคำถาม
                 $finalValue = $answerValue;
                 
                 if (is_array($answerValue)) {
-                    // สำหรับ multiple_choice - เก็บเป็น JSON เสมอ
                     $finalValue = json_encode($answerValue);
-                    \Log::info("Multi-evaluatee multiple choice encoded", ['final_value' => $finalValue]);
                 } else if (is_string($answerValue)) {
                     // สำหรับ open_text หรือค่าอื่นๆ ที่เป็น string
                     $finalValue = $answerValue;
@@ -319,18 +238,6 @@ class AssignedEvaluationController extends Controller
                     // สำหรับ rating, choice ที่เป็นตัวเลข
                     $finalValue = $answerValue;
                 }
-                
-                // ถ้ามี other_text แต่ value ไม่ใช่ array ให้เก็บ other_text แยก
-                // ไม่ต้องแปลงเป็น object format ที่ซับซ้อน
-                
-                \Log::info("Saving multi-evaluatee answer to database", [
-                    'evaluation_id' => $data['evaluation_id'],
-                    'user_id' => $user->id,
-                    'evaluatee_id' => $targetEvaluateeId,
-                    'question_id' => $questionId,
-                    'final_value' => $finalValue,
-                    'other_text' => $otherText
-                ]);
                 
                 Answer::updateOrCreate(
                     [
@@ -342,27 +249,16 @@ class AssignedEvaluationController extends Controller
                     [
                         'value'      => $finalValue,
                         'other_text' => $otherText,
+                        'fiscal_year' => $fiscalYear,
                     ]
                 );
             } else {
                 // Traditional single evaluatee format
                 $question_id = $key;
                 
-                \Log::info("Single evaluatee answer", [
-                    'question_id' => $question_id,
-                    'evaluatee_id' => $evaluateeId,
-                    'value' => $value
-                ]);
-                
-                // จัดการกับข้อมูลที่เป็น object (สำหรับ other option) - ปรับให้สม่ำเสมอ
+                // จัดการกับข้อมูลที่เป็น object (สำหรับ other option)
                 $finalValue = $value;
                 $otherText  = null;
-
-                \Log::info("Processing single evaluatee answer value", [
-                    'original_value' => $value,
-                    'value_type' => gettype($value),
-                    'is_array' => is_array($value)
-                ]);
 
                 if (is_array($value)) {
                     // รูปแบบใหม่: { value: ..., other_text: ... } - รองรับทั้ง choice และ multiple_choice
@@ -370,16 +266,8 @@ class AssignedEvaluationController extends Controller
                         $finalValue = $value['value'];
                         $otherText = isset($value['other_text']) ? $value['other_text'] : null;
                         
-                        \Log::info("New object format detected", [
-                            'value' => $finalValue,
-                            'other_text' => $otherText,
-                            'value_type' => gettype($finalValue)
-                        ]);
-                        
-                        // ถ้า value เป็น array (multiple choice) ให้ encode เป็น JSON เสมอ
                         if (is_array($finalValue)) {
                             $finalValue = json_encode($finalValue);
-                            \Log::info("Object format: Array value encoded to JSON", ['encoded_value' => $finalValue]);
                         }
                     }
                     // รูปแบบเก่า: { option_id: ..., other_text: ... }
@@ -387,10 +275,6 @@ class AssignedEvaluationController extends Controller
                         $finalValue = $value['option_id'];
                         $otherText  = isset($value['other_text']) ? $value['other_text'] : null;
                         
-                        \Log::info("Legacy object format detected", [
-                            'option_id' => $finalValue,
-                            'other_text' => $otherText
-                        ]);
                     }
                     // รูปแบบสำหรับ multiple choice ธรรมดา (array ของ option IDs)
                     else {
@@ -404,9 +288,7 @@ class AssignedEvaluationController extends Controller
                         }
                         
                         if ($isSimpleArray) {
-                            // Simple array of option IDs - เก็บเป็น JSON เสมอ
                             $finalValue = json_encode($value);
-                            \Log::info("Simple array format - encoded to JSON", ['value' => $finalValue]);
                         } else {
                             // Complex array with objects
                             $processedArray = [];
@@ -421,40 +303,17 @@ class AssignedEvaluationController extends Controller
                                 }
                             }
                             $finalValue = json_encode($processedArray);
-                            \Log::info("Complex array format - processed and encoded", [
-                                'processed_value' => $finalValue,
-                                'other_text' => $otherText
-                            ]);
                         }
                     }
-                } else {
-                    // Simple value (rating, choice without other_text)
-                    \Log::info("Simple value detected", ['value' => $finalValue]);
                 }
 
-                \Log::info("Final processed values for single evaluatee", [
-                    'final_value' => $finalValue,
-                    'other_text' => $otherText,
-                    'question_id' => $question_id,
-                    'evaluatee_id' => $evaluateeId
-                ]);
-
-                \Log::info("Saving single evaluatee answer to database", [
-                    'evaluation_id' => $data['evaluation_id'],
-                    'user_id' => $user->id,
-                    'evaluatee_id' => $evaluateeId,
-                    'question_id' => $question_id,
-                    'final_value' => $finalValue,
-                    'other_text' => $otherText,
-                    'original_value_type' => gettype($value)
-                ]);
-                
                 Answer::updateOrCreate(
                     [
                         'evaluation_id' => $data['evaluation_id'],
                         'user_id'       => $user->id,
                         'evaluatee_id'  => $evaluateeId,
                         'question_id'   => $question_id,
+                        'fiscal_year'   => $fiscalYear,
                     ],
                     [
                         'value'      => $finalValue,
@@ -463,10 +322,6 @@ class AssignedEvaluationController extends Controller
                 );
                 
                 $savedAnswersCount++;
-                \Log::info("Successfully saved answer", [
-                    'question_id' => $question_id ?? $questionId,
-                    'evaluatee_id' => $evaluateeId ?? $targetEvaluateeId
-                ]);
                 }
                 
             } catch (\Exception $e) {
@@ -483,13 +338,7 @@ class AssignedEvaluationController extends Controller
             }
         }
         
-        \Log::info("Answer saving completed", [
-            'saved_count' => $savedAnswersCount,
-            'errors_count' => count($errors),
-            'errors' => $errors
-        ]);
-
-        // ✅ โหลดคำถามทั้งหมด
+        // โหลดคำถามทั้งหมด
         $evaluation = Evaluation::with('parts.aspects.subaspects.questions', 'parts.aspects.questions', 'parts.questions')
             ->findOrFail($data['evaluation_id']);
 
@@ -509,6 +358,7 @@ class AssignedEvaluationController extends Controller
         $answeredCount = Answer::where('evaluation_id', $evaluation->id)
             ->where('user_id', $user->id)
             ->where('evaluatee_id', $evaluateeId)
+            ->where('fiscal_year', $fiscalYear)
             ->whereIn('question_id', $questionIds)
             ->count();
 
@@ -517,11 +367,12 @@ class AssignedEvaluationController extends Controller
 
         // Check if evaluation is completed for all evaluatees in the same angle
         $sameAngleEvaluateeIds = $this->getEvaluateeIdsInSameAngle($user->id, $evaluateeId, $data['evaluation_id']);
-        
+
         // Calculate overall completion for all evaluatees
         $totalExpectedAnswers = $totalQuestions * count($sameAngleEvaluateeIds);
         $totalActualAnswers = Answer::where('evaluation_id', $data['evaluation_id'])
             ->where('user_id', $user->id)
+            ->where('fiscal_year', $fiscalYear)
             ->whereIn('evaluatee_id', $sameAngleEvaluateeIds)
             ->whereIn('question_id', $questionIds)
             ->count();
@@ -554,9 +405,17 @@ class AssignedEvaluationController extends Controller
     {
         $user = auth()->user();
 
+        // Get fiscal year from assignment
+        $assignment = EvaluationAssignment::where('evaluator_id', $user->id)
+            ->where('evaluatee_id', $evaluateeId)
+            ->orderByDesc('fiscal_year')
+            ->first();
+        $fiscalYear = $assignment ? $assignment->fiscal_year : EvaluationLookupService::currentFiscalYear();
+
         $answers = Answer::where('evaluation_id', $evaluationId)
             ->where('user_id', $user->id)
             ->where('evaluatee_id', $evaluateeId)
+            ->where('fiscal_year', $fiscalYear)
             ->get()
             ->mapWithKeys(function ($answer) {
                 $value = $answer->value;
@@ -911,19 +770,36 @@ class AssignedEvaluationController extends Controller
     {
         $user = auth()->user();
 
-        $assignment = EvaluationAssignment::with('evaluatee')
+        $query = EvaluationAssignment::with('evaluatee')
             ->where('evaluator_id', $user->id)
-            ->where('evaluatee_id', $evaluateeId)
-            ->firstOrFail();
+            ->where('evaluatee_id', $evaluateeId);
+
+        // If fiscal_year specified, filter by it; otherwise get latest
+        if ($request->has('fiscal_year') && $request->fiscal_year) {
+            $query->where('fiscal_year', (int) $request->fiscal_year);
+        } else {
+            $query->orderByDesc('fiscal_year');
+        }
+
+        $assignment = $query->firstOrFail();
 
         $evaluatee = $assignment->evaluatee;
 
-        $evaluation = Evaluation::where('status', 'published')
-            ->where('user_type', $evaluatee->user_type)
-            ->where('grade_min', '<=', $evaluatee->grade)
-            ->where('grade_max', '>=', $evaluatee->grade)
-            ->latest()
-            ->firstOrFail();
+        // Use evaluation from assignment first (preserves correct form for the fiscal year)
+        $evaluation = null;
+        if ($assignment->evaluation_id) {
+            $evaluation = Evaluation::where('id', $assignment->evaluation_id)
+                ->where('status', 'published')
+                ->first();
+        }
+        // Fallback: find by grade + fiscal year from assignment
+        if (!$evaluation) {
+            $assignmentFy = $assignment->fiscal_year ? (int) $assignment->fiscal_year : null;
+            $evaluation = EvaluationLookupService::findByGrade((int) $evaluatee->grade, $evaluatee->user_type ?? 'internal', $assignmentFy);
+        }
+        if (!$evaluation) {
+            return redirect()->route('dashboard')->with('error', 'ไม่พบแบบประเมินสำหรับระดับตำแหน่งนี้');
+        }
 
         $parts = $evaluation->parts()->with([
             'aspects.questions.options',
@@ -941,70 +817,24 @@ class AssignedEvaluationController extends Controller
         $sameAngleEvaluatees = $this->getEvaluateesInSameAngle($user->id, $evaluatee->id, $evaluation->id);
         $sameAngleEvaluateeIds = collect($sameAngleEvaluatees)->pluck('id')->toArray();
         
-        \Log::info("=== showStep Same-Angle Evaluation Summary ===", [
-            'evaluator_id' => $user->id,
-            'target_evaluatee_id' => $evaluatee->id,
-            'target_evaluatee_name' => $evaluatee->fname . ' ' . $evaluatee->lname,
-            'evaluation_id' => $evaluation->id,
-            'same_angle_evaluatees_count' => count($sameAngleEvaluatees),
-            'same_angle_evaluatee_ids' => $sameAngleEvaluateeIds,
-            'current_angle' => $assignment->angle,
-            'evaluation_note' => "System shows evaluatees from same angle '{$assignment->angle}'"
-        ]);
-        
-        // Validation: Check for expected vs actual evaluatee count
-        $expectedCountFromDb = EvaluationAssignment::where('evaluator_id', $user->id)
-            ->where('angle', $assignment->angle)
-            ->count();
-        
-        if (count($sameAngleEvaluatees) != $expectedCountFromDb) {
-            \Log::warning("EVALUATEE COUNT MISMATCH DETECTED!", [
-                'expected_count_from_db' => $expectedCountFromDb,
-                'actual_count_returned' => count($sameAngleEvaluatees),
-                'missing_count' => $expectedCountFromDb - count($sameAngleEvaluatees),
-                'angle' => $assignment->angle,
-                'evaluator_id' => $user->id,
-                'evaluation_id' => $evaluation->id
-            ]);
-        }
-        
-        // Get all assignments for this evaluator in this fiscal year for the new system
+        // Get all assignments for this evaluator in the same fiscal year as current assignment
         $allAssignments = EvaluationAssignment::with('evaluatee')
             ->where('evaluator_id', $user->id)
-            ->where('fiscal_year', now()->month >= 10 ? now()->addYear()->year : now()->year)
+            ->where('fiscal_year', $assignment->fiscal_year)
             ->get();
 
-        // Get target grade for filtering
         $targetGrade = $evaluatee->grade;
 
-        // Filter evaluatees by grade range that matches the current evaluation
         $filteredEvaluatees = $allAssignments->filter(function ($assignment) use ($targetGrade) {
-            $evalGrade = $assignment->evaluatee->grade;
-            if ($targetGrade >= 13) {
-                return $evalGrade >= 13; // Governor level
-            } elseif ($targetGrade >= 9 && $targetGrade <= 12) {
-                return $evalGrade >= 9 && $evalGrade <= 12; // Executive level
-            } elseif ($targetGrade >= 5 && $targetGrade <= 8) {
-                return $evalGrade >= 5 && $evalGrade <= 8; // Staff level
-            }
-            return true;
+            return EvaluationLookupService::isSameGradeGroup((int) $targetGrade, (int) $assignment->evaluatee->grade);
         });
 
         // Get IDs of evaluatees in the same grade range
         $sameRangeEvaluateeIds = $filteredEvaluatees->pluck('evaluatee_id')->toArray();
 
-        // โหลดคำตอบที่มีอยู่แล้วสำหรับทุกคนในระดับเดียวกัน (ใช้ระบบใหม่)
-        
-        \Log::info("Loading existing answers for evaluatees", [
-            'same_range_evaluatee_ids' => $sameRangeEvaluateeIds,
-            'same_angle_evaluatee_ids' => $sameAngleEvaluateeIds,
-            'current_evaluatee_id' => $evaluatee->id,
-            'user_id' => $user->id,
-            'evaluation_id' => $evaluation->id
-        ]);
-        
         $existingAnswers = Answer::where('evaluation_id', $evaluation->id)
             ->where('user_id', $user->id)
+            ->where('fiscal_year', $assignment->fiscal_year)
             ->whereIn('evaluatee_id', $sameRangeEvaluateeIds)
             ->get()
             ->groupBy('question_id')
@@ -1012,14 +842,7 @@ class AssignedEvaluationController extends Controller
                 return $answers->mapWithKeys(function ($answer) {
                     $value = $answer->value;
 
-                    \Log::info("Loading existing answer", [
-                        'question_id' => $answer->question_id,
-                        'evaluatee_id' => $answer->evaluatee_id,
-                        'value' => $value,
-                        'other_text' => $answer->other_text
-                    ]);
-
-                    // จัดการกับข้อมูลที่มี other_text - แปลงเป็น object format เสมอ
+                    // จัดการกับข้อมูลที่มี other_text
                     if ($answer->other_text) {
                         // ตรวจสอบว่าเป็น JSON array หรือไม่ (multiple choice)
                         if (is_string($value) && str_starts_with($value, '[') && str_ends_with($value, ']')) {
@@ -1070,8 +893,6 @@ class AssignedEvaluationController extends Controller
                         return [$answer->evaluatee_id => (int) $value];
                     }
 
-                    // Default fallback - คืนค่าตามที่ได้รับ
-                    \Log::info("Using fallback for value", ['value' => $value, 'type' => gettype($value)]);
                     return [$answer->evaluatee_id => $value];
                 });
             });
@@ -1095,22 +916,27 @@ class AssignedEvaluationController extends Controller
             }
         }
 
+        // Batch load all answered question-evaluatee pairs for this step (1 query instead of N*M)
+        $allGroupQuestionIds = $allGroups->flatMap(fn($g) => $g['question_ids'])->unique();
+        $answeredInStep = Answer::where('evaluation_id', $evaluation->id)
+            ->where('user_id', $user->id)
+            ->where('fiscal_year', $assignment->fiscal_year)
+            ->whereIn('evaluatee_id', $sameAngleEvaluateeIds)
+            ->whereIn('question_id', $allGroupQuestionIds)
+            ->select('evaluatee_id', 'question_id')
+            ->get()
+            ->map(fn($a) => $a->evaluatee_id . '_' . $a->question_id)
+            ->flip();
+
         $lastCompletedGroupIndex = -1;
-        
+
         foreach ($allGroups as $i => $group) {
             $allAnswered = true;
             $hasAnyAnswers = false;
-            
-            // Check if all questions in this group are answered for all evaluatees in the same angle
+
             foreach ($group['question_ids'] as $questionId) {
                 foreach ($sameAngleEvaluateeIds as $evalId) {
-                    $answered = Answer::where('evaluation_id', $evaluation->id)
-                        ->where('user_id', $user->id)
-                        ->where('evaluatee_id', $evalId)
-                        ->where('question_id', $questionId)
-                        ->exists();
-                    
-                    if ($answered) {
+                    if ($answeredInStep->has($evalId . '_' . $questionId)) {
                         $hasAnyAnswers = true;
                     } else {
                         $allAnswered = false;
@@ -1139,16 +965,7 @@ class AssignedEvaluationController extends Controller
         $assignedEvaluateesResponse = $this->getAssignedEvaluatees();
         $assignedEvaluatees = json_decode($assignedEvaluateesResponse->getContent(), true);
 
-        \Log::info("Final data preparation for frontend", [
-            'existing_answers_count' => $existingAnswers->count(),
-            'same_angle_evaluatees_count' => count($sameAngleEvaluatees),
-            'same_angle_evaluatee_ids' => $sameAngleEvaluateeIds,
-            'current_angle' => $assignment->angle,
-            'group_index' => $groupIndex,
-            'total_groups' => $allGroups->count()
-        ]);
-
-        // Get all evaluatees from all assignments for this evaluator (not just same angle)
+        // Get all evaluatees from all assignments for this evaluator
         $allEvaluateesWithAngles = $filteredEvaluatees->map(function ($assignment) {
             return [
                 'id' => $assignment->evaluatee->id,
@@ -1189,6 +1006,7 @@ class AssignedEvaluationController extends Controller
             'groupIndex'          => $groupIndex,
             'totalGroups'         => $allGroups->count(),
             'existingAnswers'     => $existingAnswers,
+            'fiscal_year'         => $assignment->fiscal_year,
         ]);
     }
 
@@ -1199,9 +1017,9 @@ class AssignedEvaluationController extends Controller
     {
         switch ($angle) {
             case 'top':
-                return 'องศาบน';
+                return 'ผู้บังคับบัญชา';
             case 'bottom':
-                return 'องศาล่าง';
+                return 'ผู้ใต้บังคับบัญชา';
             case 'left':
                 return 'องศาซ้าย';
             case 'right':

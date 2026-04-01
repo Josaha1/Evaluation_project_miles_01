@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 use App\Models\Evaluation;
 use App\Models\EvaluationAssignment;
 use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
+use App\Services\EvaluationLookupService;
 
 class HomeController extends Controller
 {
@@ -18,73 +20,147 @@ class HomeController extends Controller
         return Inertia::render("Dashboard");
     }
 
-    public function admindashboard()
+    public function admindashboard(Request $request)
     {
-        $fiscalYear = date('Y');
+        // Use Thai fiscal year: Oct-Sep (month >= 10 → next year)
+        $defaultFiscalYear = EvaluationLookupService::currentFiscalYear();
 
-        // Total users by role
-        $totalUsers = User::where('role', 'user')->count();
-        $totalAdmins = User::where('role', 'admin')->count();
+        // Allow admin to select fiscal year via request param
+        $fiscalYear = $request->input('fiscal_year', $defaultFiscalYear);
 
-        // Assignments stats for current fiscal year
-        $totalAssignments = EvaluationAssignment::where('fiscal_year', $fiscalYear)->count();
-        $uniqueEvaluators = EvaluationAssignment::where('fiscal_year', $fiscalYear)
-            ->distinct('evaluator_id')->count('evaluator_id');
-        $uniqueEvaluatees = EvaluationAssignment::where('fiscal_year', $fiscalYear)
-            ->distinct('evaluatee_id')->count('evaluatee_id');
+        // If no data in selected year and no explicit selection, fall back to latest year
+        $hasData = EvaluationAssignment::where('fiscal_year', $fiscalYear)->exists()
+            || DB::table('external_access_codes')->where('fiscal_year', $fiscalYear)->exists();
 
-        // Completion: evaluators who have submitted answers
-        $completedEvaluators = DB::table('evaluation_assignments as ea')
-            ->join('answers as a', function ($join) {
-                $join->on('ea.evaluation_id', '=', 'a.evaluation_id')
-                     ->on('ea.evaluator_id', '=', 'a.user_id')
-                     ->on('ea.evaluatee_id', '=', 'a.evaluatee_id');
-            })
-            ->where('ea.fiscal_year', $fiscalYear)
-            ->distinct('ea.evaluator_id')
-            ->count('ea.evaluator_id');
-
-        $completionRate = $uniqueEvaluators > 0
-            ? round(($completedEvaluators / $uniqueEvaluators) * 100, 1)
-            : 0;
-
-        // Grade group breakdown
-        $gradeGroups = [
-            ['label' => 'ผู้ว่าการ (ระดับ 13)', 'grades' => [13], 'color' => 'rose'],
-            ['label' => 'ผู้บริหาร (ระดับ 9-12)', 'grades' => [9, 10, 11, 12], 'color' => 'amber'],
-            ['label' => 'พนักงาน (ระดับ 4-8)', 'grades' => [4, 5, 6, 7, 8], 'color' => 'cyan'],
-        ];
-
-        $gradeStats = [];
-        foreach ($gradeGroups as $group) {
-            $evaluateeCount = DB::table('evaluation_assignments as ea')
-                ->join('users as u', 'ea.evaluatee_id', '=', 'u.id')
-                ->where('ea.fiscal_year', $fiscalYear)
-                ->whereIn('u.grade', $group['grades'])
-                ->distinct('ea.evaluatee_id')
-                ->count('ea.evaluatee_id');
-
-            $gradeStats[] = [
-                'label' => $group['label'],
-                'color' => $group['color'],
-                'evaluatees' => $evaluateeCount,
-            ];
+        if (!$hasData && !$request->has('fiscal_year')) {
+            $latestAssignment = EvaluationAssignment::max('fiscal_year');
+            $latestExternal = DB::table('external_access_codes')->max('fiscal_year');
+            $latestYear = max($latestAssignment, $latestExternal);
+            if ($latestYear) {
+                $fiscalYear = $latestYear;
+            }
         }
 
-        // Published evaluations count
-        $publishedEvaluations = Evaluation::where('status', 'published')->count();
+        // Single query for user counts by role
+        $userCounts = DB::table('users')
+            ->selectRaw("SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) as total_users")
+            ->selectRaw("SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as total_admins")
+            ->first();
+        $totalUsers = (int) $userCounts->total_users;
+        $totalAdmins = (int) $userCounts->total_admins;
 
-        // Assignments by angle
+        // Single query for assignment stats + angle breakdown
+        $assignmentStats = DB::table('evaluation_assignments')
+            ->where('fiscal_year', $fiscalYear)
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('COUNT(DISTINCT evaluator_id) as unique_evaluators')
+            ->selectRaw('COUNT(DISTINCT evaluatee_id) as unique_evaluatees')
+            ->first();
+
+        $totalAssignments = (int) $assignmentStats->total;
+        $uniqueEvaluators = (int) $assignmentStats->unique_evaluators;
+        $uniqueEvaluatees = (int) $assignmentStats->unique_evaluatees;
+
+        // Include external evaluators/evaluatees in counts
+        $externalCounts = DB::table('external_access_codes')
+            ->where('fiscal_year', $fiscalYear)
+            ->selectRaw('COUNT(*) as total_codes')
+            ->selectRaw('COUNT(DISTINCT evaluatee_id) as unique_evaluatees')
+            ->selectRaw('SUM(CASE WHEN is_used = 1 THEN 1 ELSE 0 END) as used_codes')
+            ->first();
+
+        $totalAssignments += (int) $externalCounts->total_codes;
+        $uniqueEvaluators += (int) $externalCounts->total_codes; // each code = 1 external evaluator
+        // Merge unique evaluatees (avoid double counting)
+        $externalEvaluateeIds = DB::table('external_access_codes')
+            ->where('fiscal_year', $fiscalYear)
+            ->distinct()->pluck('evaluatee_id')->toArray();
+        $internalEvaluateeIds = EvaluationAssignment::where('fiscal_year', $fiscalYear)
+            ->distinct()->pluck('evaluatee_id')->toArray();
+        $allEvaluateeIds = array_unique(array_merge($internalEvaluateeIds, $externalEvaluateeIds));
+        $uniqueEvaluatees = count($allEvaluateeIds);
+
         $angleBreakdown = EvaluationAssignment::where('fiscal_year', $fiscalYear)
             ->select('angle', DB::raw('COUNT(*) as count'))
             ->groupBy('angle')
             ->pluck('count', 'angle')
             ->toArray();
 
-        // External evaluator stats
-        $externalCodeCount = DB::table('external_access_codes')->count();
-        $externalUsedCount = DB::table('external_access_codes')->where('is_used', true)->count();
+        // Add external as "right" angle
+        if ((int) $externalCounts->total_codes > 0) {
+            $angleBreakdown['right'] = ($angleBreakdown['right'] ?? 0) + (int) $externalCounts->total_codes;
+        }
+
+        // Completion: internal evaluators
+        $completedEvaluators = DB::table('evaluation_assignments as ea')
+            ->where('ea.fiscal_year', $fiscalYear)
+            ->whereExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('answers as a')
+                    ->whereColumn('a.evaluation_id', 'ea.evaluation_id')
+                    ->whereColumn('a.user_id', 'ea.evaluator_id')
+                    ->whereColumn('a.evaluatee_id', 'ea.evaluatee_id');
+            })
+            ->distinct('ea.evaluator_id')
+            ->count('ea.evaluator_id');
+
+        // Add completed external evaluators
+        $completedEvaluators += (int) $externalCounts->used_codes;
+
+        $completionRate = $uniqueEvaluators > 0
+            ? round(($completedEvaluators / $uniqueEvaluators) * 100, 1)
+            : 0;
+
+        // Grade group breakdown — from all evaluatees (internal + external combined)
+        $gradeBreakdown = DB::table('users')
+            ->whereIn('id', $allEvaluateeIds)
+            ->selectRaw("COUNT(DISTINCT CASE WHEN grade >= 13 THEN id END) as governor")
+            ->selectRaw("COUNT(DISTINCT CASE WHEN grade BETWEEN 9 AND 12 THEN id END) as executive")
+            ->selectRaw("COUNT(DISTINCT CASE WHEN grade BETWEEN 4 AND 8 THEN id END) as employee")
+            ->first();
+
+        $gradeStats = [
+            ['label' => 'ผู้ว่าการ (ระดับ 13)', 'color' => 'rose', 'evaluatees' => (int) $gradeBreakdown->governor],
+            ['label' => 'ผู้บริหาร (ระดับ 9-12)', 'color' => 'amber', 'evaluatees' => (int) $gradeBreakdown->executive],
+            ['label' => 'พนักงาน (ระดับ 4-8)', 'color' => 'cyan', 'evaluatees' => (int) $gradeBreakdown->employee],
+        ];
+
+        $publishedEvaluations = Evaluation::where('status', 'published')->count();
+
+        // External counts (reuse $externalCounts from above)
+        $externalCodeCount = (int) $externalCounts->total_codes;
+        $externalUsedCount = (int) $externalCounts->used_codes;
         $externalOrgCount = DB::table('external_organizations')->where('is_active', true)->count();
+
+        // External org evaluation results — scores by organization (fiscal year filtered)
+        $externalOrgResults = DB::table('answers as a')
+            ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+            ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+            ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
+            ->where('eac.fiscal_year', $fiscalYear)
+            ->whereNotNull('a.external_access_code_id')
+            ->groupBy('eo.id', 'eo.name', 'eo.org_code')
+            ->select([
+                'eo.id as org_id',
+                'eo.name as org_name',
+                DB::raw("COALESCE(eo.org_code, '-') as org_code"),
+                DB::raw('COUNT(DISTINCT a.evaluatee_id) as evaluatee_count'),
+                DB::raw('COUNT(DISTINCT eac.id) as evaluator_count'),
+                DB::raw('COUNT(a.id) as total_answers'),
+                DB::raw('ROUND(AVG(CASE WHEN o.score IS NOT NULL THEN o.score WHEN a.value REGEXP "^[0-9]+(\\\\.?[0-9]*)$" THEN CAST(a.value AS DECIMAL(5,2)) ELSE NULL END), 2) as avg_score'),
+            ])
+            ->orderByDesc('avg_score')
+            ->get();
+
+        // Available fiscal years from all sources (assignments + access codes)
+        $assignmentYears = EvaluationAssignment::select('fiscal_year')
+            ->distinct()->pluck('fiscal_year');
+        $accessCodeYears = DB::table('external_access_codes')
+            ->select('fiscal_year')->distinct()->pluck('fiscal_year');
+        $currentFiscalYear = EvaluationLookupService::currentFiscalYear();
+        $availableFiscalYears = $assignmentYears->merge($accessCodeYears)
+            ->push($currentFiscalYear)
+            ->unique()->sortDesc()->values();
 
         return Inertia::render("Admindashboard", [
             'stats' => [
@@ -101,7 +177,10 @@ class HomeController extends Controller
                 'externalCodeCount' => $externalCodeCount,
                 'externalUsedCount' => $externalUsedCount,
                 'externalOrgCount' => $externalOrgCount,
+                'externalOrgResults' => $externalOrgResults,
                 'fiscalYear' => $fiscalYear,
+                'fiscalYearBE' => $fiscalYear + 543,
+                'availableFiscalYears' => $availableFiscalYears,
             ],
         ]);
     }
