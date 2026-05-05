@@ -9,6 +9,7 @@ use App\Models\Part;
 use App\Models\Question;
 use App\Models\Option;
 use App\Models\User;
+use App\Services\EvaluationLookupService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -68,44 +69,28 @@ class EvaluationExportService
     private function createExecutiveEvaluationSheet(Spreadsheet $spreadsheet, array $filters): void
     {
         $sheet = $spreadsheet->getActiveSheet();
-        $sheet->setTitle('ผู้บริหารระดับ 9-12');
-        
-        // Dynamic lookup: find 360 internal evaluation for grades 9-12
-        $evaluation = Evaluation::where('user_type', 'internal')
-            ->where('grade_min', 9)->where('grade_max', 12)
-            ->where('title', 'like', '%360%')
-            ->where('status', 'published')->first();
-        $evaluationData = $evaluation
-            ? $this->getEvaluationData($evaluation->id, [9, 10, 11, 12], $filters)
-            : [];
-        
-        $this->setupSheetHeaders($sheet, 'รายงานการประเมิน 360 องซา สำหรับผู้บริหารระดับ 9-12');
-        $this->populateEvaluationData($sheet, $evaluationData, 6);
-        
-        $this->applySheetStyling($sheet, count($evaluationData) + 10);
+        $sheet->setTitle('ผู้บริหาร 9-12');
+
+        $fy = !empty($filters['fiscal_year']) ? (int) $filters['fiscal_year'] : null;
+        $evaluation = EvaluationLookupService::findByGrade(9, 'internal', $fy);
+        if ($evaluation) {
+            $this->buildPivotSheet($sheet, $evaluation->id, $filters, 'รายงานการประเมิน 360 องศา สำหรับผู้บริหารระดับ 9-12');
+        }
     }
 
     /**
-     * Create employee evaluation sheet (levels 5-8)
+     * Create employee evaluation sheet (levels 4-8)
      */
     private function createEmployeeEvaluationSheet(Spreadsheet $spreadsheet, array $filters): void
     {
-        $employeeSheet = $spreadsheet->createSheet();
-        $employeeSheet->setTitle('พนักงานระดับ 4-8');
-        
-        // Dynamic lookup: find 360 internal evaluation for grades 4-8
-        $evaluation = Evaluation::where('user_type', 'internal')
-            ->where('grade_min', 4)->where('grade_max', 8)
-            ->where('title', 'like', '%360%')
-            ->where('status', 'published')->first();
-        $evaluationData = $evaluation
-            ? $this->getEvaluationData($evaluation->id, [4, 5, 6, 7, 8], $filters)
-            : [];
-        
-        $this->setupSheetHeaders($employeeSheet, 'รายงานการประเมิน 360 องศา สำหรับพนักงานระดับ 4-8');
-        $this->populateEvaluationData($employeeSheet, $evaluationData, 6);
-        
-        $this->applySheetStyling($employeeSheet, count($evaluationData) + 10);
+        $sheet = $spreadsheet->createSheet();
+        $sheet->setTitle('พนักงาน 4-8');
+
+        $fy = !empty($filters['fiscal_year']) ? (int) $filters['fiscal_year'] : null;
+        $evaluation = EvaluationLookupService::findByGrade(5, 'internal', $fy);
+        if ($evaluation) {
+            $this->buildPivotSheet($sheet, $evaluation->id, $filters, 'รายงานการประเมิน 360 องศา สำหรับพนักงานระดับ 4-8');
+        }
     }
 
     /**
@@ -113,24 +98,14 @@ class EvaluationExportService
      */
     private function createGovernorEvaluationSheet(Spreadsheet $spreadsheet, array $filters): void
     {
-        // Find the governor internal evaluation dynamically
-        $governorEval = \App\Models\Evaluation::where('grade_min', 13)
-            ->where('grade_max', 13)
-            ->where('user_type', 'internal')
-            ->where('status', 'published')
-            ->first();
+        $fy = !empty($filters['fiscal_year']) ? (int) $filters['fiscal_year'] : null;
+        $governorEval = EvaluationLookupService::findByGrade(13, 'internal', $fy);
+        if (!$governorEval) return;
 
-        if (!$governorEval) {
-            return; // No governor evaluation configured yet
-        }
+        $sheet = $spreadsheet->createSheet();
+        $sheet->setTitle('ผู้ว่าการ 13');
 
-        $governorSheet = $spreadsheet->createSheet();
-        $governorSheet->setTitle('ผู้ว่าการ ระดับ 13');
-
-        $evaluationData = $this->getEvaluationData($governorEval->id, [13], $filters);
-
-        $this->setupSheetHeaders($governorSheet, 'รายงานการประเมิน 360 องศา สำหรับผู้ว่าการ กนอ.');
-        $this->populateEvaluationData($governorSheet, $evaluationData, 6);
+        $this->buildPivotSheet($sheet, $governorEval->id, $filters, 'รายงานการประเมิน 360 องศา สำหรับผู้ว่าการ กนอ.');
 
         $this->applySheetStyling($governorSheet, count($evaluationData) + 10);
     }
@@ -143,19 +118,11 @@ class EvaluationExportService
         $summarySheet = $spreadsheet->createSheet();
         $summarySheet->setTitle('สรุปภาพรวม');
 
-        // Dynamic lookup for summary sheet
-        $execEval = Evaluation::where('user_type', 'internal')
-            ->where('grade_min', 9)->where('grade_max', 12)
-            ->where('title', 'like', '%360%')
-            ->where('status', 'published')->first();
-        $empEval = Evaluation::where('user_type', 'internal')
-            ->where('grade_min', 4)->where('grade_max', 8)
-            ->where('title', 'like', '%360%')
-            ->where('status', 'published')->first();
-        $govEval = Evaluation::where('user_type', 'internal')
-            ->where('grade_min', 13)->where('grade_max', 13)
-            ->where('title', 'like', '%360%')
-            ->where('status', 'published')->first();
+        // Dynamic lookup for summary sheet — respect fiscal_year filter
+        $fy = !empty($filters['fiscal_year']) ? (int) $filters['fiscal_year'] : null;
+        $execEval = EvaluationLookupService::findByGrade(10, 'internal', $fy);
+        $empEval  = EvaluationLookupService::findByGrade(6,  'internal', $fy);
+        $govEval  = EvaluationLookupService::findByGrade(13, 'internal', $fy);
         $executiveData = $execEval ? $this->getEvaluationData($execEval->id, [9, 10, 11, 12], $filters) : [];
         $employeeData = $empEval ? $this->getEvaluationData($empEval->id, [5, 6, 7, 8], $filters) : [];
         $governorData = $govEval ? $this->getEvaluationData($govEval->id, [13], $filters) : [];
@@ -719,13 +686,13 @@ class EvaluationExportService
     private function translateAngle(string $angle): string
     {
         $translations = [
-            'self' => 'ประเมินตนเอง',
-            'top' => 'ผู้บังคับบัญชา',
-            'bottom' => 'ผู้ใต้บังคับบัญชา',
-            'left' => 'องศาซ้าย',
-            'right' => 'องศาขวา'
+            'self' => 'ตนเอง',
+            'top' => 'บน',
+            'bottom' => 'ล่าง',
+            'left' => 'ซ้าย',
+            'right' => 'ขวา',
         ];
-        
+
         return $translations[$angle] ?? $angle;
     }
 
@@ -833,6 +800,63 @@ class EvaluationExportService
      * Export external organization evaluation report
      */
     public function exportExternalOrgReport(array $filters = []): string
+    {
+        try {
+            $this->boostLimits();
+            $spreadsheet = new Spreadsheet();
+
+            $fiscalYear = (int) ($filters['fiscal_year'] ?? date('Y'));
+
+            // Find which evaluations have external org answers — typically the executive 9-12 external form
+            $evaluationIds = DB::table('answers as a')
+                ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                ->where('eac.fiscal_year', $fiscalYear)
+                ->whereNotNull('a.external_access_code_id')
+                ->distinct()
+                ->pluck('a.evaluation_id')
+                ->toArray();
+
+            if (empty($evaluationIds)) {
+                // No data — write a stub sheet
+                $sheet = $spreadsheet->getActiveSheet();
+                $sheet->setTitle('องค์กรภายนอก');
+                $sheet->setCellValue('A1', 'รายงานการประเมินองค์กรภายนอก (องศาขวา)');
+                $sheet->mergeCells('A1:I1');
+                $sheet->setCellValue('A2', 'ปีงบประมาณ พ.ศ. ' . ($fiscalYear + 543) . ' — ไม่มีข้อมูล');
+            } else {
+                $first = true;
+                foreach ($evaluationIds as $evalId) {
+                    $eval = Evaluation::find($evalId);
+                    $sheet = $first ? $spreadsheet->getActiveSheet() : $spreadsheet->createSheet();
+                    $first = false;
+                    $title = $eval ? mb_substr($eval->title, 0, 28) : 'Eval ' . $evalId;
+                    $sheet->setTitle($title);
+                    $this->buildPivotSheet(
+                        $sheet,
+                        $evalId,
+                        $filters,
+                        'รายงานการประเมินองค์กรภายนอก (องศาขวา) — ' . ($eval ? $eval->title : "Evaluation {$evalId}"),
+                        false,  // selfEvalOnly
+                        true    // externalOrgMode
+                    );
+                }
+            }
+
+            $filename = 'รายงาน_องค์กรภายนอก_พศ' . ($fiscalYear + 543) . '_' . now()->format('Ymd_His') . '.xlsx';
+            $filePath = storage_path('app/exports/' . $filename);
+            if (!file_exists(dirname($filePath))) mkdir(dirname($filePath), 0755, true);
+            (new Xlsx($spreadsheet))->save($filePath);
+            return $filePath;
+        } catch (\Exception $e) {
+            Log::error('Export external org report error: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * @deprecated Old long-format implementation kept for reference
+     */
+    private function exportExternalOrgReportLegacy(array $filters = []): string
     {
         try {
             $this->boostLimits();
@@ -990,25 +1014,307 @@ class EvaluationExportService
     }
 
     /**
-     * Export specific evaluation type
+     * Export specific evaluation type — pivot format (questions as columns)
      */
     public function exportByEvaluationType(int $evaluationId, array $filters = []): string
     {
         try {
             $this->boostLimits();
             $evaluation = Evaluation::findOrFail($evaluationId);
-            
+
             $spreadsheet = new Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
             $sheet->setTitle('รายงานการประเมิน');
-            
-            // Determine grade range based on evaluation
-            $grades = $this->getGradeRangeForEvaluation($evaluationId);
-            $evaluationData = $this->getEvaluationData($evaluationId, $grades, $filters);
-            
-            $this->setupSheetHeaders($sheet, 'รายงานการประเมิน: ' . $evaluation->title);
-            $this->populateEvaluationData($sheet, $evaluationData, 6);
-            $this->applySheetStyling($sheet, count($evaluationData) + 10);
+
+            // Use shared pivot helper
+            $this->buildPivotSheet($sheet, $evaluationId, $filters);
+
+            // Question title sheet
+            $questions = DB::table('questions as q')
+                ->join('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+                ->join('parts as p', 'asp.part_id', '=', 'p.id')
+                ->where('p.evaluation_id', $evaluationId)
+                ->where('q.type', 'rating')
+                ->orderBy('p.order')->orderBy('asp.id')->orderBy('q.order')
+                ->select('q.id', 'q.title', 'asp.name as aspect')
+                ->get();
+
+            $qSheet = $spreadsheet->createSheet();
+            $qSheet->setTitle('รายการคำถาม');
+            $qSheet->setCellValue('A1', 'ข้อที่');
+            $qSheet->setCellValue('B1', 'หมวดหมู่');
+            $qSheet->setCellValue('C1', 'คำถาม');
+            $qSheet->getStyle('A1:C1')->getFont()->setBold(true);
+            foreach ($questions as $i => $q) {
+                $qSheet->setCellValue('A' . ($i + 2), 'ข้อ ' . ($i + 1));
+                $qSheet->setCellValue('B' . ($i + 2), $q->aspect);
+                $qSheet->setCellValue('C' . ($i + 2), $q->title);
+            }
+            $qSheet->getColumnDimension('A')->setAutoSize(true);
+            $qSheet->getColumnDimension('B')->setAutoSize(true);
+            $qSheet->getColumnDimension('C')->setWidth(60);
+
+            $filename = 'รายงานการประเมิน_' . $evaluation->id . '_' . now()->format('Y-m-d_H-i-s') . '.xlsx';
+            $filePath = storage_path('app/exports/' . $filename);
+
+            if (!file_exists(dirname($filePath))) {
+                mkdir(dirname($filePath), 0755, true);
+            }
+
+            $writer = new Xlsx($spreadsheet);
+            $writer->save($filePath);
+
+            return $filePath;
+        } catch (\Exception $e) {
+            Log::error('Export by evaluation type error: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * OLD exportByEvaluationType (replaced by buildPivotSheet) - kept for reference
+     * @deprecated
+     */
+    private function _oldExportByEvaluationType(int $evaluationId, array $filters = []): string
+    {
+        try {
+            $evaluation = Evaluation::findOrFail($evaluationId);
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('รายงานการประเมิน');
+
+            // 1. Get ordered questions for this evaluation
+            $questions = DB::table('questions as q')
+                ->join('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+                ->join('parts as p', 'asp.part_id', '=', 'p.id')
+                ->where('p.evaluation_id', $evaluationId)
+                ->where('q.type', 'rating')
+                ->orderBy('p.order')->orderBy('asp.id')->orderBy('q.order')
+                ->select('q.id', 'q.title', 'asp.name as aspect', 'p.title as part')
+                ->get();
+
+            $questionIds = $questions->pluck('id')->toArray();
+            $questionIndex = array_flip($questionIds); // q_id => col_index
+
+            // 2. Build query: answers grouped by evaluator + evaluatee pair
+            $query = DB::table('answers as a')
+                ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
+                ->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
+                ->join('evaluation_assignments as ea', function ($j) {
+                    $j->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                      ->on('a.user_id', '=', 'ea.evaluator_id')
+                      ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                })
+                ->leftJoin('options as o', 'a.value', '=', 'o.id')
+                ->leftJoin('divisions as div', 'evaluatee.division_id', '=', 'div.id')
+                ->leftJoin('departments as dept', 'evaluatee.department_id', '=', 'dept.id')
+                ->leftJoin('positions as pos', 'evaluatee.position_id', '=', 'pos.id')
+                ->where('a.evaluation_id', $evaluationId)
+                ->whereIn('a.question_id', $questionIds)
+                ->select([
+                    'evaluatee.emid as evaluatee_emid',
+                    DB::raw("CONCAT(evaluatee.prename, evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
+                    'evaluatee.grade as evaluatee_grade',
+                    'div.name as division', 'dept.name as department', 'pos.title as position',
+                    'evaluator.emid as evaluator_emid',
+                    DB::raw("CONCAT(evaluator.prename, evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
+                    'ea.angle',
+                    'a.question_id',
+                    DB::raw('COALESCE(o.score, CAST(a.value AS UNSIGNED)) as score'),
+                ]);
+
+            // Apply filters
+            if (!empty($filters['fiscal_year'])) {
+                $query->where('a.fiscal_year', $filters['fiscal_year']);
+            }
+            if (!empty($filters['division_id'])) $query->where('evaluatee.division_id', $filters['division_id']);
+            if (!empty($filters['user_id'])) $query->where('evaluatee.id', $filters['user_id']);
+            if (!empty($filters['angle'])) $query->where('ea.angle', $filters['angle']);
+            if (!empty($filters['department_id'])) $query->where('evaluatee.department_id', $filters['department_id']);
+            if (!empty($filters['position_id'])) $query->where('evaluatee.position_id', $filters['position_id']);
+            if (!empty($filters['grade'])) $query->where('evaluatee.grade', $filters['grade']);
+
+            $results = $query->orderBy('evaluatee.fname')->orderBy('evaluator.fname')->get();
+
+            // 3. Pivot: group by evaluator+evaluatee pair
+            $rows = [];
+            foreach ($results as $r) {
+                $key = $r->evaluator_emid . '|' . $r->evaluatee_emid . '|' . $r->angle;
+                if (!isset($rows[$key])) {
+                    $rows[$key] = [
+                        'evaluatee_emid' => $r->evaluatee_emid,
+                        'evaluatee_name' => $r->evaluatee_name,
+                        'evaluatee_grade' => $r->evaluatee_grade,
+                        'division' => $r->division ?? '',
+                        'department' => $r->department ?? '',
+                        'position' => $r->position ?? '',
+                        'evaluator_emid' => $r->evaluator_emid,
+                        'evaluator_name' => $r->evaluator_name,
+                        'angle' => $r->angle,
+                        'scores' => array_fill(0, count($questionIds), ''),
+                    ];
+                }
+                $qIdx = $questionIndex[$r->question_id] ?? null;
+                if ($qIdx !== null) {
+                    $rows[$key]['scores'][$qIdx] = $r->score;
+                }
+            }
+
+            // 4. Write to spreadsheet
+            // Title
+            $sheet->setCellValue('A1', 'รายงานการประเมิน: ' . $evaluation->title);
+            $sheet->mergeCells('A1:I1');
+            $sheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
+            $sheet->setCellValue('A2', 'วันที่สร้าง: ' . now()->format('d/m/Y H:i') . ' | จำนวน ' . count($rows) . ' รายการ');
+            $sheet->mergeCells('A2:I2');
+
+            // Build column layout: each aspect has its questions + 1 avg column
+            // Map: column_index => ['type' => 'q'|'avg', 'q_index' => int, 'aspect' => string, 'q_indices' => [..]]
+            $colLayout = [];
+            $col = 10; // J onwards
+            $currentCol = $col;
+            $aspectQIndices = []; // aspect_name => [list of q_indices]
+            $aspectAvgCol = []; // aspect_name => column letter for avg
+
+            // First pass: group questions by aspect
+            foreach ($questions as $i => $q) {
+                $aspectQIndices[$q->aspect][] = $i;
+            }
+
+            // Second pass: assign columns - questions then avg per aspect
+            $aspectRanges = []; // aspect => ['start' => letter, 'end' => letter]
+            foreach ($aspectQIndices as $aspectName => $qIndices) {
+                $startCol = $currentCol;
+                foreach ($qIndices as $qIdx) {
+                    $colLayout[$currentCol] = ['type' => 'q', 'q_index' => $qIdx];
+                    $currentCol++;
+                }
+                // Avg column for this aspect
+                $colLayout[$currentCol] = ['type' => 'avg', 'aspect' => $aspectName, 'q_indices' => $qIndices];
+                $aspectAvgCol[$aspectName] = $currentCol;
+                $endCol = $currentCol;
+                $currentCol++;
+
+                $aspectRanges[$aspectName] = [
+                    'start' => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startCol),
+                    'end' => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($endCol),
+                ];
+            }
+            $lastDataCol = $currentCol - 1;
+
+            // Aspect header row (row 4)
+            foreach ($aspectRanges as $aspectName => $range) {
+                $sheet->setCellValue($range['start'] . '4', $aspectName);
+                if ($range['start'] !== $range['end']) {
+                    $sheet->mergeCells($range['start'] . '4:' . $range['end'] . '4');
+                }
+                $style = $sheet->getStyle($range['start'] . '4');
+                $style->getFont()->setBold(true)->setSize(9);
+                $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E8E0FF');
+                $style->getAlignment()
+                    ->setHorizontal(Alignment::HORIZONTAL_CENTER)
+                    ->setVertical(Alignment::VERTICAL_CENTER)
+                    ->setWrapText(true);
+            }
+            $sheet->getRowDimension(4)->setRowHeight(40);
+
+            // Column headers (row 5)
+            $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'องศาการประเมิน'];
+            foreach ($fixedHeaders as $cell => $h) $sheet->setCellValue($cell, $h);
+            $sheet->getColumnDimension('I')->setWidth(20);
+
+            // Question + avg headers
+            $qCounter = 1;
+            foreach ($colLayout as $colIdx => $info) {
+                $c = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx);
+                if ($info['type'] === 'q') {
+                    $sheet->setCellValue($c . '5', 'ข้อ ' . ($info['q_index'] + 1));
+                    $sheet->getComment($c . '5')->getText()->createTextRun($questions[$info['q_index']]->title);
+                    $sheet->getColumnDimension($c)->setWidth(6);
+                    $qCounter++;
+                } else {
+                    $sheet->setCellValue($c . '5', 'เฉลี่ย');
+                    $sheet->getColumnDimension($c)->setWidth(8);
+                    // Highlight avg columns
+                    $sheet->getStyle($c . '5')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FBBF24');
+                }
+            }
+
+            // Style headers (row 5)
+            $lastColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($lastDataCol);
+            $sheet->getStyle("A5:{$lastColLetter}5")->getFont()->setBold(true)->setSize(9);
+            $sheet->getStyle("A5:I5")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('4F46E5');
+            $sheet->getStyle("A5:I5")->getFont()->getColor()->setRGB('FFFFFF');
+            // Question columns: violet
+            foreach ($colLayout as $colIdx => $info) {
+                if ($info['type'] === 'q') {
+                    $c = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx);
+                    $sheet->getStyle($c . '5')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('4F46E5');
+                    $sheet->getStyle($c . '5')->getFont()->getColor()->setRGB('FFFFFF');
+                }
+            }
+            $sheet->getStyle("A5:{$lastColLetter}5")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Data rows
+            $rowNum = 6;
+            $counter = 1;
+            foreach ($rows as $r) {
+                $sheet->setCellValue('A' . $rowNum, $counter);
+                $sheet->setCellValue('B' . $rowNum, $r['evaluatee_emid']);
+                $sheet->setCellValue('C' . $rowNum, $r['evaluatee_name']);
+                $sheet->setCellValue('D' . $rowNum, $r['evaluatee_grade']);
+                $sheet->setCellValue('E' . $rowNum, $r['division']);
+                $sheet->setCellValue('F' . $rowNum, $r['department']);
+                $sheet->setCellValue('G' . $rowNum, $r['position']);
+                $sheet->setCellValue('H' . $rowNum, $r['evaluator_name']);
+                $sheet->setCellValue('I' . $rowNum, $this->translateAngle($r['angle']));
+
+                foreach ($colLayout as $colIdx => $info) {
+                    $c = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx);
+                    if ($info['type'] === 'q') {
+                        $score = $r['scores'][$info['q_index']] ?? '';
+                        if ($score !== '') {
+                            $sheet->setCellValue($c . $rowNum, $score);
+                        }
+                    } else {
+                        // Aspect average
+                        $sum = 0; $cnt = 0;
+                        foreach ($info['q_indices'] as $qi) {
+                            $s = $r['scores'][$qi] ?? '';
+                            if ($s !== '') { $sum += $s; $cnt++; }
+                        }
+                        if ($cnt > 0) {
+                            $sheet->setCellValue($c . $rowNum, round($sum / $cnt, 2));
+                            $sheet->getStyle($c . $rowNum)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FEF3C7');
+                            $sheet->getStyle($c . $rowNum)->getFont()->setBold(true);
+                        }
+                    }
+                }
+
+                $rowNum++;
+                $counter++;
+            }
+
+            // Auto-width for fixed columns
+            foreach (['A','B','C','D','E','F','G','H','I'] as $c) {
+                $sheet->getColumnDimension($c)->setAutoSize(true);
+            }
+
+            // Question title sheet
+            $qSheet = $spreadsheet->createSheet();
+            $qSheet->setTitle('รายการคำถาม');
+            $qSheet->setCellValue('A1', 'ข้อที่');
+            $qSheet->setCellValue('B1', 'หมวดหมู่');
+            $qSheet->setCellValue('C1', 'คำถาม');
+            $qSheet->getStyle('A1:C1')->getFont()->setBold(true);
+            foreach ($questions as $i => $q) {
+                $qSheet->setCellValue('A' . ($i + 2), 'ข้อ ' . ($i + 1));
+                $qSheet->setCellValue('B' . ($i + 2), $q->aspect);
+                $qSheet->setCellValue('C' . ($i + 2), $q->title);
+            }
+            $qSheet->getColumnDimension('A')->setAutoSize(true);
+            $qSheet->getColumnDimension('B')->setAutoSize(true);
+            $qSheet->getColumnDimension('C')->setWidth(60);
             
             $filename = 'รายงานการประเมิน_' . $evaluation->id . '_' . now()->format('Y-m-d_H-i-s') . '.xlsx';
             $filePath = storage_path('app/exports/' . $filename);
@@ -1024,6 +1330,343 @@ class EvaluationExportService
         } catch (\Exception $e) {
             Log::error('Export by evaluation type error: ' . $e->getMessage());
             throw $e;
+        }
+    }
+
+    /**
+     * Build a pivot sheet for an evaluation — questions as columns, per-aspect averages.
+     * Reusable across all export types.
+     *
+     * @param \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet
+     * @param int $evaluationId
+     * @param array $filters
+     * @param string|null $customTitle
+     * @param bool $selfEvalOnly  If true, only include self-evaluations (user_id = evaluatee_id)
+     */
+    private function buildPivotSheet($sheet, int $evaluationId, array $filters = [], ?string $customTitle = null, bool $selfEvalOnly = false, bool $externalOrgMode = false): void
+    {
+        $evaluation = Evaluation::find($evaluationId);
+        if (!$evaluation) return;
+
+        // 1. Get ordered questions
+        //    rating         → numeric score (1-5)
+        //    choice         → option score (0/1 for quiz) or option label fallback
+        //    multiple_choice → comma-joined option labels (survey-style)
+        $questions = DB::table('questions as q')
+            ->join('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+            ->join('parts as p', 'asp.part_id', '=', 'p.id')
+            ->where('p.evaluation_id', $evaluationId)
+            ->whereIn('q.type', ['rating', 'choice', 'multiple_choice'])
+            ->orderBy('p.order')->orderBy('asp.id')->orderBy('q.order')
+            ->select('q.id', 'q.title', 'q.type', 'asp.name as aspect', 'p.title as part')
+            ->get();
+
+        if ($questions->isEmpty()) return;
+
+        $questionIds = $questions->pluck('id')->toArray();
+        $questionIndex = array_flip($questionIds);
+        $questionTypeMap = $questions->pluck('type', 'id')->toArray();
+
+        // Per-part display number (reset at each part boundary) so columns read "ข้อ 1..N" inside each part,
+        // matching the form layout instead of a global continuous count.
+        $questionDisplayNum = [];
+        $currentPart = null;
+        $partCounter = 0;
+        foreach ($questions as $i => $q) {
+            if ($q->part !== $currentPart) {
+                $currentPart = $q->part;
+                $partCounter = 0;
+            }
+            $partCounter++;
+            $questionDisplayNum[$i] = $partCounter;
+        }
+
+        // Preload all options keyed by id → label (for multi_choice label resolution)
+        $optionLabelMap = DB::table('options')
+            ->whereIn('question_id', $questionIds)
+            ->pluck('label', 'id')
+            ->toArray();
+
+        // 2. Build query — different join for self / external / regular
+        $query = DB::table('answers as a')
+            ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
+            ->join('questions as q', 'a.question_id', '=', 'q.id')
+            ->leftJoin('options as o', 'a.value', '=', 'o.id')
+            ->leftJoin('divisions as div', 'evaluatee.division_id', '=', 'div.id')
+            ->leftJoin('departments as dept', 'evaluatee.department_id', '=', 'dept.id')
+            ->leftJoin('positions as pos', 'evaluatee.position_id', '=', 'pos.id')
+            ->where('a.evaluation_id', $evaluationId)
+            ->whereIn('a.question_id', $questionIds);
+
+        if ($externalOrgMode) {
+            // External org: join via external_access_codes → external_organizations + session
+            // Each SESSION = 1 evaluator submission (multiple people from same org → multiple sessions)
+            // Use session.id as unique evaluator key so they don't collapse
+            $query->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                  ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+                  ->leftJoin('external_evaluation_sessions as ses', 'a.external_session_id', '=', 'ses.id')
+                  ->whereNotNull('a.external_access_code_id');
+            $query->addSelect([
+                DB::raw("'right' as angle"),
+                // Use session id as unique key — each session = separate row in pivot
+                DB::raw("CONCAT('SESS-', COALESCE(ses.id, 0)) as evaluator_emid"),
+                // Show person's name + org in parentheses
+                DB::raw("CONCAT(COALESCE(ses.evaluator_name, '(ไม่ระบุชื่อ)'), ' [', eo.name, ']') as evaluator_name"),
+            ]);
+            if (!empty($filters['external_org_id'])) $query->where('eo.id', $filters['external_org_id']);
+        } elseif ($selfEvalOnly) {
+            $query->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
+                  ->whereColumn('a.user_id', 'a.evaluatee_id');
+            $query->addSelect(DB::raw("'self' as angle"));
+            $query->addSelect([
+                'evaluator.emid as evaluator_emid',
+                DB::raw("CONCAT(evaluator.prename, evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
+            ]);
+        } else {
+            $query->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
+                  ->join('evaluation_assignments as ea', function ($j) {
+                      $j->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                        ->on('a.user_id', '=', 'ea.evaluator_id')
+                        ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                  });
+            $query->addSelect('ea.angle');
+            $query->addSelect([
+                'evaluator.emid as evaluator_emid',
+                DB::raw("CONCAT(evaluator.prename, evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
+            ]);
+        }
+
+        $query->addSelect([
+            'evaluatee.emid as evaluatee_emid',
+            DB::raw("CONCAT(evaluatee.prename, evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
+            'evaluatee.grade as evaluatee_grade',
+            'div.name as division', 'dept.name as department', 'pos.title as position',
+            'a.question_id',
+            'q.type as question_type',
+            'a.value as raw_value',
+            DB::raw("CASE WHEN q.type = 'rating' THEN COALESCE(o.score, CAST(a.value AS UNSIGNED)) WHEN q.type = 'choice' THEN o.score ELSE NULL END as score"),
+        ]);
+
+        // Apply filters
+        if (!empty($filters['fiscal_year'])) $query->where('a.fiscal_year', $filters['fiscal_year']);
+        if (!empty($filters['division_id'])) $query->where('evaluatee.division_id', $filters['division_id']);
+        if (!empty($filters['user_id'])) $query->where('evaluatee.id', $filters['user_id']);
+        if (!empty($filters['department_id'])) $query->where('evaluatee.department_id', $filters['department_id']);
+        if (!empty($filters['position_id'])) $query->where('evaluatee.position_id', $filters['position_id']);
+        if (!empty($filters['grade'])) $query->where('evaluatee.grade', $filters['grade']);
+        if (!$selfEvalOnly && !$externalOrgMode && !empty($filters['angle'])) $query->where('ea.angle', $filters['angle']);
+
+        if ($externalOrgMode) {
+            $results = $query->orderBy('eo.name')->orderBy('evaluatee.fname')->get();
+        } else {
+            $results = $query->orderBy('evaluatee.fname')->orderBy('evaluator.fname')->get();
+        }
+
+        // 3. Pivot: group by evaluator+evaluatee+angle
+        $rows = [];
+        foreach ($results as $r) {
+            $key = $r->evaluator_emid . '|' . $r->evaluatee_emid . '|' . $r->angle;
+            if (!isset($rows[$key])) {
+                $rows[$key] = [
+                    'evaluatee_emid' => $r->evaluatee_emid,
+                    'evaluatee_name' => $r->evaluatee_name,
+                    'evaluatee_grade' => $r->evaluatee_grade,
+                    'division' => $r->division ?? '',
+                    'department' => $r->department ?? '',
+                    'position' => $r->position ?? '',
+                    'evaluator_emid' => $r->evaluator_emid,
+                    'evaluator_name' => $r->evaluator_name,
+                    'angle' => $r->angle,
+                    'scores' => array_fill(0, count($questionIds), ''),
+                ];
+            }
+            $qIdx = $questionIndex[$r->question_id] ?? null;
+            if ($qIdx !== null) {
+                $qType = $questionTypeMap[$r->question_id] ?? 'rating';
+                if ($qType === 'multiple_choice') {
+                    // a.value may be JSON array of option IDs, e.g. "[1,2,3]"
+                    // OR mixed array with objects, e.g. [1, {"option_id":2,"other_text":"..."}]
+                    $raw = is_string($r->raw_value ?? null) ? $r->raw_value : '';
+                    $ids = json_decode($raw, true);
+                    if (!is_array($ids)) {
+                        $clean = trim($raw, '[]"');
+                        $ids = $clean !== '' ? array_map('trim', explode(',', $clean)) : [];
+                    }
+                    // Dedupe per option_id — legacy data has keystroke-by-keystroke duplicates for "อื่นๆ",
+                    // each saved as a separate entry with progressively longer other_text. Keep longest.
+                    $chosen = []; // option_id => ['other_text' => string, 'order' => int]
+                    $order = 0;
+                    foreach ($ids as $id) {
+                        if ($id === null || $id === '') continue;
+                        $optId = null;
+                        $otherText = '';
+                        if (is_array($id)) {
+                            $optId = $id['option_id'] ?? null;
+                            $otherText = is_string($id['other_text'] ?? null) ? $id['other_text'] : '';
+                        } elseif (is_scalar($id)) {
+                            $optId = $id;
+                        }
+                        if ($optId === null || $optId === '') continue;
+                        $optId = (int) $optId;
+                        if (!isset($chosen[$optId])) {
+                            $chosen[$optId] = ['other_text' => $otherText, 'order' => $order++];
+                        } else {
+                            // Keep the longest other_text (final keystroke version)
+                            if (mb_strlen($otherText) > mb_strlen($chosen[$optId]['other_text'])) {
+                                $chosen[$optId]['other_text'] = $otherText;
+                            }
+                        }
+                    }
+                    // Preserve original selection order
+                    uasort($chosen, fn($a, $b) => $a['order'] <=> $b['order']);
+                    $labels = [];
+                    foreach ($chosen as $optId => $info) {
+                        $label = $optionLabelMap[$optId] ?? (string) $optId;
+                        if ($info['other_text'] !== '') {
+                            $label .= ' (' . $info['other_text'] . ')';
+                        }
+                        $labels[] = $label;
+                    }
+                    $rows[$key]['scores'][$qIdx] = implode(', ', $labels);
+                } else {
+                    $rows[$key]['scores'][$qIdx] = $r->score;
+                }
+            }
+        }
+
+        // 4. Write header
+        $title = $customTitle ?? ('รายงานการประเมิน: ' . $evaluation->title);
+        $sheet->setCellValue('A1', $title);
+        $sheet->mergeCells('A1:I1');
+        $sheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
+        $sheet->setCellValue('A2', 'วันที่สร้าง: ' . now()->format('d/m/Y H:i') . ' | จำนวน ' . count($rows) . ' รายการ');
+        $sheet->mergeCells('A2:I2');
+
+        // Build column layout: questions + per-aspect avg
+        $colLayout = [];
+        $currentCol = 10;
+        $aspectQIndices = [];
+        foreach ($questions as $i => $q) {
+            $aspectQIndices[$q->aspect][] = $i;
+        }
+        $aspectRanges = [];
+        foreach ($aspectQIndices as $aspectName => $qIndices) {
+            $startCol = $currentCol;
+            foreach ($qIndices as $qIdx) {
+                $colLayout[$currentCol++] = ['type' => 'q', 'q_index' => $qIdx];
+            }
+            $colLayout[$currentCol] = ['type' => 'avg', 'aspect' => $aspectName, 'q_indices' => $qIndices];
+            $endCol = $currentCol++;
+            $aspectRanges[$aspectName] = [
+                'start' => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($startCol),
+                'end' => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($endCol),
+            ];
+        }
+        $lastDataCol = $currentCol - 1;
+
+        // Aspect headers (row 4)
+        foreach ($aspectRanges as $aspectName => $range) {
+            $sheet->setCellValue($range['start'] . '4', $aspectName);
+            if ($range['start'] !== $range['end']) {
+                $sheet->mergeCells($range['start'] . '4:' . $range['end'] . '4');
+            }
+            $style = $sheet->getStyle($range['start'] . '4');
+            $style->getFont()->setBold(true)->setSize(9);
+            $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E8E0FF');
+            $style->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
+        }
+        $sheet->getRowDimension(4)->setRowHeight(40);
+
+        // Fixed headers (row 5)
+        $evaluatorHeader = $externalOrgMode ? 'องค์กรภายนอก' : 'ผู้ประเมิน';
+        $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>$evaluatorHeader,'I5'=>'องศาการประเมิน'];
+        foreach ($fixedHeaders as $cell => $h) $sheet->setCellValue($cell, $h);
+        $sheet->getColumnDimension('I')->setWidth(15);
+
+        // Question + avg headers
+        foreach ($colLayout as $colIdx => $info) {
+            $c = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx);
+            if ($info['type'] === 'q') {
+                $q = $questions[$info['q_index']];
+                $displayNum = $questionDisplayNum[$info['q_index']] ?? ($info['q_index'] + 1);
+                $sheet->setCellValue($c . '5', 'ข้อ ' . $displayNum);
+                $sheet->getComment($c . '5')->getText()->createTextRun($q->title);
+                // Multi-choice columns hold comma-joined labels, so make them wider + wrap
+                $sheet->getColumnDimension($c)->setWidth($q->type === 'multiple_choice' ? 40 : 6);
+            } else {
+                $sheet->setCellValue($c . '5', 'เฉลี่ย');
+                $sheet->getColumnDimension($c)->setWidth(8);
+            }
+        }
+
+        // Header styling
+        $lastColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($lastDataCol);
+        $sheet->getStyle("A5:{$lastColLetter}5")->getFont()->setBold(true)->setSize(9);
+        $sheet->getStyle("A5:I5")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('4F46E5');
+        $sheet->getStyle("A5:I5")->getFont()->getColor()->setRGB('FFFFFF');
+        foreach ($colLayout as $colIdx => $info) {
+            $c = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx);
+            if ($info['type'] === 'q') {
+                $sheet->getStyle($c . '5')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('4F46E5');
+                $sheet->getStyle($c . '5')->getFont()->getColor()->setRGB('FFFFFF');
+            } else {
+                $sheet->getStyle($c . '5')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FBBF24');
+            }
+        }
+        $sheet->getStyle("A5:{$lastColLetter}5")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+        // Data rows
+        $rowNum = 6;
+        $counter = 1;
+        foreach ($rows as $r) {
+            $sheet->setCellValue('A' . $rowNum, $counter);
+            $sheet->setCellValue('B' . $rowNum, $r['evaluatee_emid']);
+            $sheet->setCellValue('C' . $rowNum, $r['evaluatee_name']);
+            $sheet->setCellValue('D' . $rowNum, $r['evaluatee_grade']);
+            $sheet->setCellValue('E' . $rowNum, $r['division']);
+            $sheet->setCellValue('F' . $rowNum, $r['department']);
+            $sheet->setCellValue('G' . $rowNum, $r['position']);
+            $sheet->setCellValue('H' . $rowNum, $r['evaluator_name']);
+            $sheet->setCellValue('I' . $rowNum, $this->translateAngle($r['angle']));
+
+            foreach ($colLayout as $colIdx => $info) {
+                $c = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx);
+                if ($info['type'] === 'q') {
+                    $score = $r['scores'][$info['q_index']] ?? '';
+                    if ($score !== '' && $score !== null) {
+                        $sheet->setCellValueExplicit(
+                            $c . $rowNum,
+                            $score,
+                            is_numeric($score)
+                                ? \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC
+                                : \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING
+                        );
+                        // Wrap text for multi_choice cells (long labels)
+                        if (!is_numeric($score)) {
+                            $sheet->getStyle($c . $rowNum)->getAlignment()->setWrapText(true);
+                        }
+                    }
+                } else {
+                    // Average only numeric values (skip text from multi_choice)
+                    $sum = 0; $cnt = 0;
+                    foreach ($info['q_indices'] as $qi) {
+                        $s = $r['scores'][$qi] ?? '';
+                        if ($s !== '' && $s !== null && is_numeric($s)) { $sum += (float) $s; $cnt++; }
+                    }
+                    if ($cnt > 0) {
+                        $sheet->setCellValue($c . $rowNum, round($sum / $cnt, 2));
+                        $sheet->getStyle($c . $rowNum)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FEF3C7');
+                        $sheet->getStyle($c . $rowNum)->getFont()->setBold(true);
+                    }
+                }
+            }
+            $rowNum++;
+            $counter++;
+        }
+
+        // Auto-width fixed columns
+        foreach (['A','B','C','D','E','F','G','H'] as $c) {
+            $sheet->getColumnDimension($c)->setAutoSize(true);
         }
     }
 
@@ -1048,16 +1691,39 @@ class EvaluationExportService
         try {
             $this->boostLimits();
             $spreadsheet = new Spreadsheet();
-            $sheet = $spreadsheet->getActiveSheet();
-            $sheet->setTitle('การประเมินตนเอง');
-            
-            // Get self-evaluation data for all parts
-            $selfEvaluationData = $this->getSelfEvaluationData($filters);
-            
-           
-            $this->setupSheetHeaders($sheet, 'รายงานการประเมินตนเอง (ทุกส่วน)');
-            $this->populateEvaluationData($sheet, $selfEvaluationData, 6);
-            $this->applySheetStyling($sheet, count($selfEvaluationData) + 10);
+
+            // Find all self-evaluation forms (by title)
+            $selfEvals = Evaluation::where('title', 'like', '%ประเมินตนเอง%')
+                ->where('status', 'published')
+                ->get();
+
+            if (!empty($filters['fiscal_year'])) {
+                $selfEvals = $selfEvals->filter(function ($e) use ($filters) {
+                    return $e->fiscal_year == $filters['fiscal_year'] || is_null($e->fiscal_year);
+                });
+            }
+
+            $first = true;
+            foreach ($selfEvals as $eval) {
+                if ($first) {
+                    $sheet = $spreadsheet->getActiveSheet();
+                    $first = false;
+                } else {
+                    $sheet = $spreadsheet->createSheet();
+                }
+                // Sheet name max 31 chars
+                $shortTitle = mb_substr($eval->title, 0, 28);
+                $sheet->setTitle($shortTitle);
+
+                $this->buildPivotSheet($sheet, $eval->id, $filters, 'รายงานการประเมินตนเอง: ' . $eval->title, true);
+            }
+
+            if ($first) {
+                // No sheets created - add empty
+                $sheet = $spreadsheet->getActiveSheet();
+                $sheet->setTitle('การประเมินตนเอง');
+                $sheet->setCellValue('A1', 'ไม่พบข้อมูลการประเมินตนเอง');
+            }
             
             $filename = 'รายงานการประเมินตนเอง_' . now()->format('Y-m-d_H-i-s') . '.xlsx';
             $filePath = storage_path('app/exports/' . $filename);
@@ -1388,7 +2054,289 @@ class EvaluationExportService
                 $optionsCache[$cacheKey] = null;
             }
         }
-        
+
         return $optionsCache[$cacheKey];
     }
+
+    /**
+     * Export evaluation assignments — 1 row per evaluator with one column per
+     * evaluation form. Each evaluation column lists the evaluatees that the
+     * evaluator evaluates within that form (with grade + division for context).
+     *
+     * Layout:
+     *   ลำดับ | รหัส | ชื่อ | ตำแหน่ง | ระดับ | สายงาน | ตนเอง | <eval 1> | <eval 2> | ...
+     *
+     * Stakeholder synthetic right-angle entries are bucketed under the evaluation
+     * referenced by their access code if include_stakeholders=true.
+     */
+    public function exportAssignmentsByEvaluator(array $filters = []): string
+    {
+        $this->boostLimits();
+        $fiscalYear = (int) ($filters['fiscal_year'] ?? date('Y'));
+        $includeStakeholders = (bool) ($filters['include_stakeholders'] ?? true);
+
+        $assignments = DB::table('evaluation_assignments as ea')
+            ->join('users as evaluator', 'evaluator.id', '=', 'ea.evaluator_id')
+            ->join('users as evaluatee', 'evaluatee.id', '=', 'ea.evaluatee_id')
+            ->leftJoin('evaluations as e', 'e.id', '=', 'ea.evaluation_id')
+            ->leftJoin('positions as evpos', 'evpos.id', '=', 'evaluator.position_id')
+            ->leftJoin('divisions as ev_divi', 'ev_divi.id', '=', 'evaluator.division_id')
+            ->leftJoin('positions as eepos', 'eepos.id', '=', 'evaluatee.position_id')
+            ->leftJoin('divisions as ee_divi', 'ee_divi.id', '=', 'evaluatee.division_id')
+            ->where('ea.fiscal_year', $fiscalYear)
+            ->select(
+                'ea.angle', 'ea.evaluation_id',
+                'e.title as evaluation_title',
+                'evaluator.id as evaluator_id',
+                'evaluator.emid as ev_emid', 'evaluator.prename as ev_prename',
+                'evaluator.fname as ev_fname', 'evaluator.lname as ev_lname',
+                'evaluator.grade as ev_grade', 'evpos.title as ev_position',
+                'ev_divi.name as ev_division',
+                'evaluatee.id as evaluatee_id', 'evaluatee.emid as ee_emid',
+                'evaluatee.prename as ee_prename', 'evaluatee.fname as ee_fname',
+                'evaluatee.lname as ee_lname', 'evaluatee.grade as ee_grade',
+                'eepos.title as ee_position', 'ee_divi.name as ee_division'
+            )
+            ->orderBy('evaluator.grade', 'desc')
+            ->orderBy('evaluator.fname')
+            ->get();
+
+        // Pivot: per evaluator → per evaluation → list of evaluatees
+        $byEvaluator = [];           // key => [evaluator info, has_self bool, by_eval => [evalId => [evaluatees]]]
+        $evaluations = [];           // evalId => 'title'
+        $hasSelfByEvalId = [];       // (not used but kept for clarity)
+
+        foreach ($assignments as $a) {
+            $key = (string) $a->evaluator_id;
+            if (!isset($byEvaluator[$key])) {
+                $byEvaluator[$key] = [
+                    'evaluator' => [
+                        'emid'     => $a->ev_emid,
+                        'prename'  => $a->ev_prename,
+                        'fname'    => $a->ev_fname,
+                        'lname'    => $a->ev_lname,
+                        'position' => $a->ev_position,
+                        'grade'    => $a->ev_grade,
+                        'division' => $a->ev_division,
+                        'is_external' => false,
+                    ],
+                    'has_self' => false,
+                    'by_eval'  => [], // [evalId => [evaluatees]]
+                ];
+            }
+            $eid = (int) ($a->evaluation_id ?? 0);
+
+            // Self assignments → mark on evaluator (don't create eval column —
+            // covered by the ตนเอง check column. Skip registering the self
+            // evaluation form as a column too).
+            if ($a->angle === 'self' || $a->evaluator_id === $a->evaluatee_id) {
+                $byEvaluator[$key]['has_self'] = true;
+                continue;
+            }
+
+            if ($eid && !isset($evaluations[$eid])) {
+                $evaluations[$eid] = $a->evaluation_title ?: ('แบบประเมิน ' . $eid);
+            }
+
+            $byEvaluator[$key]['by_eval'][$eid] ??= [];
+            $byEvaluator[$key]['by_eval'][$eid][] = [
+                'emid'     => $a->ee_emid,
+                'name'     => trim(($a->ee_prename ?? '') . ($a->ee_fname ?? '') . ' ' . ($a->ee_lname ?? '')),
+                'grade'    => $a->ee_grade ?? '',
+                'division' => $a->ee_division ?? '',
+            ];
+        }
+
+        // Stakeholder right-angle entries
+        if ($includeStakeholders) {
+            $stakeholders = DB::table('external_stakeholders as es')
+                ->join('users as evaluatee', 'evaluatee.id', '=', 'es.evaluatee_id')
+                ->leftJoin('external_access_codes as eac', 'eac.id', '=', 'es.external_access_code_id')
+                ->leftJoin('evaluations as e', 'e.id', '=', 'eac.evaluation_id')
+                ->leftJoin('positions as eepos', 'eepos.id', '=', 'evaluatee.position_id')
+                ->leftJoin('divisions as divi', 'divi.id', '=', 'evaluatee.division_id')
+                ->where('es.fiscal_year', $fiscalYear)
+                ->select(
+                    'es.organization_name', 'es.contact_person', 'es.sub_group',
+                    'eac.evaluation_id', 'e.title as evaluation_title',
+                    'evaluatee.emid as ee_emid', 'evaluatee.prename', 'evaluatee.fname', 'evaluatee.lname',
+                    'evaluatee.grade as ee_grade', 'eepos.title as ee_position', 'divi.name as ee_division'
+                )
+                ->get();
+
+            foreach ($stakeholders as $s) {
+                $eid = (int) ($s->evaluation_id ?? 0);
+                if ($eid && !isset($evaluations[$eid])) {
+                    $evaluations[$eid] = $s->evaluation_title ?: 'แบบประเมินภายนอก';
+                }
+                $key = 'ext:' . trim(mb_strtolower($s->organization_name));
+                if (!isset($byEvaluator[$key])) {
+                    $byEvaluator[$key] = [
+                        'evaluator' => [
+                            'emid'     => '',
+                            'prename'  => '',
+                            'fname'    => $s->organization_name,
+                            'lname'    => $s->contact_person ?? '',
+                            'position' => $s->sub_group ?? '',
+                            'grade'    => '',
+                            'division' => '',
+                            'is_external' => true,
+                        ],
+                        'has_self' => false,
+                        'by_eval'  => [],
+                    ];
+                }
+                $byEvaluator[$key]['by_eval'][$eid] ??= [];
+                $byEvaluator[$key]['by_eval'][$eid][] = [
+                    'emid'     => $s->ee_emid,
+                    'name'     => trim(($s->prename ?? '') . ($s->fname ?? '') . ' ' . ($s->lname ?? '')),
+                    'grade'    => $s->ee_grade ?? '',
+                    'division' => $s->ee_division ?? '',
+                ];
+            }
+        }
+
+        // Build spreadsheet — single sheet, dynamic columns per evaluation
+        $thaiYear = $fiscalYear + 543;
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('รายชื่อผู้ประเมิน');
+        $this->buildEvaluatorPivotSheet($sheet, $byEvaluator, $evaluations, $thaiYear);
+
+        $spreadsheet->setActiveSheetIndex(0);
+
+        $filename = 'รายชื่อผู้ประเมิน_พศ' . $thaiYear . '_' . now()->format('Ymd_His') . '.xlsx';
+        $filePath = storage_path('app/exports/' . $filename);
+        if (!file_exists(dirname($filePath))) mkdir(dirname($filePath), 0755, true);
+        (new Xlsx($spreadsheet))->save($filePath);
+        return $filePath;
+    }
+
+    /** Friendly column label for an evaluation form (compact). */
+    private function evaluationColumnLabel(string $title): string
+    {
+        // Strip common prefixes for readability
+        $t = preg_replace('/^แบบประเมิน\s*360\s*องศา\s*/u', '', $title);
+        $t = preg_replace('/\s*สำหรับ\s*/u', ' · ', $t);
+        return trim($t) ?: $title;
+    }
+
+    /**
+     * Single sheet: 1 row per evaluator with dynamic columns per evaluation form.
+     */
+    private function buildEvaluatorPivotSheet($sheet, array $byEvaluator, array $evaluations, int $thaiYear): void
+    {
+        // Drop self-evaluation forms (covered by ตนเอง check column)
+        $evaluations = array_filter($evaluations, fn($title) => mb_strpos($title, 'ประเมินตนเอง') === false);
+        // Order evaluations: by id ascending (matches creation order)
+        ksort($evaluations);
+        $evalIds = array_keys($evaluations);
+
+        // Layout: A=ลำดับ, B=รหัส, C=ชื่อ, D=ตำแหน่ง, E=ระดับ, F=สายงาน, G=ตนเอง, H+=evaluations
+        $fixedCols = ['A' => 'ลำดับ', 'B' => 'รหัส', 'C' => 'ชื่อผู้ประเมิน', 'D' => 'ตำแหน่ง', 'E' => 'ระดับ', 'F' => 'สายงาน', 'G' => 'ตนเอง'];
+        $startEvalCol = 'H';
+
+        $sheet->setCellValue('A1', "รายชื่อผู้ประเมิน — แยกตามแบบประเมิน — ปีงบประมาณ พ.ศ. {$thaiYear}");
+        $lastCol = chr(ord($startEvalCol) + count($evalIds) - 1);
+        if (count($evalIds) === 0) $lastCol = 'G';
+        $sheet->mergeCells('A1:' . $lastCol . '1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+        // Header row 2
+        foreach ($fixedCols as $col => $label) $sheet->setCellValue($col . '2', $label);
+        $col = $startEvalCol;
+        foreach ($evalIds as $eid) {
+            $sheet->setCellValue($col . '2', $this->evaluationColumnLabel($evaluations[$eid]));
+            $sheet->getColumnDimension($col)->setWidth(38);
+            $col = chr(ord($col) + 1);
+        }
+
+        $sheet->getStyle("A2:{$lastCol}2")->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+        $sheet->getStyle("A2:{$lastCol}2")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('5B6FBC');
+        $sheet->getStyle("A2:{$lastCol}2")->getAlignment()
+            ->setHorizontal(Alignment::HORIZONTAL_CENTER)
+            ->setVertical(Alignment::VERTICAL_CENTER)
+            ->setWrapText(true);
+        $sheet->getRowDimension(2)->setRowHeight(48);
+
+        // Fixed col widths
+        $widths = ['A' => 6, 'B' => 12, 'C' => 26, 'D' => 26, 'E' => 7, 'F' => 24, 'G' => 8];
+        foreach ($widths as $c => $w) $sheet->getColumnDimension($c)->setWidth($w);
+
+        $row = 3;
+        $idx = 1;
+        foreach ($byEvaluator as $g) {
+            $ev = $g['evaluator'];
+            $name = trim(($ev['prename'] ?? '') . ($ev['fname'] ?? '') . ' ' . ($ev['lname'] ?? ''));
+
+            $sheet->setCellValue('A' . $row, $idx);
+            $sheet->setCellValue('B' . $row, $ev['emid'] ?: '—');
+            $sheet->setCellValue('C' . $row, $name);
+            $sheet->setCellValue('D' . $row, $ev['position'] ?? '');
+            $sheet->setCellValue('E' . $row, $ev['grade'] ?: '');
+            $sheet->setCellValue('F' . $row, $ev['division'] ?? '');
+            $sheet->setCellValue('G' . $row, $g['has_self'] ? '✓' : '');
+
+            $maxLines = 1;
+            $col = $startEvalCol;
+            foreach ($evalIds as $eid) {
+                $list = $g['by_eval'][$eid] ?? [];
+                $sheet->setCellValue($col . $row, $this->formatEvaluateePivotList($list));
+                if (count($list) > 0) $maxLines = max($maxLines, count($list) + 1);
+                $col = chr(ord($col) + 1);
+            }
+
+            // Style row: top-aligned, wrap on lists, center small cols
+            $sheet->getStyle("A{$row}:{$lastCol}{$row}")->getAlignment()
+                ->setVertical(Alignment::VERTICAL_TOP)
+                ->setWrapText(true);
+            $sheet->getStyle("A{$row}:B{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet->getStyle("E{$row}:G{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet->getStyle("{$startEvalCol}{$row}:{$lastCol}{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+
+            // Zebra
+            if ($idx % 2 === 0) {
+                $sheet->getStyle("A{$row}:{$lastCol}{$row}")->getFill()->setFillType(Fill::FILL_SOLID)
+                    ->getStartColor()->setRGB('F8F9FE');
+            }
+            // External stakeholder
+            if (!empty($ev['is_external'])) {
+                $sheet->getStyle("A{$row}:{$lastCol}{$row}")->getFill()->setFillType(Fill::FILL_SOLID)
+                    ->getStartColor()->setRGB('FFF7E6');
+            }
+
+            $sheet->getRowDimension($row)->setRowHeight(min(max(20, $maxLines * 16), 400));
+            $row++;
+            $idx++;
+        }
+
+        if ($row > 3) {
+            $sheet->getStyle("A2:{$lastCol}" . ($row - 1))->getBorders()->getAllBorders()
+                ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('D5DAE8');
+        }
+        $sheet->freezePane('C3');
+    }
+
+    /** Format evaluatee list for pivot cell: name + grade + division. */
+    private function formatEvaluateePivotList(array $items): string
+    {
+        if (empty($items)) return '-';
+        $lines = ['[' . count($items) . ' ราย]'];
+        foreach ($items as $i => $r) {
+            $line = ($i + 1) . '. ' . $r['name'];
+            if (!empty($r['grade'])) $line .= " · ระดับ {$r['grade']}";
+            if (!empty($r['division'])) $line .= " · " . mb_substr($r['division'], 0, 30);
+            $lines[] = $line;
+        }
+        return implode("\n", $lines);
+    }
+
+    /** @deprecated kept for now in case other callers reference it. */
+    private function safeSheetTitle(string $name): string
+    {
+        $name = preg_replace('/[\\\\\\/\\?\\*\\[\\]:]/u', '_', $name);
+        return mb_substr($name, 0, 31);
+    }
+
 }
