@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use App\Services\EvaluationLookupService;
+use App\Services\AssignmentImportService;
+use App\Services\EvaluationExportService;
 
 class AdminEvaluationAssignmentController extends Controller
 {
@@ -31,10 +33,10 @@ class AdminEvaluationAssignmentController extends Controller
         ])
         ->with([
             'evaluator' => function($query) {
-                $query->select('id', 'fname', 'lname', 'grade', 'user_type', 'position_id', 'department_id');
+                $query->select('id', 'emid', 'fname', 'lname', 'grade', 'user_type', 'position_id', 'department_id');
             },
             'evaluatee' => function($query) {
-                $query->select('id', 'fname', 'lname', 'grade', 'user_type', 'position_id', 'department_id');
+                $query->select('id', 'emid', 'fname', 'lname', 'grade', 'user_type', 'position_id', 'department_id');
             },
             'evaluator.position:id,title',
             'evaluator.department:id,name',
@@ -43,28 +45,38 @@ class AdminEvaluationAssignmentController extends Controller
         ])
         ->where('fiscal_year', $year);
 
-        // Search filter - ค้นหาเฉพาะผู้ประเมิน
+        // Search filter - ค้นหาผู้ถูกประเมิน (ชื่อ/นามสกุล/emid)
         if (! empty($search)) {
-            $baseQuery->whereHas('evaluator', function ($query) use ($search) {
+            $baseQuery->whereHas('evaluatee', function ($query) use ($search) {
                 $query->where('fname', 'like', "%{$search}%")
                     ->orWhere('lname', 'like', "%{$search}%")
+                    ->orWhere('emid', 'like', "%{$search}%")
                     ->orWhereRaw("CONCAT(fname, ' ', lname) LIKE ?", ["%{$search}%"]);
             });
         }
 
         $data = [];
-        
+
+        // Always fetch ALL assignments (no pagination) so client can group by evaluatee
+        // For typical workload (~6000 rows/year) this is acceptable JSON payload size
+        $allAssignments = (clone $baseQuery)
+            ->orderBy('evaluatee_id', 'asc')
+            ->orderBy('angle', 'asc')
+            ->get()
+            ->map(fn($a) => $a->toArray())
+            ->values();
+
+        // Bridge: synthesize right-angle entries from external_stakeholders so /admin/assignments
+        // shows stakeholder pairings alongside internal assignments. Each external_stakeholder
+        // row becomes 1 synthetic right-angle assignment (evaluator = the stakeholder org).
+        $stakeholderAssignments = $this->getStakeholderRightAngleAssignments($year, $search);
+        $allAssignments = $allAssignments->concat($stakeholderAssignments)->values();
+
+        $data['assignments'] = ['data' => $allAssignments];
+
         if ($viewType === 'card') {
-            // For card view, get grouped data efficiently
             $cardData = $this->getOptimizedCardData($baseQuery);
             $data['card_data'] = $cardData;
-        } else {
-            // For table view, use pagination
-            $assignments = (clone $baseQuery)
-                ->orderBy('created_at', 'desc')
-                ->paginate($perPage)
-                ->appends($request->only(['fiscal_year', 'search', 'per_page', 'view']));
-            $data['assignments'] = $assignments;
         }
 
         // Realtime fiscal years (always include current fiscal year)
@@ -1105,13 +1117,11 @@ class AdminEvaluationAssignmentController extends Controller
     {
         $baseQuery = EvaluationAssignment::where('fiscal_year', $fiscalYear);
         if (! empty($search)) {
-            $baseQuery->where(function ($q) use ($search) {
-                // ค้นหาผู้ประเมินเท่านั้น
-                $q->whereHas('evaluator', function ($query) use ($search) {
-                    $query->where('fname', 'like', "%{$search}%")
-                        ->orWhere('lname', 'like', "%{$search}%")
-                        ->orWhereRaw("CONCAT(fname, ' ', lname) LIKE ?", ["%{$search}%"]);
-                });
+            $baseQuery->whereHas('evaluatee', function ($query) use ($search) {
+                $query->where('fname', 'like', "%{$search}%")
+                    ->orWhere('lname', 'like', "%{$search}%")
+                    ->orWhere('emid', 'like', "%{$search}%")
+                    ->orWhereRaw("CONCAT(fname, ' ', lname) LIKE ?", ["%{$search}%"]);
             });
         }
 
@@ -1159,6 +1169,164 @@ class AdminEvaluationAssignmentController extends Controller
         return response()->json($stats);
     }
 
+    // ========================================
+    // Wizard Import (3-step) — รองรับ layout หลายแบบ + manual mapping
+    // ========================================
+
+    public function showImport()
+    {
+        $fiscalYears = EvaluationAssignment::select('fiscal_year')->distinct()
+            ->orderBy('fiscal_year', 'desc')->pluck('fiscal_year')->toArray();
+        $current = EvaluationLookupService::currentFiscalYear();
+        if (!in_array($current, $fiscalYears)) array_unshift($fiscalYears, $current);
+
+        // Pre-load all users for client-side search (mapping unmatched names)
+        $users = User::select('id', 'emid', 'prename', 'fname', 'lname', 'grade')
+            ->orderBy('fname')->get()->map(fn($u) => [
+                'id'    => $u->id,
+                'emid'  => $u->emid,
+                'label' => trim($u->prename . $u->fname . ' ' . $u->lname) . " ({$u->emid})" . ($u->grade ? " ระดับ {$u->grade}" : ''),
+            ]);
+
+        return Inertia::render('AdminAssignmentImport', [
+            'fiscal_years'  => array_values(array_unique($fiscalYears)),
+            'selected_year' => $current,
+            'users'         => $users,
+        ]);
+    }
+
+    public function previewImport(Request $request, AssignmentImportService $service)
+    {
+        $request->validate([
+            'file'        => 'required|file|mimes:xlsx,xls',
+            'fiscal_year' => 'required|integer|min:2020|max:2100',
+        ]);
+
+        ini_set('memory_limit', '512M');
+        set_time_limit(180);
+
+        try {
+            $parsed = $service->parseFile($request->file('file')->getPathname());
+            $preview = $service->buildPreview($parsed, (int) $request->input('fiscal_year'));
+            return response()->json($preview);
+        } catch (\Throwable $e) {
+            Log::error('AssignmentImport preview failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'อ่านไฟล์ไม่สำเร็จ: ' . $e->getMessage()], 422);
+        }
+    }
+
+    public function exportImportIssues(Request $request)
+    {
+        $request->validate([
+            'rows'            => 'required|array',
+            'unmatched_names' => 'nullable|array',
+        ]);
+
+        $rows = $request->input('rows');
+        $unmatched = $request->input('unmatched_names', []);
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+
+        // Sheet 1: Unmatched names (group by name)
+        $s1 = $spreadsheet->getActiveSheet();
+        $s1->setTitle('ชื่อที่หาไม่เจอ');
+        $s1->fromArray(['ชื่อในไฟล์ Excel', 'จำนวนครั้งที่ปรากฏ', 'องศาบน', 'องศาล่าง', 'องศาซ้าย'], null, 'A1');
+        foreach (array_values($unmatched) as $i => $u) {
+            $r = $i + 2;
+            $angles = $u['angles'] ?? [];
+            $s1->fromArray([
+                $u['name'],
+                $u['count'],
+                $angles['top'] ?? 0,
+                $angles['bottom'] ?? 0,
+                $angles['left'] ?? 0,
+            ], null, "A{$r}");
+        }
+        foreach (range('A', 'E') as $col) $s1->getColumnDimension($col)->setAutoSize(true);
+        $s1->getStyle('A1:E1')->getFont()->setBold(true);
+        $s1->getStyle('A1:E1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('FEF3C7');
+
+        // Sheet 2: Problem rows (evaluatee_not_found, no_evaluation, error rows + rows with unmatched)
+        $s2 = $spreadsheet->createSheet();
+        $s2->setTitle('แถวที่มีปัญหา');
+        $s2->fromArray(['Sheet', 'แถว', 'รหัสพนักงาน (EMID)', 'ผู้ถูกประเมิน', 'ระดับ', 'สถานะ', 'รายละเอียด', 'ชื่อที่หาไม่เจอ'], null, 'A1');
+
+        $statusLabels = [
+            'evaluatee_not_found' => 'ไม่พบผู้ถูกประเมิน',
+            'no_evaluation'       => 'ไม่พบแบบประเมิน',
+            'unsupported_grade'   => 'ระดับไม่รองรับ',
+            'has_unmatched'       => 'มีชื่อที่หาไม่เจอ',
+            'duplicate'           => 'ซ้ำทั้งหมด',
+            'empty'               => 'ว่าง',
+            'ok'                  => 'ปกติ',
+        ];
+
+        $r = 2;
+        foreach ($rows as $row) {
+            if (in_array($row['status'], ['ok', 'empty', 'duplicate'])) continue;
+
+            $unmatchedInRow = collect($row['pairs'] ?? [])
+                ->filter(fn($p) => !$p['matched'])
+                ->pluck('name')->unique()->values()->all();
+
+            $details = [];
+            if (!empty($row['errors'])) $details[] = implode('; ', $row['errors']);
+            $unsupportedAngles = collect($row['pairs'] ?? [])
+                ->filter(fn($p) => $p['unsupported'])
+                ->pluck('angle')->unique()->values()->all();
+            if ($unsupportedAngles) $details[] = 'ระดับไม่รองรับ angle: ' . implode(', ', $unsupportedAngles);
+
+            $s2->fromArray([
+                $row['sheet'],
+                $row['row_no'],
+                $row['emid'],
+                $row['evaluatee_name'] ?? '-',
+                $row['grade'] ?? '-',
+                $statusLabels[$row['status']] ?? $row['status'],
+                implode(' | ', $details) ?: '-',
+                implode("\n", $unmatchedInRow) ?: '-',
+            ], null, "A{$r}");
+            $r++;
+        }
+        foreach (range('A', 'H') as $col) $s2->getColumnDimension($col)->setAutoSize(true);
+        $s2->getStyle('A1:H1')->getFont()->setBold(true);
+        $s2->getStyle('A1:H1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('FECACA');
+        $s2->getStyle('H:H')->getAlignment()->setWrapText(true);
+
+        $filename = 'import-issues-' . now()->format('Ymd-His') . '.xlsx';
+        $writer = \PhpOffice\PhpSpreadsheet\IOFactory::createWriter($spreadsheet, 'Xlsx');
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    public function executeImport(Request $request, AssignmentImportService $service)
+    {
+        $request->validate([
+            'rows'         => 'required|array',
+            'mappings'     => 'nullable|array',
+            'fiscal_year'  => 'required|integer|min:2020|max:2100',
+        ]);
+
+        ini_set('memory_limit', '512M');
+        set_time_limit(300);
+
+        try {
+            $result = $service->execute(
+                $request->input('rows'),
+                $request->input('mappings', []),
+                (int) $request->input('fiscal_year')
+            );
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            Log::error('AssignmentImport execute failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'นำเข้าไม่สำเร็จ: ' . $e->getMessage()], 500);
+        }
+    }
+
     /**
      * Import assignments from Excel file.
      * Expected format (Sheet2):
@@ -1202,15 +1370,42 @@ class AdminEvaluationAssignmentController extends Controller
                 if (!isset($byName[$shortName])) $byName[$shortName] = $u;
             }
 
-            $findUser = function ($nameOrEmid) use ($byEmid, $byName) {
+            $findUser = function ($nameOrEmid) use ($byEmid, $byName, $allUsers) {
                 $nameOrEmid = trim($nameOrEmid);
                 if (isset($byEmid[$nameOrEmid])) return $byEmid[$nameOrEmid];
                 if (isset($byName[$nameOrEmid])) return $byName[$nameOrEmid];
-                // Fuzzy: remove prefix
-                $clean = preg_replace('/^(นาย|นาง|นางสาว|ว่าที่ร้อยตรี|ดร\.)\s*/u', '', $nameOrEmid);
+
+                // Remove prefix and extra spaces
+                $clean = preg_replace('/^(ว่าที่ร้อยตรี|นางสาว|นาง|นาย|ดร\.)\s*/u', '', $nameOrEmid);
+                $clean = trim($clean);
+
+                // Try exact match on fname + lname
+                $parts = preg_split('/\s+/', $clean);
+                if (count($parts) >= 2) {
+                    $fname = $parts[0];
+                    $lname = $parts[count($parts) - 1];
+
+                    // 1st: exact fname + lname
+                    $match = $allUsers->first(fn($u) => $u->fname === $fname && $u->lname === $lname);
+                    if ($match) return $match;
+
+                    // 2nd: fname only (for cases where lname changed after marriage)
+                    $fnameMatches = $allUsers->filter(fn($u) => $u->fname === $fname);
+                    if ($fnameMatches->count() === 1) return $fnameMatches->first();
+                }
+
+                // Fuzzy: partial match on full name
                 foreach ($byName as $k => $v) {
                     if (str_contains($k, $clean)) return $v;
                 }
+
+                // Last resort: match fname only from clean input
+                if (!empty($parts[0])) {
+                    $fnameOnly = $parts[0];
+                    $fnameMatches = $allUsers->filter(fn($u) => $u->fname === $fnameOnly);
+                    if ($fnameMatches->count() === 1) return $fnameMatches->first();
+                }
+
                 return null;
             };
 
@@ -1318,22 +1513,21 @@ class AdminEvaluationAssignmentController extends Controller
     }
 
     /**
-     * ส่งออกรายงาน
+     * ส่งออก Excel: รายชื่อผู้ประเมิน (1 row = 1 ผู้ประเมิน) — ตรงข้ามกับ template
+     * ของ docs/ประเมิน 360 องศา ที่เป็นผู้ถูกประเมินเป็นหลัก
      */
     public function export(Request $request)
     {
-        $fiscalYear = $request->get('fiscal_year', Carbon::now()->year);
+        $fiscalYear = (int) $request->get('fiscal_year', EvaluationLookupService::currentFiscalYear());
+        $includeStakeholders = filter_var($request->get('include_stakeholders', '1'), FILTER_VALIDATE_BOOLEAN);
 
-        $assignments = EvaluationAssignment::with(['evaluator', 'evaluatee'])
-            ->where('fiscal_year', $fiscalYear)
-            ->orderBy('evaluatee_id')
-            ->orderBy('angle')
-            ->get();
-
-        return response()->json([
-            'message'    => 'ฟีเจอร์การส่งออกกำลังพัฒนา',
-            'data_count' => $assignments->count(),
+        $service = app(EvaluationExportService::class);
+        $filePath = $service->exportAssignmentsByEvaluator([
+            'fiscal_year'          => $fiscalYear,
+            'include_stakeholders' => $includeStakeholders,
         ]);
+
+        return response()->download($filePath)->deleteFileAfterSend(false);
     }
 
     /**
@@ -1558,6 +1752,73 @@ class AdminEvaluationAssignmentController extends Controller
     }
 
     /**
+     * Bridge: build synthetic right-angle assignments from external_stakeholders for the
+     * given fiscal year. Each stakeholder row → one assignment-shaped array consumable by
+     * AdminEvaluationAssignmentManager.tsx (which groups by evaluatee + angle).
+     *
+     * The "evaluator" is a pseudo-User payload representing the stakeholder organization
+     * (no real users.id) — synthetic id offset by 10^9 so it cannot collide with real users.
+     */
+    private function getStakeholderRightAngleAssignments(int $fiscalYear, ?string $search = '')
+    {
+        $search = (string) ($search ?? '');
+        $rows = \App\Models\ExternalStakeholder::query()
+            ->where('fiscal_year', $fiscalYear)
+            ->with([
+                'evaluatee:id,emid,fname,lname,grade,user_type,position_id,department_id',
+                'evaluatee.position:id,title',
+                'evaluatee.department:id,name',
+            ])
+            ->whereHas('evaluatee')
+            ->get();
+
+        if (! empty($search)) {
+            $term = mb_strtolower($search);
+            $rows = $rows->filter(function ($r) use ($term) {
+                $u = $r->evaluatee;
+                if (! $u) return false;
+                $hay = mb_strtolower(($u->fname ?? '') . ' ' . ($u->lname ?? '') . ' ' . ($u->emid ?? ''));
+                return mb_strpos($hay, $term) !== false;
+            });
+        }
+
+        return $rows->map(function ($r) {
+            $u = $r->evaluatee;
+            $orgName = $r->organization_name ?: '(องค์กรไม่ระบุชื่อ)';
+            return [
+                'id'           => 1_000_000_000 + (int) $r->id,
+                'angle'        => 'right',
+                'fiscal_year'  => (int) $r->fiscal_year,
+                'created_at'   => optional($r->created_at)->toIso8601String(),
+                'evaluator_id' => null,
+                'evaluator'    => [
+                    'id'         => null,
+                    'emid'       => null,
+                    'fname'      => '(ภายนอก)',
+                    'lname'      => $orgName,
+                    'grade'      => null,
+                    'user_type'  => 'external_org',
+                    'position'   => ['id' => null, 'title' => $r->contact_person ?? ''],
+                    'department' => ['id' => null, 'name' => $r->sub_group ?? ''],
+                ],
+                'evaluatee_id' => $u->id,
+                'evaluatee'    => [
+                    'id'         => $u->id,
+                    'emid'       => $u->emid,
+                    'fname'      => $u->fname,
+                    'lname'      => $u->lname,
+                    'grade'      => $u->grade,
+                    'user_type'  => $u->user_type instanceof \BackedEnum ? $u->user_type->value : $u->user_type,
+                    'position'   => $u->position ? ['id' => $u->position->id, 'title' => $u->position->title] : null,
+                    'department' => $u->department ? ['id' => $u->department->id, 'name' => $u->department->name] : null,
+                ],
+                'is_external_stakeholder' => true,
+                'stakeholder_org_name'    => $orgName,
+            ];
+        })->values();
+    }
+
+    /**
      * Optimized card data preparation - batch query approach (no N+1)
      */
     private function getOptimizedCardData($baseQuery)
@@ -1637,10 +1898,11 @@ class AdminEvaluationAssignmentController extends Controller
                 ->where('fiscal_year', $fiscalYear);
 
             if (!empty($search)) {
-                $statsQuery->join('users as u', 'evaluation_assignments.evaluator_id', '=', 'u.id')
+                $statsQuery->join('users as u', 'evaluation_assignments.evaluatee_id', '=', 'u.id')
                     ->where(function($q) use ($search) {
                         $q->where('u.fname', 'like', "%{$search}%")
-                          ->orWhere('u.lname', 'like', "%{$search}%");
+                          ->orWhere('u.lname', 'like', "%{$search}%")
+                          ->orWhere('u.emid', 'like', "%{$search}%");
                     });
             }
 
@@ -1723,10 +1985,11 @@ class AdminEvaluationAssignmentController extends Controller
             ->where('ea.fiscal_year', $fiscalYear);
 
         if (!empty($search)) {
-            $query->join('users as u', 'ea.evaluator_id', '=', 'u.id')
+            $query->join('users as u', 'ea.evaluatee_id', '=', 'u.id')
                 ->where(function($q) use ($search) {
                     $q->where('u.fname', 'like', "%{$search}%")
-                      ->orWhere('u.lname', 'like', "%{$search}%");
+                      ->orWhere('u.lname', 'like', "%{$search}%")
+                      ->orWhere('u.emid', 'like', "%{$search}%");
                 });
         }
 

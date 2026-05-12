@@ -13,8 +13,61 @@ class EvaluationAssignment extends Model
         'evaluator_id',
         'evaluatee_id',
         'fiscal_year',
-        'angle', // เพิ่ม field angle
+        'angle',
+        'submitted_at',
     ];
+
+    protected $casts = [
+        'submitted_at' => 'datetime',
+    ];
+
+    protected static function booted(): void
+    {
+        // Business rule: อนุกรรมการ (subcommittee) may only evaluate the Governor
+        // and only in the "left" angle. Block any creation that violates the rule.
+        static::creating(function (self $assignment) {
+            if (self::isSubcommitteeUserId($assignment->evaluator_id)) {
+                $governorId = self::governorUserId();
+                if ($assignment->angle !== 'left' || $assignment->evaluatee_id != $governorId) {
+                    \Illuminate\Support\Facades\Log::warning('Blocked subcommittee assignment outside left/governor rule', [
+                        'evaluator_id' => $assignment->evaluator_id,
+                        'evaluatee_id' => $assignment->evaluatee_id,
+                        'angle'        => $assignment->angle,
+                    ]);
+                    return false; // abort save
+                }
+            }
+        });
+    }
+
+    /** Cached check: is the user an อนุกรรมการ (by position title)?
+     *  Pattern is tolerant of typo "อนุกรรรมการ" seen on prod (position 366). */
+    public static function isSubcommitteeUserId(?int $userId): bool
+    {
+        if (! $userId) return false;
+        $cache = \Illuminate\Support\Facades\Cache::driver('array');
+        return (bool) $cache->remember("subcommittee_user_{$userId}", 60, function () use ($userId) {
+            return \Illuminate\Support\Facades\DB::table('users as u')
+                ->join('positions as p', 'p.id', '=', 'u.position_id')
+                ->where('u.id', $userId)
+                ->where(function ($q) {
+                    $q->where('p.title', 'like', '%อนุกรรมการ%')
+                      ->orWhere('p.title', 'like', 'อนุก%การ%');
+                })
+                ->exists();
+        });
+    }
+
+    /** Cached: governor user id (position title = "ผู้ว่าการ"). */
+    public static function governorUserId(): ?int
+    {
+        $cache = \Illuminate\Support\Facades\Cache::driver('array');
+        return $cache->remember('governor_user_id', 60, function () {
+            $posId = \Illuminate\Support\Facades\DB::table('positions')->where('title', 'ผู้ว่าการ')->value('id');
+            if (! $posId) return null;
+            return \Illuminate\Support\Facades\DB::table('users')->where('position_id', $posId)->value('id');
+        });
+    }
 
     /**
      * ความสัมพันธ์กับ Evaluation
