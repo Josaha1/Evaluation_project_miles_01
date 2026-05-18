@@ -230,6 +230,10 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::post('/bulk-store', [AdminEvaluationAssignmentController::class, 'bulkStore'])->name('bulk-store');
         Route::delete('/bulk-delete', [AdminEvaluationAssignmentController::class, 'bulkDestroy'])->name('bulk-delete');
 
+        // เปลี่ยนแบบประเมิน — ห้ามแก้ถ้า submitted_at != null
+        Route::patch('/{assignment}/evaluation', [AdminEvaluationAssignmentController::class, 'changeEvaluation'])->name('change-evaluation');
+        Route::post('/bulk-change-evaluation', [AdminEvaluationAssignmentController::class, 'bulkChangeEvaluation'])->name('bulk-change-evaluation');
+
         // Import from Excel
         Route::post('/import-excel', [AdminEvaluationAssignmentController::class, 'importExcel'])->name('import-excel');
 
@@ -397,6 +401,8 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         // Assignments data API
         Route::get('/api/assignments-data', [AdminEvaluationReportController::class, 'getAssignmentsData'])
             ->name('api.assignments-data');
+        Route::get('/api/available-evaluations', [AdminEvaluationReportController::class, 'getAvailableEvaluations'])
+            ->name('api.available-evaluations');
 
         // Legacy support routes
         Route::get('/list-evaluatees', [AdminEvaluationReportController::class, 'listEvaluatees'])

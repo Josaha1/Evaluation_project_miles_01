@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
     Search, ChevronUp, ChevronDown, Loader2,
     CheckCircle, Clock, AlertTriangle, Filter, X,
-    Users, ArrowUpDown,
+    Users, ArrowUpDown, FileEdit, Lock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getAngleLabel } from './types';
@@ -24,9 +24,19 @@ interface AssignmentRecord {
     evaluatee_division: string;
     fiscal_year: string;
     angle: string;
+    submitted_at: string | null;
     answer_count: number;
     total_questions: number;
     completion_pct: number;
+}
+
+interface EvaluationOption {
+    id: number;
+    title: string;
+    user_type: 'internal' | 'external';
+    grade_min: number;
+    grade_max: number;
+    fiscal_year: number;
 }
 
 interface AssignmentsTabProps {
@@ -81,6 +91,15 @@ const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ fiscalYear, availableDi
     const [sortField, setSortField] = useState<SortField>('evaluatee_name');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [page, setPage] = useState(1);
+
+    // Selection + Change-evaluation modal
+    const [selected, setSelected] = useState<Set<number>>(new Set());
+    const [modal, setModal] = useState<{ open: boolean; targets: number[] }>({ open: false, targets: [] });
+    const [evalOptions, setEvalOptions] = useState<EvaluationOption[]>([]);
+    const [chosenEvalId, setChosenEvalId] = useState<number | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
     /* ---------- Fetch data ---------- */
     useEffect(() => {
@@ -139,6 +158,88 @@ const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ fiscalYear, availableDi
 
     // Reset page when filters change
     useEffect(() => { setPage(1); }, [search, filterAngle, filterDivision, filterGrade, filterStatus]);
+
+    // Clear selection เมื่อเปลี่ยน fiscalYear หรือ filter (กัน select id ที่ filter ออกไปแล้ว)
+    useEffect(() => { setSelected(new Set()); }, [fiscalYear, filterAngle, filterDivision, filterGrade, filterStatus]);
+
+    const isLocked = (r: AssignmentRecord) => r.submitted_at !== null;
+    const allSelectableOnPageChecked = paginatedSelectableAll(paginated, selected);
+
+    function paginatedSelectableAll(rows: AssignmentRecord[], sel: Set<number>) {
+        const sels = rows.filter(r => !isLocked(r));
+        return sels.length > 0 && sels.every(r => sel.has(r.id));
+    }
+
+    const toggleRow = (id: number) => setSelected(prev => {
+        const n = new Set(prev);
+        n.has(id) ? n.delete(id) : n.add(id);
+        return n;
+    });
+    const togglePageAll = () => setSelected(prev => {
+        const n = new Set(prev);
+        const sels = paginated.filter(r => !isLocked(r));
+        if (allSelectableOnPageChecked) sels.forEach(r => n.delete(r.id));
+        else sels.forEach(r => n.add(r.id));
+        return n;
+    });
+    const clearSelection = () => setSelected(new Set());
+
+    const openModal = async (targets: number[]) => {
+        if (targets.length === 0) return;
+        setModal({ open: true, targets });
+        setChosenEvalId(null);
+        if (evalOptions.length === 0) {
+            try {
+                const res = await fetch(`/admin/reports/evaluation/api/available-evaluations?fiscal_year=${fiscalYear}`, {
+                    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const json = await res.json();
+                setEvalOptions(json.data ?? []);
+            } catch {
+                toast.error('โหลดรายการแบบประเมินไม่ได้');
+            }
+        }
+    };
+    const closeModal = () => { setModal({ open: false, targets: [] }); setChosenEvalId(null); };
+
+    const submitChange = async () => {
+        if (!chosenEvalId || modal.targets.length === 0) return;
+        setSubmitting(true);
+        try {
+            const isBulk = modal.targets.length > 1;
+            const url = isBulk
+                ? '/admin/assignments/bulk-change-evaluation'
+                : `/admin/assignments/${modal.targets[0]}/evaluation`;
+            const method = isBulk ? 'POST' : 'PATCH';
+            const body = isBulk
+                ? JSON.stringify({ assignment_ids: modal.targets, evaluation_id: chosenEvalId })
+                : JSON.stringify({ evaluation_id: chosenEvalId });
+
+            const res = await fetch(url, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': csrf(),
+                },
+                body,
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                toast.error(json?.message || 'เปลี่ยนแบบประเมินไม่สำเร็จ');
+                return;
+            }
+            toast.success(isBulk ? `เปลี่ยนแบบประเมินสำเร็จ ${json.success_count ?? modal.targets.length} รายการ` : 'เปลี่ยนแบบประเมินสำเร็จ');
+            clearSelection();
+            closeModal();
+            fetchData();
+        } catch {
+            toast.error('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+        } finally {
+            setSubmitting(false);
+        }
+    };
 
     const activeFilterCount = [search, filterAngle, filterDivision, filterGrade, filterStatus].filter(Boolean).length;
     const clearFilters = () => { setSearch(''); setFilterAngle(''); setFilterDivision(''); setFilterGrade(''); setFilterStatus(''); };
@@ -272,6 +373,31 @@ const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ fiscalYear, availableDi
                 </div>
             </motion.div>
 
+            {/* Bulk action bar — โผล่เฉพาะตอนเลือก ≥1 row */}
+            <AnimatePresence>
+                {selected.size > 0 && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                        className="flex items-center justify-between gap-3 rounded-xl bg-violet-600 text-white px-4 py-2.5 shadow-lg ring-1 ring-violet-700/30"
+                    >
+                        <div className="flex items-center gap-2.5 text-sm">
+                            <span className="inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 rounded-full bg-white/20 font-bold">{selected.size}</span>
+                            <span>เลือกแล้ว — เปลี่ยนแบบประเมินพร้อมกัน</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => openModal(Array.from(selected))}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-violet-700 text-xs font-semibold hover:bg-violet-50 transition-colors">
+                                <FileEdit className="w-3.5 h-3.5" />เปลี่ยนแบบประเมิน
+                            </button>
+                            <button onClick={clearSelection}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-700/40 text-white text-xs hover:bg-violet-700/60 transition-colors">
+                                <X className="w-3.5 h-3.5" />ยกเลิก
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Table */}
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
                 className="glass-card rounded-xl overflow-hidden ring-1 ring-gray-200/60 dark:ring-gray-700/40"
@@ -280,6 +406,14 @@ const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ fiscalYear, availableDi
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="bg-gray-50/80 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700">
+                                <th className="px-3 py-3 w-10">
+                                    <input type="checkbox"
+                                        checked={allSelectableOnPageChecked}
+                                        onChange={togglePageAll}
+                                        className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500/40"
+                                        aria-label="เลือกทั้งหน้า"
+                                    />
+                                </th>
                                 <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 w-10">#</th>
                                 {COLUMNS.map(col => (
                                     <th key={col.field}
@@ -300,12 +434,13 @@ const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ fiscalYear, availableDi
                                         </span>
                                     </th>
                                 ))}
+                                <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500 w-24">การกระทำ</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
                             {paginated.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="px-4 py-12 text-center text-gray-400">
+                                    <td colSpan={10} className="px-4 py-12 text-center text-gray-400">
                                         <Filter className="w-8 h-8 mx-auto mb-2 opacity-30" />
                                         ไม่พบข้อมูลตามเงื่อนไข
                                     </td>
@@ -325,8 +460,24 @@ const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ fiscalYear, availableDi
                                         `ตอบแล้ว: ${r.answer_count}/${r.total_questions} ข้อ`,
                                         `สถานะ: ${statusText}`,
                                     ].join('\n');
+                                    const locked = isLocked(r);
                                     return (
-                                        <tr key={r.id} className="hover:bg-violet-50/40 dark:hover:bg-violet-900/10 transition-colors group" title={tooltipText}>
+                                        <tr key={r.id} className={cn(
+                                            "transition-colors group",
+                                            selected.has(r.id) ? "bg-violet-50/70 dark:bg-violet-900/20" : "hover:bg-violet-50/40 dark:hover:bg-violet-900/10"
+                                        )} title={tooltipText}>
+                                            <td className="px-3 py-2.5">
+                                                {locked ? (
+                                                    <Lock className="w-3.5 h-3.5 text-gray-300" aria-label="ส่งคำตอบแล้ว — เปลี่ยนไม่ได้" />
+                                                ) : (
+                                                    <input type="checkbox"
+                                                        checked={selected.has(r.id)}
+                                                        onChange={() => toggleRow(r.id)}
+                                                        className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500/40"
+                                                        aria-label={`เลือก row ${r.id}`}
+                                                    />
+                                                )}
+                                            </td>
                                             <td className="px-3 py-2.5 text-xs text-gray-400">{rowNum}</td>
                                             <td className="px-3 py-2.5 font-medium text-gray-800 dark:text-gray-200 cursor-help"
                                                 title={`${r.evaluator_name} (ระดับ ${r.evaluator_grade})`}>
@@ -379,6 +530,21 @@ const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ fiscalYear, availableDi
                                                     </span>
                                                 )}
                                             </td>
+                                            <td className="px-3 py-2.5 text-center">
+                                                <button
+                                                    disabled={locked}
+                                                    onClick={() => openModal([r.id])}
+                                                    title={locked ? 'ส่งคำตอบแล้ว — เปลี่ยนไม่ได้' : 'เปลี่ยนแบบประเมิน'}
+                                                    className={cn(
+                                                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors",
+                                                        locked
+                                                            ? "bg-gray-50 text-gray-300 cursor-not-allowed dark:bg-gray-800/40"
+                                                            : "bg-violet-50 text-violet-700 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-300 dark:hover:bg-violet-900/50"
+                                                    )}
+                                                >
+                                                    <FileEdit className="w-3 h-3" />เปลี่ยน
+                                                </button>
+                                            </td>
                                         </tr>
                                     );
                                 })
@@ -407,6 +573,83 @@ const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ fiscalYear, availableDi
                     </div>
                 )}
             </motion.div>
+
+            {/* Modal เปลี่ยนแบบประเมิน */}
+            <AnimatePresence>
+                {modal.open && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+                        onClick={(e) => e.target === e.currentTarget && !submitting && closeModal()}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.96, opacity: 0, y: 8 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.96, opacity: 0 }}
+                            className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-900 shadow-2xl ring-1 ring-gray-200 dark:ring-gray-700 overflow-hidden"
+                        >
+                            <div className="px-5 py-3.5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <FileEdit className="w-4 h-4 text-violet-600" />
+                                    <h3 className="text-sm font-bold text-gray-800 dark:text-gray-100">
+                                        เปลี่ยนแบบประเมิน {modal.targets.length > 1 ? `(${modal.targets.length} รายการ)` : ''}
+                                    </h3>
+                                </div>
+                                <button onClick={closeModal} disabled={submitting} className="text-gray-400 hover:text-gray-600 disabled:opacity-30">
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div className="px-5 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
+                                <p className="text-xs text-gray-500">
+                                    เลือกแบบประเมินปลายทาง — ปีงบ พ.ศ. {Number(fiscalYear) + 543}
+                                </p>
+                                <div className="space-y-1.5">
+                                    {evalOptions.length === 0 ? (
+                                        <div className="flex items-center gap-2 text-xs text-gray-400 py-4 justify-center">
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />กำลังโหลด...
+                                        </div>
+                                    ) : evalOptions.map(ev => (
+                                        <label key={ev.id}
+                                            className={cn(
+                                                "flex items-start gap-2.5 p-2.5 rounded-lg cursor-pointer transition-colors border",
+                                                chosenEvalId === ev.id
+                                                    ? "border-violet-400 bg-violet-50/60 dark:bg-violet-900/20 dark:border-violet-600"
+                                                    : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                                            )}
+                                        >
+                                            <input type="radio" name="eval-target" checked={chosenEvalId === ev.id}
+                                                onChange={() => setChosenEvalId(ev.id)}
+                                                className="mt-0.5 w-3.5 h-3.5 text-violet-600 focus:ring-violet-500/40"
+                                            />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-snug">{ev.title}</div>
+                                                <div className="flex items-center gap-1.5 mt-1 text-[10px] text-gray-500">
+                                                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+                                                        {ev.user_type === 'internal' ? 'ภายใน' : 'ภายนอก'}
+                                                    </span>
+                                                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+                                                        ระดับ {ev.grade_min}{ev.grade_min !== ev.grade_max ? `-${ev.grade_max}` : ''}
+                                                    </span>
+                                                    <span className="text-gray-400">#{ev.id}</span>
+                                                </div>
+                                            </div>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-end gap-2 bg-gray-50/60 dark:bg-gray-800/40">
+                                <button onClick={closeModal} disabled={submitting}
+                                    className="px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-200/60 dark:hover:bg-gray-700 disabled:opacity-50">
+                                    ยกเลิก
+                                </button>
+                                <button onClick={submitChange} disabled={!chosenEvalId || submitting}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                    {submitting && <Loader2 className="w-3 h-3 animate-spin" />}
+                                    ยืนยันเปลี่ยน
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

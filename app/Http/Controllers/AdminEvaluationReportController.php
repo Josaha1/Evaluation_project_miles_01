@@ -1604,6 +1604,7 @@ class AdminEvaluationReportController extends Controller
                     'd.name as evaluatee_division',
                     'ea.fiscal_year',
                     'ea.angle',
+                    'ea.submitted_at',
                     DB::raw('COALESCE(ans.answer_count, 0) as answer_count'),
                     DB::raw('COALESCE(qc.total_questions, 0) as total_questions'),
                     DB::raw('ROUND(COALESCE(ans.answer_count, 0) / GREATEST(COALESCE(qc.total_questions, 1), 1) * 100, 1) as completion_pct'),
@@ -1617,6 +1618,22 @@ class AdminEvaluationReportController extends Controller
             Log::error('getAssignmentsData error: ' . $e->getMessage());
             return response()->json(['error' => 'ไม่สามารถโหลดข้อมูลได้', 'data' => []], 500);
         }
+    }
+
+    /**
+     * รายการแบบประเมิน published ในปีงบที่กำหนด — สำหรับ dropdown เปลี่ยนแบบประเมิน
+     */
+    public function getAvailableEvaluations(Request $request): JsonResponse
+    {
+        $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
+
+        $rows = Evaluation::where('status', 'published')
+            ->where('fiscal_year', $fiscalYear)
+            ->orderBy('user_type')
+            ->orderBy('grade_min')
+            ->get(['id', 'title', 'user_type', 'grade_min', 'grade_max', 'fiscal_year']);
+
+        return response()->json(['data' => $rows]);
     }
 
     /**

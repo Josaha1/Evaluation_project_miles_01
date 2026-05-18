@@ -13,7 +13,12 @@ class EvaluationAssignment extends Model
         'evaluator_id',
         'evaluatee_id',
         'fiscal_year',
-        'angle', // เพิ่ม field angle
+        'angle',
+        'submitted_at',
+    ];
+
+    protected $casts = [
+        'submitted_at' => 'datetime',
     ];
 
     /**
