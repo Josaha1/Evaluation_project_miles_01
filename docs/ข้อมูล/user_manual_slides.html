@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>คู่มือระบบประเมิน 360 องศา กนอ.</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: #e2e8f0; }
+
+        .slide {
+            min-height: 100vh;
+            padding: 60px 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-bottom: 2px solid #1e293b;
+            position: relative;
+        }
+
+        .slide-number {
+            position: absolute;
+            bottom: 20px;
+            right: 40px;
+            font-size: 14px;
+            color: #475569;
+        }
+
+        /* Title Slide */
+        .slide-title {
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
+            text-align: center;
+        }
+        .slide-title h1 {
+            font-size: 52px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 20px;
+        }
+        .slide-title .subtitle {
+            font-size: 24px;
+            color: #94a3b8;
+            margin-bottom: 40px;
+        }
+        .slide-title .url {
+            font-size: 18px;
+            color: #60a5fa;
+            background: #1e293b;
+            display: inline-block;
+            padding: 10px 30px;
+            border-radius: 30px;
+        }
+        .slide-title .date {
+            margin-top: 40px;
+            font-size: 16px;
+            color: #64748b;
+        }
+
+        /* Section Headers */
+        .slide-section {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        }
+        .slide-section h2 {
+            font-size: 48px;
+            font-weight: 700;
+            color: #60a5fa;
+            margin-bottom: 15px;
+        }
+        .slide-section .section-desc {
+            font-size: 22px;
+            color: #94a3b8;
+            border-left: 4px solid #60a5fa;
+            padding-left: 20px;
+        }
+
+        /* Content Slides */
+        h2 { font-size: 36px; color: #60a5fa; margin-bottom: 30px; }
+        h3 { font-size: 24px; color: #a78bfa; margin: 25px 0 15px; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 16px;
+        }
+        th {
+            background: #1e3a5f;
+            color: #93c5fd;
+            padding: 14px 18px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px 18px;
+            border-bottom: 1px solid #1e293b;
+        }
+        tr:nth-child(even) td { background: #0f172a; }
+        tr:hover td { background: #1e293b; }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin: 20px 0;
+        }
+        .card {
+            background: #1e293b;
+            border-radius: 16px;
+            padding: 28px;
+            border: 1px solid #334155;
+            transition: transform 0.2s;
+        }
+        .card:hover { transform: translateY(-4px); border-color: #60a5fa; }
+        .card-icon { font-size: 36px; margin-bottom: 12px; }
+        .card h4 { font-size: 20px; color: #f1f5f9; margin-bottom: 8px; }
+        .card p { color: #94a3b8; font-size: 15px; line-height: 1.6; }
+
+        .code-block {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            padding: 20px 24px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 15px;
+            color: #c9d1d9;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+        .code-block .comment { color: #8b949e; }
+        .code-block .keyword { color: #ff7b72; }
+        .code-block .string { color: #a5d6ff; }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .badge-blue { background: #1e3a5f; color: #60a5fa; }
+        .badge-green { background: #064e3b; color: #34d399; }
+        .badge-purple { background: #3b0764; color: #c084fc; }
+        .badge-amber { background: #451a03; color: #fbbf24; }
+        .badge-rose { background: #4c0519; color: #fb7185; }
+
+        .flow-steps {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+        .flow-step {
+            background: #1e293b;
+            padding: 12px 20px;
+            border-radius: 10px;
+            font-size: 15px;
+            border: 1px solid #334155;
+        }
+        .flow-arrow { color: #60a5fa; font-size: 24px; }
+
+        .highlight-box {
+            background: linear-gradient(135deg, #1e3a5f, #1e293b);
+            border-left: 4px solid #60a5fa;
+            padding: 20px 24px;
+            border-radius: 0 12px 12px 0;
+            margin: 15px 0;
+        }
+
+        .warning-box {
+            background: linear-gradient(135deg, #451a03, #1e293b);
+            border-left: 4px solid #fbbf24;
+            padding: 20px 24px;
+            border-radius: 0 12px 12px 0;
+            margin: 15px 0;
+        }
+
+        ul { padding-left: 24px; margin: 10px 0; }
+        li { margin: 8px 0; line-height: 1.7; color: #cbd5e1; }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: start;
+        }
+
+        @media print {
+            .slide { page-break-after: always; min-height: auto; padding: 40px; }
+            body { background: white; color: #1e293b; }
+            h2 { color: #1e40af; }
+            h3 { color: #6d28d9; }
+            table th { background: #dbeafe; color: #1e3a5f; }
+            .card { background: #f8fafc; border-color: #e2e8f0; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Slide 1: Title -->
+<div class="slide slide-title">
+    <h1>ระบบประเมิน 360 องศา กนอ.</h1>
+    <div class="subtitle">คู่มือการใช้งานระบบประเมินผลบุคลากร<br>การนิคมอุตสาหกรรมแห่งประเทศไทย</div>
+    <div class="url">evaluation.milesconsult.com</div>
+    <div class="date">จัดทำโดย Miles Consult | ปรับปรุง 22 มีนาคม 2569</div>
+    <div class="slide-number">1</div>
+</div>
+
+<!-- Slide 2: Overview -->
+<div class="slide">
+    <h2>ภาพรวมระบบ</h2>
+    <p style="font-size: 18px; color: #94a3b8; margin-bottom: 30px;">ระบบประเมิน 360 องศาที่รองรับการประเมินจาก 5 มุมมอง</p>
+
+    <div class="card-grid">
+        <div class="card">
+            <div class="card-icon">⬇️</div>
+            <h4>Top-down (บนลงล่าง)</h4>
+            <p>ผู้บังคับบัญชาประเมินผู้ใต้บังคับบัญชา</p>
+        </div>
+        <div class="card">
+            <div class="card-icon">⬆️</div>
+            <h4>Bottom-up (ล่างขึ้นบน)</h4>
+            <p>ผู้ใต้บังคับบัญชาประเมินผู้บังคับบัญชา</p>
+        </div>
+        <div class="card">
+            <div class="card-icon">↔️</div>
+            <h4>Left / Peer (ระดับเดียวกัน)</h4>
+            <p>เพื่อนร่วมงานระดับเดียวกันประเมินกัน</p>
+        </div>
+        <div class="card">
+            <div class="card-icon">🔄</div>
+            <h4>Right / Cross (ข้ามสายงาน)</h4>
+            <p>ประเมินข้ามหน่วยงาน + ผู้ประเมินภายนอก</p>
+        </div>
+        <div class="card">
+            <div class="card-icon">🪞</div>
+            <h4>Self (ประเมินตนเอง)</h4>
+            <p>พนักงานประเมินผลงานตนเอง</p>
+        </div>
+    </div>
+    <div class="slide-number">2</div>
+</div>
+
+<!-- Slide 3: User Groups -->
+<div class="slide">
+    <h2>กลุ่มผู้ถูกประเมินและปีงบประมาณ</h2>
+
+    <h3>กลุ่มผู้ถูกประเมิน</h3>
+    <table>
+        <tr><th>กลุ่ม</th><th>ระดับ (Grade)</th><th>สี</th></tr>
+        <tr><td>ผู้ว่าการ</td><td>13</td><td><span class="badge badge-rose">Rose</span></td></tr>
+        <tr><td>ผู้บริหาร</td><td>9 – 12</td><td><span class="badge badge-amber">Amber</span></td></tr>
+        <tr><td>พนักงาน</td><td>4 – 8</td><td><span class="badge badge-blue">Cyan</span></td></tr>
+    </table>
+
+    <h3>ปีงบประมาณ (Fiscal Year)</h3>
+    <div class="highlight-box">
+        ระบบใช้ปีงบประมาณไทย: <strong>ตุลาคม – กันยายน</strong><br>
+        ตัวอย่าง: ต.ค. 2568 – ก.ย. 2569 = ปีงบประมาณ 2569<br>
+        Admin สามารถเลือกดูปีงบต่างๆ ได้จาก Fiscal Year Selector
+    </div>
+    <div class="slide-number">3</div>
+</div>
+
+<!-- Slide 4: Login -->
+<div class="slide">
+    <h2>การเข้าสู่ระบบ</h2>
+
+    <div class="two-col">
+        <div>
+            <h3>บุคลากรภายใน</h3>
+            <div class="card">
+                <h4>URL: /login</h4>
+                <table>
+                    <tr><td><strong>รหัสพนักงาน</strong></td><td>ตัวเลข 6 หลัก</td></tr>
+                    <tr><td><strong>รหัสผ่าน</strong></td><td>รหัสผ่านส่วนตัว</td></tr>
+                </table>
+                <p style="margin-top: 10px; color: #94a3b8;">ป้องกัน Brute-force: ล็อกหลัง 5 ครั้ง/นาที</p>
+            </div>
+
+            <h3>บัญชีตัวอย่าง</h3>
+            <table>
+                <tr><th>บทบาท</th><th>รหัส</th><th>รหัสผ่าน</th></tr>
+                <tr><td><span class="badge badge-rose">Admin</span></td><td>350101</td><td>13112541</td></tr>
+                <tr><td><span class="badge badge-blue">User</span></td><td>000000</td><td>13112541</td></tr>
+            </table>
+        </div>
+        <div>
+            <h3>ผู้ประเมินภายนอก</h3>
+            <div class="card">
+                <h4>URL: /external/login</h4>
+                <table>
+                    <tr><td><strong>Access Code</strong></td><td>รหัสจาก Admin</td></tr>
+                </table>
+                <p style="margin-top: 10px; color: #94a3b8;">ใช้ได้ครั้งเดียว, มีวันหมดอายุ</p>
+            </div>
+
+            <div class="warning-box">
+                <strong>หมายเหตุ:</strong> ในระบบจริง ข้อมูลผู้ใช้นำเข้าจากฐานข้อมูล กนอ. ไม่ใช่ข้อมูล Seeder
+            </div>
+        </div>
+    </div>
+    <div class="slide-number">4</div>
+</div>
+
+<!-- Slide 5: User Roles -->
+<div class="slide">
+    <h2>บทบาทผู้ใช้งาน 3 ประเภท</h2>
+
+    <div class="card-grid">
+        <div class="card">
+            <div class="card-icon">👤</div>
+            <h4>User (ผู้ใช้ทั่วไป)</h4>
+            <ul>
+                <li>ประเมินตนเอง</li>
+                <li>ประเมินผู้อื่นตามที่ได้รับมอบหมาย</li>
+                <li>ดูสถานะการประเมิน</li>
+                <li>ทำแบบสำรวจความพึงพอใจ</li>
+                <li>แก้ไขโปรไฟล์ส่วนตัว</li>
+            </ul>
+        </div>
+        <div class="card" style="border-color: #f472b6;">
+            <div class="card-icon">👑</div>
+            <h4>Admin (ผู้ดูแลระบบ)</h4>
+            <ul>
+                <li>จัดการผู้ใช้งาน</li>
+                <li>จัดการโครงสร้างองค์กร</li>
+                <li>สร้าง/จัดการแบบประเมิน</li>
+                <li>มอบหมายการประเมิน</li>
+                <li>จัดการ Access Code</li>
+                <li>ดูรายงาน + Export</li>
+            </ul>
+        </div>
+        <div class="card">
+            <div class="card-icon">🌐</div>
+            <h4>External (ผู้ประเมินภายนอก)</h4>
+            <ul>
+                <li>เข้าระบบด้วย Access Code</li>
+                <li>ยืนยันตัวตนและองค์กร</li>
+                <li>ทำแบบประเมินตามที่กำหนด</li>
+                <li>ประเมินได้ครั้งเดียว/Code</li>
+            </ul>
+        </div>
+    </div>
+    <div class="slide-number">5</div>
+</div>
+
+<!-- Slide 6: User Flow -->
+<div class="slide">
+    <h2>ขั้นตอนการใช้งาน — ผู้ใช้ทั่วไป</h2>
+
+    <h3>1. เข้าสู่ระบบ → แดชบอร์ด</h3>
+    <div class="flow-steps">
+        <div class="flow-step">Login (/login)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">Dashboard (/dashboard)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">ดูสถานะทั้งหมด</div>
+    </div>
+
+    <h3>2. ประเมินตนเอง</h3>
+    <div class="flow-steps">
+        <div class="flow-step">เลือก "ประเมินตนเอง"</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">ตอบทีละขั้น (Step)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">Auto-save ทุกข้อ</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">กดส่ง (Submit)</div>
+    </div>
+
+    <h3>3. ประเมินผู้อื่น</h3>
+    <div class="flow-steps">
+        <div class="flow-step">เลือกผู้ถูกประเมิน</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">ดูข้อมูลผู้ถูกประเมิน</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">ตอบคำถาม</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">กดส่ง</div>
+    </div>
+
+    <h3>4. แบบสำรวจความพึงพอใจ</h3>
+    <div class="highlight-box">
+        8 คำถาม (คะแนน 1–5): ความพึงพอใจการใช้ระบบ, ความง่าย, ความเร็ว, ความถูกต้อง, การเข้าถึง, ความครบถ้วน, ความเหมาะสม, ความพึงพอใจรวม + ช่องความคิดเห็นเพิ่มเติม
+    </div>
+    <div class="slide-number">6</div>
+</div>
+
+<!-- Slide 7: Admin Dashboard -->
+<div class="slide">
+    <h2>Admin Dashboard — ภาพรวมสำหรับผู้ดูแล</h2>
+    <p style="color: #94a3b8; margin-bottom: 20px;">URL: /dashboardadmin</p>
+
+    <div class="card-grid">
+        <div class="card">
+            <h4>📊 สถิติผู้ใช้</h4>
+            <p>จำนวนพนักงาน + Admin ทั้งหมด</p>
+        </div>
+        <div class="card">
+            <h4>📋 การมอบหมาย</h4>
+            <p>จำนวนการมอบหมาย, ผู้ประเมิน, ผู้ถูกประเมิน</p>
+        </div>
+        <div class="card">
+            <h4>✅ อัตราเสร็จสิ้น</h4>
+            <p>% ผู้ที่ทำประเมินเสร็จแล้ว</p>
+        </div>
+        <div class="card">
+            <h4>📄 แบบประเมิน</h4>
+            <p>จำนวนที่เผยแพร่แล้ว</p>
+        </div>
+        <div class="card">
+            <h4>📈 สถิติตามระดับ</h4>
+            <p>ผู้ว่าการ / ผู้บริหาร / พนักงาน</p>
+        </div>
+        <div class="card">
+            <h4>🔄 สถิติตามมุม</h4>
+            <p>top / bottom / left / right</p>
+        </div>
+        <div class="card">
+            <h4>🌐 ผู้ประเมินภายนอก</h4>
+            <p>Access Code ทั้งหมด / ที่ใช้แล้ว</p>
+        </div>
+        <div class="card">
+            <h4>🏢 ผลองค์กรภายนอก</h4>
+            <p>คะแนนเฉลี่ยแยกตามองค์กร</p>
+        </div>
+    </div>
+    <div class="slide-number">7</div>
+</div>
+
+<!-- Slide 8: Admin Functions -->
+<div class="slide">
+    <h2>ฟังก์ชัน Admin — จัดการข้อมูลหลัก</h2>
+
+    <div class="two-col">
+        <div>
+            <h3>จัดการผู้ใช้ (/admin/users)</h3>
+            <ul>
+                <li>เพิ่ม / แก้ไข / ลบผู้ใช้</li>
+                <li>กำหนดบทบาท (user / admin)</li>
+                <li>กำหนดระดับ (grade)</li>
+                <li>กำหนดสังกัด (สายงาน/หน่วยงาน/ตำแหน่ง/ฝ่าย)</li>
+                <li>Inline create สำหรับสร้างหน่วยงานใหม่ในฟอร์ม</li>
+            </ul>
+
+            <h3>จัดการโครงสร้างองค์กร</h3>
+            <table>
+                <tr><th>ระดับ</th><th>URL</th></tr>
+                <tr><td>สายงาน</td><td>/admin/divisions</td></tr>
+                <tr><td>หน่วยงาน</td><td>/admin/departments</td></tr>
+                <tr><td>ตำแหน่ง</td><td>/admin/positions</td></tr>
+                <tr><td>ฝ่าย</td><td>/admin/factions</td></tr>
+            </table>
+        </div>
+        <div>
+            <h3>โครงสร้างองค์กร</h3>
+            <div class="code-block">
+<span class="keyword">สายงาน</span> (Division)
+└── <span class="string">หน่วยงาน</span> (Department)
+    └── <span class="comment">ตำแหน่ง</span> (Position)
+
+<span class="keyword">ฝ่าย</span> (Faction)
+    <span class="comment">↑ อิสระจากลำดับชั้น</span>
+    <span class="comment">  (กลุ่มข้ามสายงาน)</span>
+            </div>
+
+            <div class="warning-box">
+                <strong>ระวัง:</strong> การลบสายงานจะลบหน่วยงานและตำแหน่งที่เกี่ยวข้องทั้งหมด (Cascade Delete)
+            </div>
+        </div>
+    </div>
+    <div class="slide-number">8</div>
+</div>
+
+<!-- Slide 9: Evaluation Management -->
+<div class="slide">
+    <h2>ฟังก์ชัน Admin — จัดการแบบประเมิน</h2>
+
+    <h3>โครงสร้างแบบประเมิน</h3>
+    <div class="code-block">
+<span class="keyword">แบบประเมิน</span> (Evaluation)     <span class="comment">← /evaluations</span>
+├── <span class="string">ส่วนที่ 1</span> (Part)           <span class="comment">← /evaluations/{id}/parts</span>
+│   ├── <span class="keyword">ด้านที่ 1</span> (Aspect)     <span class="comment">← .../aspects</span>
+│   │   ├── คำถาม 1 (Rating 1-5)
+│   │   └── คำถาม 2 (Open Text)
+│   └── <span class="keyword">ด้านที่ 2</span> (มี Sub-aspects)
+│       ├── <span class="string">ด้านย่อย 2.1</span>       <span class="comment">← .../subaspects</span>
+│       │   └── คำถาม 3 (Choice)
+│       └── <span class="string">ด้านย่อย 2.2</span>
+│           └── คำถาม 4 (Multiple Choice)
+└── <span class="string">ส่วนที่ 2</span> (Part)
+    └── ...
+    </div>
+
+    <h3>สถานะแบบประเมิน</h3>
+    <div class="flow-steps">
+        <div class="flow-step"><span class="badge badge-blue">Draft</span> สร้าง/แก้ไข</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="badge badge-purple">Preview</span> ดูตัวอย่าง</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="badge badge-green">Published</span> เผยแพร่ใช้งาน</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="badge badge-amber">Inactive</span> ปิดใช้งาน</div>
+    </div>
+
+    <h3>ประเภทคำถาม</h3>
+    <table>
+        <tr><th>ประเภท</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr>
+        <tr><td>Rating</td><td>เลือกคะแนน 1–5</td><td>ดีเยี่ยม / ดี / พอใช้ / ปรับปรุง / ปรับปรุงมาก</td></tr>
+        <tr><td>Open Text</td><td>ตอบข้อความอิสระ</td><td>จุดเด่นในการทำงาน</td></tr>
+        <tr><td>Choice</td><td>เลือก 1 ข้อ</td><td>เลือกระดับที่เหมาะสม</td></tr>
+        <tr><td>Multiple Choice</td><td>เลือกได้หลายข้อ</td><td>เลือกทักษะที่โดดเด่น</td></tr>
+    </table>
+    <div class="slide-number">9</div>
+</div>
+
+<!-- Slide 10: Assignment & Access Code -->
+<div class="slide">
+    <h2>ฟังก์ชัน Admin — มอบหมายและ Access Code</h2>
+
+    <div class="two-col">
+        <div>
+            <h3>มอบหมายการประเมิน (/admin/assignments)</h3>
+            <ul>
+                <li><strong>สร้างรายบุคคล:</strong> เลือกผู้ประเมิน → ผู้ถูกประเมิน → มุม → ปีงบ</li>
+                <li><strong>สร้างจำนวนมาก (Bulk):</strong> สร้างหลายรายการพร้อมกัน</li>
+                <li><strong>แก้ไข/ลบ:</strong> ทั้งรายบุคคลและ Bulk Delete</li>
+                <li><strong>Analytics:</strong> สถิติภาพรวม</li>
+                <li><strong>Export:</strong> ส่งออกข้อมูลการมอบหมาย</li>
+            </ul>
+
+            <h3>มุมการประเมิน</h3>
+            <table>
+                <tr><th>มุม</th><th>ความหมาย</th></tr>
+                <tr><td>top</td><td>หัวหน้า → ลูกน้อง</td></tr>
+                <tr><td>bottom</td><td>ลูกน้อง → หัวหน้า</td></tr>
+                <tr><td>left</td><td>เพื่อนระดับเดียวกัน</td></tr>
+                <tr><td>right</td><td>ข้ามสายงาน / ภายนอก</td></tr>
+            </table>
+        </div>
+        <div>
+            <h3>จัดการ Access Code (/admin/access-codes)</h3>
+            <div class="card">
+                <h4>สำหรับผู้ประเมินภายนอก</h4>
+                <ul>
+                    <li><strong>Generate:</strong> สร้าง Code ใหม่ — เลือกองค์กร, ผู้ถูกประเมิน, แบบประเมิน</li>
+                    <li><strong>Revoke:</strong> เพิกถอน Code</li>
+                    <li><strong>Regenerate:</strong> สร้างใหม่ทดแทน</li>
+                    <li><strong>Export:</strong> ส่งออกรายการ Code</li>
+                    <li><strong>Print Cards:</strong> พิมพ์บัตร Code</li>
+                </ul>
+            </div>
+
+            <h3>จัดการองค์กรภายนอก</h3>
+            <div class="highlight-box">
+                /admin/external-organizations<br>
+                สร้าง / แก้ไข / ลบ / เปิด-ปิดสถานะ<br>
+                ใช้ร่วมกับ Access Code
+            </div>
+        </div>
+    </div>
+    <div class="slide-number">10</div>
+</div>
+
+<!-- Slide 11: Reports -->
+<div class="slide">
+    <h2>ฟังก์ชัน Admin — รายงานและ Export</h2>
+    <p style="color: #94a3b8; margin-bottom: 20px;">URL: /admin/reports/evaluation</p>
+
+    <h3>ประเภทรายงานที่ Export ได้</h3>
+    <table>
+        <tr><th>รายงาน</th><th>รายละเอียด</th><th>รูปแบบ</th></tr>
+        <tr><td>รายงานรวมผู้บริหาร+พนักงาน</td><td>ครบทั้ง Grade 9-12 และ 5-8</td><td><span class="badge badge-green">Excel</span></td></tr>
+        <tr><td>รายงานผู้บริหาร</td><td>เฉพาะ Grade 9-12</td><td><span class="badge badge-green">Excel</span></td></tr>
+        <tr><td>รายงานพนักงาน</td><td>เฉพาะ Grade 5-8</td><td><span class="badge badge-green">Excel</span></td></tr>
+        <tr><td>รายงานประเมินตนเอง</td><td>ผลการประเมินตนเอง</td><td><span class="badge badge-green">Excel</span></td></tr>
+        <tr><td>รายงานผู้ว่าการ</td><td>ระดับ 13 พร้อม Weighted Scoring</td><td><span class="badge badge-green">Excel</span></td></tr>
+        <tr><td>รายงานองค์กรภายนอก</td><td>ผลจากผู้ประเมินภายนอก</td><td><span class="badge badge-green">Excel</span></td></tr>
+        <tr><td>รายงานรายบุคคล</td><td>คะแนนเฉพาะบุคคล</td><td><span class="badge badge-green">Excel</span> <span class="badge badge-purple">PDF</span></td></tr>
+        <tr><td>รายงานเปรียบเทียบ</td><td>เปรียบเทียบระหว่างบุคคล</td><td><span class="badge badge-green">Excel</span></td></tr>
+        <tr><td>ข้อมูลดิบ</td><td>คำตอบดิบทั้งหมด</td><td><span class="badge badge-green">Excel</span></td></tr>
+    </table>
+
+    <h3>เครื่องมือวิเคราะห์</h3>
+    <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="card"><h4>Individual Angle</h4><p>คะแนนรายบุคคลแยกมุม</p></div>
+        <div class="card"><h4>Assignment Tracking</h4><p>ติดตามสถานะมอบหมาย</p></div>
+        <div class="card"><h4>Completion Stats</h4><p>สถิติการทำเสร็จ</p></div>
+    </div>
+    <div class="slide-number">11</div>
+</div>
+
+<!-- Slide 12: External Flow -->
+<div class="slide">
+    <h2>ขั้นตอน — ผู้ประเมินภายนอก</h2>
+
+    <div class="flow-steps" style="justify-content: center; margin: 30px 0;">
+        <div class="flow-step" style="background: #1e3a5f;">1. Admin สร้าง Access Code</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step" style="background: #1e3a5f;">2. ส่ง Code ให้ภายนอก</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step" style="background: #064e3b;">3. Login ด้วย Code</div>
+    </div>
+    <div class="flow-steps" style="justify-content: center; margin: 30px 0;">
+        <div class="flow-step" style="background: #064e3b;">4. ยืนยันตัวตน</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step" style="background: #064e3b;">5. ทำแบบประเมิน</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step" style="background: #064e3b;">6. ส่ง → ขอบคุณ</div>
+    </div>
+
+    <h3>หน้าจอผู้ประเมินภายนอก</h3>
+    <table>
+        <tr><th>ลำดับ</th><th>หน้า</th><th>URL</th><th>คำอธิบาย</th></tr>
+        <tr><td>1</td><td>เข้าสู่ระบบ</td><td>/external/login</td><td>กรอก Access Code</td></tr>
+        <tr><td>2</td><td>ยืนยันตัวตน</td><td>/external/confirm</td><td>ยืนยันชื่อและองค์กร</td></tr>
+        <tr><td>3</td><td>แดชบอร์ด</td><td>/external/dashboard</td><td>ดูข้อมูลผู้ถูกประเมิน</td></tr>
+        <tr><td>4</td><td>ทำแบบประเมิน</td><td>/external/evaluate</td><td>ตอบคำถามประเมิน</td></tr>
+        <tr><td>5</td><td>ขอบคุณ</td><td>/external/thank-you</td><td>ส่งสำเร็จ</td></tr>
+    </table>
+    <div class="slide-number">12</div>
+</div>
+
+<!-- Slide 13: Governor Scoring -->
+<div class="slide">
+    <h2>การคำนวณคะแนน — ผู้ว่าการ (Weighted Scoring)</h2>
+
+    <div class="two-col">
+        <div>
+            <h3>น้ำหนักมุมผู้ประเมิน</h3>
+            <table>
+                <tr><th>มุมประเมิน</th><th>น้ำหนัก</th></tr>
+                <tr><td>Top (บนลงล่าง)</td><td><strong>25%</strong></td></tr>
+                <tr><td>Bottom (ล่างขึ้นบน)</td><td><strong>25%</strong></td></tr>
+                <tr><td>Left (ระดับเดียวกัน)</td><td><strong>20%</strong></td></tr>
+                <tr><td>Right (ข้ามสายงาน)</td><td><strong>20%</strong></td></tr>
+                <tr><td>Self (ตนเอง)</td><td><strong>10%</strong></td></tr>
+            </table>
+        </div>
+        <div>
+            <h3>น้ำหนักเกณฑ์ประเมิน</h3>
+            <table>
+                <tr><th>สมรรถนะ</th><th>น้ำหนัก</th></tr>
+                <tr><td>ภาวะผู้นำ (Leadership)</td><td><strong>30%</strong></td></tr>
+                <tr><td>วิสัยทัศน์ (Vision)</td><td><strong>25%</strong></td></tr>
+                <tr><td>การสื่อสาร (Communication)</td><td><strong>15%</strong></td></tr>
+                <tr><td>นวัตกรรม (Innovation)</td><td><strong>10%</strong></td></tr>
+                <tr><td>จริยธรรม (Ethics)</td><td><strong>10%</strong></td></tr>
+                <tr><td>ทำงานเป็นทีม (Teamwork)</td><td><strong>10%</strong></td></tr>
+            </table>
+        </div>
+    </div>
+
+    <h3>ระดับคะแนน</h3>
+    <div class="flow-steps" style="justify-content: center;">
+        <div class="flow-step" style="background: #064e3b;"><strong>5</strong> ดีเยี่ยม</div>
+        <div class="flow-step" style="background: #1e3a5f;"><strong>4</strong> ดี</div>
+        <div class="flow-step" style="background: #3b0764;"><strong>3</strong> พอใช้</div>
+        <div class="flow-step" style="background: #451a03;"><strong>2</strong> ปรับปรุง</div>
+        <div class="flow-step" style="background: #4c0519;"><strong>1</strong> ปรับปรุงมาก</div>
+    </div>
+    <div class="slide-number">13</div>
+</div>
+
+<!-- Slide 14: Server Info -->
+<div class="slide">
+    <h2>ข้อมูล Server และการดูแลระบบ</h2>
+
+    <div class="two-col">
+        <div>
+            <h3>ข้อมูลเชื่อมต่อ</h3>
+            <table>
+                <tr><td>Hosting</td><td>Hostinger Cloud Enterprise</td></tr>
+                <tr><td>Domain</td><td>evaluation.milesconsult.com</td></tr>
+                <tr><td>SSH IP</td><td>156.67.209.215</td></tr>
+                <tr><td>SSH Port</td><td>65002</td></tr>
+                <tr><td>Username</td><td>u917560495</td></tr>
+            </table>
+
+            <h3>SSH Command</h3>
+            <div class="code-block">
+ssh -i ~/.ssh/hostinger_deploy \
+    -p 65002 \
+    u917560495@156.67.209.215
+            </div>
+        </div>
+        <div>
+            <h3>คำสั่งที่ใช้บ่อย</h3>
+            <div class="code-block">
+<span class="comment"># เข้าโปรเจค</span>
+cd domains/evaluation.milesconsult.com/laravel_project
+
+<span class="comment"># ดู Log</span>
+tail -50 storage/logs/laravel.log
+
+<span class="comment"># ล้าง Cache</span>
+php artisan cache:clear
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+
+<span class="comment"># ตรวจ Migration</span>
+php artisan migrate:status
+            </div>
+        </div>
+    </div>
+    <div class="slide-number">14</div>
+</div>
+
+<!-- Slide 15: Troubleshooting -->
+<div class="slide">
+    <h2>การแก้ไขปัญหาเบื้องต้น</h2>
+
+    <div class="card-grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="card">
+            <h4>500 Error</h4>
+            <div class="code-block" style="font-size: 13px;">
+tail -50 storage/logs/laravel.log
+chmod -R 755 storage bootstrap/cache
+php artisan config:clear
+php artisan cache:clear
+php artisan config:cache
+            </div>
+        </div>
+        <div class="card">
+            <h4>หน้าขาว / ไม่มี CSS</h4>
+            <div class="code-block" style="font-size: 13px;">
+<span class="comment"># ตรวจ manifest</span>
+ls public_html/build/manifest.json
+
+<span class="comment"># ลบ hot file</span>
+rm -f public_html/hot
+            </div>
+        </div>
+        <div class="card">
+            <h4>เข้าสู่ระบบไม่ได้</h4>
+            <ul>
+                <li>ตรวจรหัส 6 หลัก</li>
+                <li>ตรวจรหัสผ่าน</li>
+                <li>หากพยายาม > 5 ครั้ง → รอ 1 นาที</li>
+                <li>ติดต่อ Admin reset password</li>
+            </ul>
+        </div>
+        <div class="card">
+            <h4>Access Code ไม่ทำงาน</h4>
+            <ul>
+                <li>ตรวจพิมพ์ถูกต้อง</li>
+                <li>Code ใช้ได้ครั้งเดียว</li>
+                <li>ตรวจวันหมดอายุ</li>
+                <li>ตรวจองค์กร active</li>
+                <li>ติดต่อ Admin regenerate</li>
+            </ul>
+        </div>
+    </div>
+    <div class="slide-number">15</div>
+</div>
+
+<!-- Slide 16: Summary -->
+<div class="slide slide-title">
+    <h1>สรุป</h1>
+    <div class="subtitle" style="max-width: 700px; margin: 0 auto; text-align: left; line-height: 2;">
+        ✅ ระบบประเมิน 360 องศา — 5 มุมประเมิน<br>
+        ✅ 3 บทบาท: User, Admin, External<br>
+        ✅ โครงสร้างแบบประเมินแบบลำดับชั้น<br>
+        ✅ Weighted Scoring สำหรับผู้ว่าการ<br>
+        ✅ Export รายงาน Excel/PDF หลายรูปแบบ<br>
+        ✅ ระบบ Access Code สำหรับภายนอก<br>
+        ✅ รองรับหลายปีงบประมาณ
+    </div>
+    <div class="url" style="margin-top: 40px;">evaluation.milesconsult.com</div>
+    <div class="date">Miles Consult | 2569</div>
+    <div class="slide-number">16</div>
+</div>
+
+</body>
+</html>
