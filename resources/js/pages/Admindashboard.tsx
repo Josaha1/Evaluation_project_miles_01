@@ -1,5 +1,5 @@
 import { usePage } from "@inertiajs/react"
-import { BarChart, Users, Download, ListChecks, Building2, Briefcase, UserCog, Shield, KeyRound, Globe, CheckCircle, ClipboardList, FileText, TrendingUp } from 'lucide-react'
+import { BarChart, Users, Download, ListChecks, Building2, Briefcase, UserCog, Shield, KeyRound, Globe, CheckCircle, ClipboardList, FileText, TrendingUp, RotateCcw } from 'lucide-react'
 import MainLayout from "@/Layouts/MainLayout"
 
 interface GradeStat {
@@ -71,6 +71,12 @@ export default function AdminDashboard() {
             description: 'บริหารความสัมพันธ์การประเมิน',
             icon: <Users className="w-6 h-6" />,
             href: route('assignments.index'),
+        },
+        {
+            title: 'รีเซ็ตการประเมิน',
+            description: 'ล้างคำตอบ + ปลดล็อกแบบประเมินรายบุคคล (มี audit log)',
+            icon: <RotateCcw className="w-6 h-6 text-rose-600 dark:text-rose-300" />,
+            href: route('admin.reset-evaluations.index'),
         },
     ];
 

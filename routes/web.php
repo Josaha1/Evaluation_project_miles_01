@@ -151,6 +151,14 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         return app(HomeController::class)->admindashboard(request());
     })->name('admindashboard');
 
+    // Reset Evaluation — เครื่องมือ admin ล้างคำตอบ + reset submitted_at
+    Route::get('/admin/reset-evaluations', [\App\Http\Controllers\AdminResetEvaluationController::class, 'index'])
+        ->name('admin.reset-evaluations.index');
+    Route::get('/admin/reset-evaluations/preview', [\App\Http\Controllers\AdminResetEvaluationController::class, 'preview'])
+        ->name('admin.reset-evaluations.preview');
+    Route::post('/admin/reset-evaluations', [\App\Http\Controllers\AdminResetEvaluationController::class, 'execute'])
+        ->name('admin.reset-evaluations.execute');
+
     /*
     |--------------------------------------------------------------------------
     | Admin User Management (จัดการสมาชิกทั้งหมด)
