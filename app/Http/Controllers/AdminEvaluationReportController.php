@@ -4031,7 +4031,7 @@ class AdminEvaluationReportController extends Controller
                 ->select('parts.evaluation_id', DB::raw('COUNT(*) as total_questions'))
                 ->groupBy('parts.evaluation_id');
 
-            $rows = DB::table('evaluation_assignments as ea')
+            $rowsQuery = DB::table('evaluation_assignments as ea')
                 ->join('users as ev', 'ev.id', '=', 'ea.evaluator_id')
                 ->leftJoin('users as ee', 'ee.id', '=', 'ea.evaluatee_id')
                 ->leftJoin('evaluations as e', 'e.id', '=', 'ea.evaluation_id')
@@ -4069,8 +4069,10 @@ class AdminEvaluationReportController extends Controller
                     'ea.angle', 'e.title as evaluation_title',
                     DB::raw('COALESCE(ans.answer_count, 0) as answer_count'),
                     DB::raw('COALESCE(qc.total_questions, 0) as total_questions')
-                )
-                ->get();
+                );
+            // stream rows ผ่าน cursor → memory คงที่แม้ dataset ใหญ่
+            $cursor = $rowsQuery->cursor();
+            $totalCount = (clone $rowsQuery)->count();
 
             $angleLabels = [
                 'top'    => 'ผู้บังคับบัญชา (บน)',
@@ -4091,7 +4093,7 @@ class AdminEvaluationReportController extends Controller
             $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
             // Metadata
-            $sheet->setCellValue('A2', 'สร้างเมื่อ: ' . now()->format('d/m/Y H:i') . ' | จำนวน: ' . $rows->count() . ' รายการ');
+            $sheet->setCellValue('A2', 'สร้างเมื่อ: ' . now()->format('d/m/Y H:i') . ' | จำนวน: ' . $totalCount . ' รายการ');
             $sheet->mergeCells('A2:M2');
 
             // Headers
@@ -4109,45 +4111,28 @@ class AdminEvaluationReportController extends Controller
                 ->getStartColor()->setRGB('7C3AED');
             $sheet->getStyle('A4:M4')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
-            // Data rows
+            // Data rows — stream ผ่าน cursor + flush-on-emid-change
+            // หลีกเลี่ยง autoSize (O(rows×cols) ทุก style) → fixed widths
+            $colWidths = ['A'=>12,'B'=>10,'C'=>14,'D'=>16,'E'=>22,'F'=>8,'G'=>22,'H'=>22,'I'=>22,'J'=>22,'K'=>10,'L'=>18,'M'=>28];
+            foreach ($colWidths as $col => $w) {
+                $sheet->getColumnDimension($col)->setWidth($w);
+            }
+
             $row = 5;
-            if ($rows->isEmpty()) {
+            if ($totalCount === 0) {
                 $sheet->setCellValue('A' . $row, 'ไม่มีข้อมูลผู้ประเมินที่ค้างอยู่');
                 $sheet->mergeCells("A{$row}:M{$row}");
                 $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 $sheet->getStyle("A{$row}")->getFont()->setItalic(true)->getColor()->setRGB('9CA3AF');
             } else {
-                // จัด group ตาม evaluator emid — แสดงข้อมูล evaluator (A-I) เฉพาะ row แรกของกลุ่ม
-                // แล้ว merge cell A-I ของ rows ในกลุ่มเดียวกัน เพื่ออ่านง่าย ไม่ซ้ำซาก
-                $groups = $rows->groupBy('emid');
-                $groupIdx = 0;
-                foreach ($groups as $emid => $items) {
-                    $groupStart = $row;
-                    $first = $items->first();
+                $prevEmid    = null;
+                $groupStart  = 5;
+                $groupIdx    = 0;
+                $firstRow    = null;
 
-                    foreach ($items as $i => $r) {
-                        if ($i === 0) {
-                            // เขียน evaluator info เฉพาะ row แรก
-                            $sheet->setCellValue('A' . $row, $r->emid);
-                            $sheet->setCellValue('B' . $row, $r->prename ?? '');
-                            $sheet->setCellValue('C' . $row, $r->fname ?? '');
-                            $sheet->setCellValue('D' . $row, $r->lname ?? '');
-                            $sheet->setCellValue('E' . $row, $r->position ?? '-');
-                            $sheet->setCellValue('F' . $row, $r->grade ?? '-');
-                            $sheet->setCellValue('G' . $row, $r->department ?? '-');
-                            $sheet->setCellValue('H' . $row, $r->faction ?? '-');
-                            $sheet->setCellValue('I' . $row, $r->division ?? '-');
-                        }
-                        $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
-                        $sheet->setCellValue('J' . $row, $eeName ?: '-');
-                        $sheet->setCellValue('K' . $row, $r->evaluatee_grade ?? '-');
-                        $sheet->setCellValue('L' . $row, $angleLabels[$r->angle] ?? $r->angle);
-                        $sheet->setCellValue('M' . $row, $r->evaluation_title ?? '-');
-                        $row++;
-                    }
-
-                    $groupEnd = $row - 1;
-                    // merge cells A-I ของกลุ่ม + จัดกึ่งกลางแนวตั้ง
+                $flush = function (int $groupEnd) use ($sheet, &$groupIdx, &$groupStart) {
+                    if ($groupEnd < $groupStart) return;
+                    // merge A-I ของ group (ครั้งเดียวต่อ group — เร็วกว่า style ต่อ cell)
                     if ($groupEnd > $groupStart) {
                         foreach (range('A', 'I') as $col) {
                             $sheet->mergeCells("{$col}{$groupStart}:{$col}{$groupEnd}");
@@ -4155,27 +4140,51 @@ class AdminEvaluationReportController extends Controller
                     }
                     $sheet->getStyle("A{$groupStart}:I{$groupEnd}")->getAlignment()
                         ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
-
-                    // สีพื้นหลัง group สลับเพื่อแยกชัด
                     if ($groupIdx % 2 === 1) {
                         $sheet->getStyle("A{$groupStart}:M{$groupEnd}")->getFill()
                             ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
                             ->getStartColor()->setRGB('F9FAFB');
                     }
-                    // เส้นคั่นบนระหว่าง group (ยกเว้นกลุ่มแรก)
                     if ($groupIdx > 0) {
                         $sheet->getStyle("A{$groupStart}:M{$groupStart}")->getBorders()
                             ->getTop()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
                     }
                     $groupIdx++;
-                }
-            }
+                };
 
-            foreach (range('A', 'M') as $col) {
-                $sheet->getColumnDimension($col)->setAutoSize(true);
+                foreach ($cursor as $r) {
+                    if ($prevEmid !== null && $r->emid !== $prevEmid) {
+                        $flush($row - 1);
+                        $groupStart = $row;
+                        $firstRow = null;
+                    }
+                    if ($firstRow === null) {
+                        // evaluator info เฉพาะ row แรกของ group
+                        $sheet->setCellValue('A' . $row, $r->emid);
+                        $sheet->setCellValue('B' . $row, $r->prename ?? '');
+                        $sheet->setCellValue('C' . $row, $r->fname ?? '');
+                        $sheet->setCellValue('D' . $row, $r->lname ?? '');
+                        $sheet->setCellValue('E' . $row, $r->position ?? '-');
+                        $sheet->setCellValue('F' . $row, $r->grade ?? '-');
+                        $sheet->setCellValue('G' . $row, $r->department ?? '-');
+                        $sheet->setCellValue('H' . $row, $r->faction ?? '-');
+                        $sheet->setCellValue('I' . $row, $r->division ?? '-');
+                        $firstRow = $row;
+                    }
+                    $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
+                    $sheet->setCellValue('J' . $row, $eeName ?: '-');
+                    $sheet->setCellValue('K' . $row, $r->evaluatee_grade ?? '-');
+                    $sheet->setCellValue('L' . $row, $angleLabels[$r->angle] ?? $r->angle);
+                    $sheet->setCellValue('M' . $row, $r->evaluation_title ?? '-');
+                    $prevEmid = $r->emid;
+                    $row++;
+                }
+                // flush last group
+                $flush($row - 1);
+
+                $sheet->getStyle("F5:F" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("K5:L" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
             }
-            $sheet->getStyle("F5:F" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
-            $sheet->getStyle("K5:L" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
             $filename = 'pending-evaluators-FY' . ($fiscalYear + 543) . '-' . now()->format('YmdHis') . '.xlsx';
             $filePath = storage_path('app/exports/' . $filename);
