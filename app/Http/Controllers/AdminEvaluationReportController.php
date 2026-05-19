@@ -4117,30 +4117,57 @@ class AdminEvaluationReportController extends Controller
                 $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 $sheet->getStyle("A{$row}")->getFont()->setItalic(true)->getColor()->setRGB('9CA3AF');
             } else {
-                $idx = 0;
-                foreach ($rows as $r) {
-                    $sheet->setCellValue('A' . $row, $r->emid);
-                    $sheet->setCellValue('B' . $row, $r->prename ?? '');
-                    $sheet->setCellValue('C' . $row, $r->fname ?? '');
-                    $sheet->setCellValue('D' . $row, $r->lname ?? '');
-                    $sheet->setCellValue('E' . $row, $r->position ?? '-');
-                    $sheet->setCellValue('F' . $row, $r->grade ?? '-');
-                    $sheet->setCellValue('G' . $row, $r->department ?? '-');
-                    $sheet->setCellValue('H' . $row, $r->faction ?? '-');
-                    $sheet->setCellValue('I' . $row, $r->division ?? '-');
-                    $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
-                    $sheet->setCellValue('J' . $row, $eeName ?: '-');
-                    $sheet->setCellValue('K' . $row, $r->evaluatee_grade ?? '-');
-                    $sheet->setCellValue('L' . $row, $angleLabels[$r->angle] ?? $r->angle);
-                    $sheet->setCellValue('M' . $row, $r->evaluation_title ?? '-');
+                // จัด group ตาม evaluator emid — แสดงข้อมูล evaluator (A-I) เฉพาะ row แรกของกลุ่ม
+                // แล้ว merge cell A-I ของ rows ในกลุ่มเดียวกัน เพื่ออ่านง่าย ไม่ซ้ำซาก
+                $groups = $rows->groupBy('emid');
+                $groupIdx = 0;
+                foreach ($groups as $emid => $items) {
+                    $groupStart = $row;
+                    $first = $items->first();
 
-                    if ($idx % 2 === 1) {
-                        $sheet->getStyle("A{$row}:M{$row}")->getFill()
+                    foreach ($items as $i => $r) {
+                        if ($i === 0) {
+                            // เขียน evaluator info เฉพาะ row แรก
+                            $sheet->setCellValue('A' . $row, $r->emid);
+                            $sheet->setCellValue('B' . $row, $r->prename ?? '');
+                            $sheet->setCellValue('C' . $row, $r->fname ?? '');
+                            $sheet->setCellValue('D' . $row, $r->lname ?? '');
+                            $sheet->setCellValue('E' . $row, $r->position ?? '-');
+                            $sheet->setCellValue('F' . $row, $r->grade ?? '-');
+                            $sheet->setCellValue('G' . $row, $r->department ?? '-');
+                            $sheet->setCellValue('H' . $row, $r->faction ?? '-');
+                            $sheet->setCellValue('I' . $row, $r->division ?? '-');
+                        }
+                        $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
+                        $sheet->setCellValue('J' . $row, $eeName ?: '-');
+                        $sheet->setCellValue('K' . $row, $r->evaluatee_grade ?? '-');
+                        $sheet->setCellValue('L' . $row, $angleLabels[$r->angle] ?? $r->angle);
+                        $sheet->setCellValue('M' . $row, $r->evaluation_title ?? '-');
+                        $row++;
+                    }
+
+                    $groupEnd = $row - 1;
+                    // merge cells A-I ของกลุ่ม + จัดกึ่งกลางแนวตั้ง
+                    if ($groupEnd > $groupStart) {
+                        foreach (range('A', 'I') as $col) {
+                            $sheet->mergeCells("{$col}{$groupStart}:{$col}{$groupEnd}");
+                        }
+                    }
+                    $sheet->getStyle("A{$groupStart}:I{$groupEnd}")->getAlignment()
+                        ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+
+                    // สีพื้นหลัง group สลับเพื่อแยกชัด
+                    if ($groupIdx % 2 === 1) {
+                        $sheet->getStyle("A{$groupStart}:M{$groupEnd}")->getFill()
                             ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
                             ->getStartColor()->setRGB('F9FAFB');
                     }
-                    $row++;
-                    $idx++;
+                    // เส้นคั่นบนระหว่าง group (ยกเว้นกลุ่มแรก)
+                    if ($groupIdx > 0) {
+                        $sheet->getStyle("A{$groupStart}:M{$groupStart}")->getBorders()
+                            ->getTop()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+                    }
+                    $groupIdx++;
                 }
             }
 
