@@ -51,6 +51,10 @@ const ANALYSIS_REPORTS: ExportItem[] = [
     { id: "detailed-data", title: "ข้อมูลดิบทั้งหมด", description: "ทุกคำถาม ทุกคำตอบ ทุกผู้ประเมิน สำหรับวิเคราะห์เชิงลึก", icon: Database, accent: "slate" },
 ];
 
+const STATUS_REPORTS: ExportItem[] = [
+    { id: "pending-evaluators", title: "ผู้ประเมินที่ยังไม่เสร็จสิ้น", description: "รายชื่อผู้ประเมินที่ยังไม่ส่ง พร้อมรายชื่อผู้ที่เค้าต้องประเมิน + กอง/ฝ่าย/สายงาน", icon: ClipboardList, accent: "amber" },
+];
+
 const ANGLE_OPTIONS = [
     { value: "", label: "ทุกมุม" },
     { value: "self", label: "ตนเอง" },
@@ -468,6 +472,20 @@ const ExportsTab: React.FC<ExportsTabProps> = ({
                 </motion.div>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {ANALYSIS_REPORTS.map((item, i) => renderExportCard(item, i + EVALUATEE_REPORTS.length))}
+                </div>
+            </section>
+
+            {/* ─── Section 3: Status Reports — รายงานสถานะค้างประเมิน ─── */}
+            <section>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} className="mb-3">
+                    <div className="flex items-center gap-2.5">
+                        <ClipboardList className="w-4 h-4 text-amber-500" />
+                        <h2 className="text-base font-bold text-gray-800 dark:text-gray-100">รายงานสถานะค้างประเมิน</h2>
+                        <span className="text-[11px] text-gray-400 dark:text-gray-500">({STATUS_REPORTS.length} รายงาน)</span>
+                    </div>
+                </motion.div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {STATUS_REPORTS.map((item, i) => renderExportCard(item, i + EVALUATEE_REPORTS.length + ANALYSIS_REPORTS.length))}
                 </div>
             </section>
         </div>
