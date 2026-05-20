@@ -6,7 +6,9 @@ import { toast } from "sonner";
 import { Label } from "@/Components/ui/label";
 import { Input } from "@/Components/ui/input";
 import { Button } from "@/Components/ui/button";
-import { Card } from "@/Components/ui/card";
+import { Building2, Save, ArrowLeft } from "lucide-react";
+import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 interface Organization {
     id: number;
@@ -65,109 +67,159 @@ export default function AdminExternalOrganizationForm() {
                 />
             }
         >
-            <div className="max-w-2xl mx-auto px-6 py-10">
-                <Card className="p-8 space-y-6">
-                    <h1 className="text-2xl font-bold text-indigo-600">
-                        {mode === "edit" ? "แก้ไของค์กรภายนอก" : "เพิ่มองค์กรภายนอกใหม่"}
-                    </h1>
-
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        <div>
-                            <Label>ชื่อองค์กร *</Label>
-                            <Input
-                                value={data.name}
-                                onChange={(e) => setData("name", e.target.value)}
-                                placeholder="กรอกชื่อองค์กร"
-                                className="dark:bg-gray-800 dark:text-white"
-                            />
-                            {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-                        </div>
-
-                        <div>
-                            <Label>รหัสองค์กร (org_code) *</Label>
-                            <Input
-                                value={data.org_code}
-                                onChange={(e) => setData("org_code", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-                                placeholder="เช่น BKKP, ABCL (ไม่เกิน 10 ตัวอักษร)"
-                                maxLength={10}
-                                className="dark:bg-gray-800 dark:text-white font-mono"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">ใช้สำหรับสร้าง Access Code รูปแบบ IEAT-[รหัส]-XXXXXX</p>
-                            {errors.org_code && <p className="text-red-500 text-sm mt-1">{errors.org_code}</p>}
-                        </div>
-
-                        <div>
-                            <Label>รายละเอียด</Label>
-                            <textarea
-                                value={data.description}
-                                onChange={(e) => setData("description", e.target.value)}
-                                placeholder="กรอกรายละเอียดองค์กร"
-                                rows={3}
-                                className="w-full border rounded px-3 py-2 dark:bg-gray-800 dark:text-white dark:border-gray-600"
-                            />
-                            {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <Label>ชื่อผู้ติดต่อ</Label>
-                                <Input
-                                    value={data.contact_person}
-                                    onChange={(e) => setData("contact_person", e.target.value)}
-                                    placeholder="ชื่อผู้ติดต่อ"
-                                    className="dark:bg-gray-800 dark:text-white"
-                                />
-                                {errors.contact_person && <p className="text-red-500 text-sm mt-1">{errors.contact_person}</p>}
-                            </div>
-
-                            <div>
-                                <Label>เบอร์โทรศัพท์</Label>
-                                <Input
-                                    value={data.contact_phone}
-                                    onChange={(e) => setData("contact_phone", e.target.value)}
-                                    placeholder="เบอร์โทรศัพท์"
-                                    className="dark:bg-gray-800 dark:text-white"
-                                />
-                                {errors.contact_phone && <p className="text-red-500 text-sm mt-1">{errors.contact_phone}</p>}
-                            </div>
-                        </div>
-
-                        <div>
-                            <Label>อีเมล</Label>
-                            <Input
-                                type="email"
-                                value={data.contact_email}
-                                onChange={(e) => setData("contact_email", e.target.value)}
-                                placeholder="email@example.com"
-                                className="dark:bg-gray-800 dark:text-white"
-                            />
-                            {errors.contact_email && <p className="text-red-500 text-sm mt-1">{errors.contact_email}</p>}
-                        </div>
-
+            <div className="gradient-primary-soft min-h-screen">
+                <div className="max-w-2xl mx-auto px-6 py-10">
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5 }}
+                        className="glass-card rounded-2xl p-8 space-y-6"
+                    >
+                        {/* Header */}
                         <div className="flex items-center gap-3">
-                            <input
-                                type="checkbox"
-                                id="is_active"
-                                checked={data.is_active}
-                                onChange={(e) => setData("is_active", e.target.checked)}
-                                className="w-4 h-4 rounded text-indigo-600"
-                            />
-                            <Label htmlFor="is_active" className="cursor-pointer">เปิดใช้งาน</Label>
+                            <div className="p-2 gradient-primary rounded-xl">
+                                <Building2 className="w-6 h-6 text-white" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-gradient-primary">
+                                {mode === "edit" ? "แก้ไของค์กรภายนอก" : "เพิ่มองค์กรภายนอกใหม่"}
+                            </h1>
                         </div>
 
-                        <div className="flex justify-end gap-3">
-                            <a
-                                href={route("admin.external-organizations.index")}
-                                className="px-4 py-2 border rounded text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                        <form onSubmit={handleSubmit} className="space-y-6">
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.1 }}
                             >
-                                ยกเลิก
-                            </a>
-                            <Button type="submit" disabled={processing}>
-                                {mode === "edit" ? "บันทึกการแก้ไข" : "บันทึก"}
-                            </Button>
-                        </div>
-                    </form>
-                </Card>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">ชื่อองค์กร *</Label>
+                                <Input
+                                    value={data.name}
+                                    onChange={(e) => setData("name", e.target.value)}
+                                    placeholder="กรอกชื่อองค์กร"
+                                    className="mt-1 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                                />
+                                {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+                            </motion.div>
+
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.15 }}
+                            >
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">รหัสองค์กร (org_code) *</Label>
+                                <Input
+                                    value={data.org_code}
+                                    onChange={(e) => setData("org_code", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                                    placeholder="เช่น BKKP, ABCL (ไม่เกิน 10 ตัวอักษร)"
+                                    maxLength={10}
+                                    className="mt-1 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:text-white dark:border-gray-600 font-mono"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">ใช้สำหรับสร้าง Access Code รูปแบบ IEAT-[รหัส]-XXXXXX</p>
+                                {errors.org_code && <p className="text-red-500 text-sm mt-1">{errors.org_code}</p>}
+                            </motion.div>
+
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.2 }}
+                            >
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">รายละเอียด</Label>
+                                <textarea
+                                    value={data.description}
+                                    onChange={(e) => setData("description", e.target.value)}
+                                    placeholder="กรอกรายละเอียดองค์กร"
+                                    rows={3}
+                                    className="mt-1 w-full rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 px-3 py-2 dark:bg-gray-800 dark:text-white dark:border-gray-600 transition-all"
+                                />
+                                {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
+                            </motion.div>
+
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.25 }}
+                                className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                            >
+                                <div>
+                                    <Label className="text-gray-700 dark:text-gray-300 font-medium">ชื่อผู้ติดต่อ</Label>
+                                    <Input
+                                        value={data.contact_person}
+                                        onChange={(e) => setData("contact_person", e.target.value)}
+                                        placeholder="ชื่อผู้ติดต่อ"
+                                        className="mt-1 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                                    />
+                                    {errors.contact_person && <p className="text-red-500 text-sm mt-1">{errors.contact_person}</p>}
+                                </div>
+
+                                <div>
+                                    <Label className="text-gray-700 dark:text-gray-300 font-medium">เบอร์โทรศัพท์</Label>
+                                    <Input
+                                        value={data.contact_phone}
+                                        onChange={(e) => setData("contact_phone", e.target.value)}
+                                        placeholder="เบอร์โทรศัพท์"
+                                        className="mt-1 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                                    />
+                                    {errors.contact_phone && <p className="text-red-500 text-sm mt-1">{errors.contact_phone}</p>}
+                                </div>
+                            </motion.div>
+
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.3 }}
+                            >
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">อีเมล</Label>
+                                <Input
+                                    type="email"
+                                    value={data.contact_email}
+                                    onChange={(e) => setData("contact_email", e.target.value)}
+                                    placeholder="email@example.com"
+                                    className="mt-1 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                                />
+                                {errors.contact_email && <p className="text-red-500 text-sm mt-1">{errors.contact_email}</p>}
+                            </motion.div>
+
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.35 }}
+                                className="flex items-center gap-3"
+                            >
+                                <input
+                                    type="checkbox"
+                                    id="is_active"
+                                    checked={data.is_active}
+                                    onChange={(e) => setData("is_active", e.target.checked)}
+                                    className="w-4 h-4 rounded text-violet-600 focus:ring-violet-500"
+                                />
+                                <Label htmlFor="is_active" className="cursor-pointer text-gray-700 dark:text-gray-300">เปิดใช้งาน</Label>
+                            </motion.div>
+
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.4 }}
+                                className="flex justify-end gap-3 pt-4"
+                            >
+                                <a
+                                    href={route("admin.external-organizations.index")}
+                                    className="inline-flex items-center px-5 py-2.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                                >
+                                    <ArrowLeft className="w-4 h-4 mr-2" />
+                                    ยกเลิก
+                                </a>
+                                <Button
+                                    type="submit"
+                                    disabled={processing}
+                                    className="gradient-primary text-white rounded-xl px-6 py-2.5 hover:shadow-lg hover:shadow-violet-500/25 transition-all"
+                                >
+                                    <Save className="w-4 h-4 mr-2" />
+                                    {mode === "edit" ? "บันทึกการแก้ไข" : "บันทึก"}
+                                </Button>
+                            </motion.div>
+                        </form>
+                    </motion.div>
+                </div>
             </div>
         </MainLayout>
     );

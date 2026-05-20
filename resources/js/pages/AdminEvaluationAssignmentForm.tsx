@@ -3,10 +3,10 @@ import MainLayout from "@/Layouts/MainLayout";
 import { useForm, usePage } from "@inertiajs/react";
 import Select from "react-select";
 import { toast } from "sonner";
-import { Button } from "@/Components/ui/button";
-import { Card } from "@/Components/ui/card";
 import Breadcrumb from "@/Components/ui/breadcrumb";
 import { router } from "@inertiajs/react";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 import {
     Info,
     Users,
@@ -25,6 +25,7 @@ import {
     ChevronUp,
     Eye,
     EyeOff,
+    ArrowLeft,
 } from "lucide-react";
 
 // Enhanced User interface
@@ -80,39 +81,52 @@ interface OptionType {
 const allAngleOptions = [
     {
         value: "top",
-        label: "องศาบน (เจ้านาย)",
+        label: "ผู้บังคับบัญชา (องศาบน)",
         shortLabel: "บน",
         description: "ผู้บังคับบัญชาที่อยู่ในสายการบังคับบัญชาโดยตรง",
-        icon: "⬆️",
-        color: "blue",
+        icon: "up",
+        color: "violet",
     },
     {
         value: "bottom",
-        label: "องศาล่าง (ลูกน้อง)",
+        label: "ผู้ใต้บังคับบัญชา (องศาล่าง)",
         shortLabel: "ล่าง",
         description: "ผู้ใต้บังคับบัญชาที่อยู่ในสายการบังคับบัญชาโดยตรง",
-        icon: "⬇️",
-        color: "green",
+        icon: "down",
+        color: "fuchsia",
     },
     {
         value: "left",
         label: "องศาซ้าย (เพื่อนร่วมงาน)",
         shortLabel: "ซ้าย",
         description: "เพื่อนร่วมงานในสายงานเดียวกันหรือระดับเดียวกัน",
-        icon: "⬅️",
-        color: "yellow",
+        icon: "left",
+        color: "purple",
     },
     {
         value: "right",
         label: "องศาขวา (ภายนอก)",
         shortLabel: "ขวา",
         description: "ผู้ที่มาจากสายงานอื่นที่เกี่ยวข้องหรือผู้ประเมินภายนอก",
-        icon: "➡️",
-        color: "purple",
+        icon: "right",
+        color: "indigo",
     },
 ] as const;
 
-// Enhanced Select Styles
+const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+        opacity: 1,
+        transition: { staggerChildren: 0.08 },
+    },
+};
+
+const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+};
+
+// Enhanced Select Styles (violet theme)
 const selectStyles = {
     menuPortal: (base: any) => ({ ...base, zIndex: 9999 }),
     menu: (base: any) => ({
@@ -120,15 +134,16 @@ const selectStyles = {
         maxHeight: 400,
         boxShadow:
             "0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+        borderRadius: "0.75rem",
     }),
     option: (base: any, state: any) => ({
         ...base,
         fontSize: "0.875rem",
         padding: "12px 16px",
         backgroundColor: state.isSelected
-            ? "#3b82f6"
+            ? "#7c3aed"
             : state.isFocused
-            ? "#eff6ff"
+            ? "#f5f3ff"
             : "white",
         color: state.isSelected ? "white" : "#374151",
         cursor: "pointer",
@@ -140,12 +155,13 @@ const selectStyles = {
     control: (base: any, state: any) => ({
         ...base,
         minHeight: "48px",
-        border: state.isFocused ? "2px solid #3b82f6" : "1px solid #d1d5db",
+        borderRadius: "0.75rem",
+        border: state.isFocused ? "2px solid #7c3aed" : "2px solid #e5e7eb",
         boxShadow: state.isFocused
-            ? "0 0 0 3px rgba(59, 130, 246, 0.1)"
+            ? "0 0 0 3px rgba(124, 58, 237, 0.1)"
             : "none",
         "&:hover": {
-            borderColor: "#9ca3af",
+            borderColor: "#a78bfa",
         },
     }),
     placeholder: (base: any) => ({
@@ -156,8 +172,10 @@ const selectStyles = {
 };
 
 export default function AdminEvaluationAssignmentForm() {
-    const { users, selectedEvaluator: preSelectedEvaluator } = usePage<{
+    const { users, selectedEvaluator: preSelectedEvaluator, fiscal_years = [], default_fiscal_year } = usePage<{
         users: User[];
+        fiscal_years: number[];
+        default_fiscal_year: number;
         selectedEvaluator?: {
             id: number;
             fname: string;
@@ -169,6 +187,8 @@ export default function AdminEvaluationAssignmentForm() {
             faction?: { name: string };
         };
     }>().props;
+
+    const [selectedFiscalYear, setSelectedFiscalYear] = useState<number>(default_fiscal_year || (new Date().getFullYear()));
 
     // Enhanced States - New workflow: Evaluator -> Angle -> Evaluatees
     const [selectedEvaluator, setSelectedEvaluator] =
@@ -191,7 +211,7 @@ export default function AdminEvaluationAssignmentForm() {
     const [showDetails, setShowDetails] = useState(false);
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-    // Enhanced user options with optimized search - ใช้ useMemo และ dependencies ที่ stable
+    // Enhanced user options with optimized search
     const userOptions: OptionType[] = useMemo(() => {
         return users.map((u) => {
             const positionText =
@@ -242,11 +262,10 @@ export default function AdminEvaluationAssignmentForm() {
         }
     }, [preSelectedEvaluator, userOptions]);
 
-    // Filtered evaluator options - Step 1: Select evaluator first
+    // Filtered evaluator options
     const filteredEvaluatorOptions = useMemo(() => {
         let filtered = userOptions;
 
-        // Search filter
         if (searchEvaluator) {
             const searchLower = searchEvaluator.toLowerCase();
             filtered = filtered.filter(
@@ -256,20 +275,18 @@ export default function AdminEvaluationAssignmentForm() {
             );
         }
 
-        // Grade filter
         if (gradeFilter !== "all") {
             if (gradeFilter === "4-8") {
                 filtered = filtered.filter(
                     (option) => option.grade >= 4 && option.grade <= 8
                 );
-            } else if (gradeFilter === "9-12") {
+            } else if (gradeFilter === "9-13") {
                 filtered = filtered.filter(
-                    (option) => option.grade >= 9 && option.grade <= 12
+                    (option) => option.grade >= 9 && option.grade <= 13
                 );
             }
         }
 
-        // Type filter
         if (typeFilter !== "all") {
             filtered = filtered.filter(
                 (option) => option.user_type === typeFilter
@@ -279,7 +296,7 @@ export default function AdminEvaluationAssignmentForm() {
         return filtered;
     }, [userOptions, searchEvaluator, gradeFilter, typeFilter]);
 
-    // Filtered evaluatee options - Step 3: Based on selected evaluator and angle
+    // Filtered evaluatee options
     const filteredEvaluateeOptions = useMemo(() => {
         if (!selectedEvaluator || !selectedAngle) return [];
 
@@ -287,7 +304,6 @@ export default function AdminEvaluationAssignmentForm() {
             (user) => user.value !== selectedEvaluator.value
         );
 
-        // Search filter
         if (searchEvaluatee) {
             const searchLower = searchEvaluatee.toLowerCase();
             filtered = filtered.filter(
@@ -297,19 +313,15 @@ export default function AdminEvaluationAssignmentForm() {
             );
         }
 
-        // Apply business rules based on angle
         if (selectedAngle.value === "right") {
-            // External users only
             filtered = filtered.filter(
                 (option) => option.user_type === "external"
             );
         } else if (selectedAngle.value === "left") {
-            // Internal users only
             filtered = filtered.filter(
                 (option) => option.user_type === "internal"
             );
         } else {
-            // Top/bottom: internal users only
             filtered = filtered.filter(
                 (option) => option.user_type === "internal"
             );
@@ -327,7 +339,6 @@ export default function AdminEvaluationAssignmentForm() {
         }>,
     });
 
-    // Form reset function - ต้อง define ก่อน handleSubmitAll
     const handleResetForm = useCallback(() => {
         setSelectedEvaluator(null);
         setSelectedAngle(null);
@@ -340,7 +351,6 @@ export default function AdminEvaluationAssignmentForm() {
         toast.info("รีเซ็ตฟอร์มแล้ว");
     }, []);
 
-    // Validation function - Updated for new workflow
     const validateForm = useCallback(() => {
         const errors: string[] = [];
 
@@ -356,7 +366,6 @@ export default function AdminEvaluationAssignmentForm() {
             errors.push("กรุณาเลือกผู้ถูกประเมินอย่างน้อย 1 คน");
         }
 
-        // Check for self-evaluation
         if (
             selectedEvaluator &&
             selectedEvaluatees.some((e) => e.value === selectedEvaluator.value)
@@ -368,7 +377,6 @@ export default function AdminEvaluationAssignmentForm() {
         return errors.length === 0;
     }, [selectedEvaluator, selectedAngle, selectedEvaluatees]);
 
-    // Enhanced evaluator change handler - New workflow starts with evaluator
     const handleEvaluatorChange = useCallback(
         async (selected: OptionType | null) => {
             setSelectedEvaluator(selected);
@@ -381,17 +389,14 @@ export default function AdminEvaluationAssignmentForm() {
                 return;
             }
 
-            // For evaluator selection, all angles are available initially
-            // The angle selection will determine which evaluatees can be selected
             setAvailableAngles([...allAngleOptions]);
 
-            console.log("👤 Evaluator selected:", selected.label);
+            console.log("Evaluator selected:", selected.label);
             toast.success(`เลือกผู้ประเมิน: ${selected.shortLabel}`);
         },
         []
     );
 
-    // Enhanced angle change handler - Updated for new workflow
     const handleAngleChange = useCallback(
         async (selected: (typeof allAngleOptions)[0]) => {
             setSelectedAngle(selected);
@@ -401,13 +406,12 @@ export default function AdminEvaluationAssignmentForm() {
 
             if (!selectedEvaluator) return;
 
-            console.log("🎯 Angle selected:", selected.label);
+            console.log("Angle selected:", selected.label);
             toast.success(`เลือกองศา: ${selected.shortLabel}`);
         },
         [selectedEvaluator]
     );
 
-    // Enhanced evaluatee management - Updated for new workflow
     const addEvaluatee = useCallback((evaluatee: OptionType) => {
         setSelectedEvaluatees((prev) => {
             if (!prev.find((e) => e.value === evaluatee.value)) {
@@ -425,7 +429,6 @@ export default function AdminEvaluationAssignmentForm() {
         toast.info("ลบผู้ถูกประเมินแล้ว");
     }, []);
 
-    // Bulk operations for evaluatees
     const addAllFilteredEvaluatees = useCallback(() => {
         const newEvaluatees = filteredEvaluateeOptions.filter(
             (option) =>
@@ -445,14 +448,13 @@ export default function AdminEvaluationAssignmentForm() {
         toast.info("ล้างรายการผู้ถูกประเมินแล้ว");
     }, []);
 
-    // Form validation - Updated for new workflow
     const isFormValid = useMemo(() => {
         return (
             selectedEvaluator && selectedAngle && selectedEvaluatees.length > 0
         );
     }, [selectedEvaluator, selectedAngle, selectedEvaluatees.length]);
 
-    // Enhanced form submission - ใช้ bulkStore
+    // Enhanced form submission
     const handleSubmitAll = useCallback(
         async (e: React.FormEvent) => {
             e.preventDefault();
@@ -464,15 +466,13 @@ export default function AdminEvaluationAssignmentForm() {
 
             setIsSubmitting(true);
 
-            // สร้าง assignments array - Updated for new workflow
             const assignments = selectedEvaluatees.map((evaluatee) => ({
                 evaluatee_id: evaluatee.value,
                 angle: selectedAngle!.value,
             }));
 
             try {
-                // Debug log
-                console.log("🚀 Submitting assignments:", {
+                console.log("Submitting assignments:", {
                     evaluator_id: selectedEvaluator!.value,
                     assignments,
                     total: assignments.length,
@@ -483,52 +483,50 @@ export default function AdminEvaluationAssignmentForm() {
                     })),
                 });
 
-                // ใช้ bulkStore แทนการบันทึกทีละรายการ - Updated for new workflow
                 router.post(
                     route("assignments.bulk-store"),
                     {
                         evaluator_id: selectedEvaluator!.value,
                         assignments: assignments,
+                        fiscal_year: selectedFiscalYear,
                     },
                     {
                         onSuccess: (page) => {
-                            console.log("✅ Bulk store success:", page);
+                            console.log("Bulk store success:", page);
 
-                            // แสดงข้อมูล detailed summary
                             if (page.props.details) {
                                 console.log(
-                                    "📊 Assignment Summary:",
+                                    "Assignment Summary:",
                                     page.props.details
                                 );
                                 const details = page.props.details;
-                                const summaryMsg = `✅ สำเร็จ: ${details.created_count}/${details.total_processed} รายการ`;
+                                const summaryMsg = `สำเร็จ: ${details.created_count}/${details.total_processed} รายการ`;
                                 toast.success(summaryMsg);
 
                                 if (details.duplicate_count > 0) {
                                     toast.warning(
-                                        `⚠️ พบรายการซ้ำ: ${details.duplicate_count} รายการ`
+                                        `พบรายการซ้ำ: ${details.duplicate_count} รายการ`
                                     );
                                 }
 
                                 if (details.invalid_count > 0) {
                                     toast.error(
-                                        `❌ ไม่สำเร็จ: ${details.invalid_count} รายการ`
+                                        `ไม่สำเร็จ: ${details.invalid_count} รายการ`
                                     );
                                 }
                             } else if (page.props.flash?.success) {
                                 toast.success(page.props.flash.success);
                             } else {
                                 toast.success(
-                                    `✅ บันทึกสำเร็จ ${assignments.length} รายการ`
+                                    `บันทึกสำเร็จ ${assignments.length} รายการ`
                                 );
                             }
 
                             handleResetForm();
                         },
                         onError: (errors) => {
-                            console.error("❌ Bulk store errors:", errors);
+                            console.error("Bulk store errors:", errors);
 
-                            // จัดการ error ที่เฉพาะเจาะจง
                             if (errors && typeof errors === "object") {
                                 const errorMessages: string[] = [];
 
@@ -543,7 +541,6 @@ export default function AdminEvaluationAssignmentForm() {
                                 });
 
                                 if (errorMessages.length > 0) {
-                                    // แสดงแค่ error แรก ๆ เพื่อไม่ให้ spam
                                     errorMessages
                                         .slice(0, 3)
                                         .forEach((message) => {
@@ -578,7 +575,7 @@ export default function AdminEvaluationAssignmentForm() {
                     }
                 );
             } catch (error) {
-                console.error("💥 Unexpected error:", error);
+                console.error("Unexpected error:", error);
                 toast.error("เกิดข้อผิดพลาดที่ไม่คาดคิด");
                 setIsSubmitting(false);
             }
@@ -592,7 +589,7 @@ export default function AdminEvaluationAssignmentForm() {
         ]
     );
 
-    // Fallback: การบันทึกทีละรายการ (ถ้า bulk ไม่ทำงาน)
+    // Fallback: individual submission
     const handleSubmitIndividual = useCallback(
         async (e: React.FormEvent) => {
             e.preventDefault();
@@ -616,12 +613,11 @@ export default function AdminEvaluationAssignmentForm() {
                 const errorMessages: string[] = [];
 
                 console.log(
-                    "🔄 Starting individual submission for",
+                    "Starting individual submission for",
                     assignments.length,
                     "assignments"
                 );
 
-                // บันทึกทีละรายการพร้อมจัดการ error ที่ละเอียด
                 for (const assignment of assignments) {
                     try {
                         await new Promise<void>((resolve, reject) => {
@@ -632,18 +628,17 @@ export default function AdminEvaluationAssignmentForm() {
                                     onSuccess: () => {
                                         successCount++;
                                         console.log(
-                                            `✅ Assignment ${successCount} success`
+                                            `Assignment ${successCount} success`
                                         );
                                         resolve();
                                     },
                                     onError: (errors) => {
                                         errorCount++;
                                         console.error(
-                                            `❌ Assignment ${errorCount} failed:`,
+                                            `Assignment ${errorCount} failed:`,
                                             errors
                                         );
 
-                                        // จัดการ error messages
                                         if (
                                             errors &&
                                             typeof errors === "object"
@@ -678,24 +673,21 @@ export default function AdminEvaluationAssignmentForm() {
                             );
                         });
 
-                        // หน่วงเวลาเล็กน้อยเพื่อป้องกัน race condition
                         await new Promise((resolve) =>
                             setTimeout(resolve, 150)
                         );
                     } catch (error) {
-                        // continue กับรายการถัดไป
                         continue;
                     }
                 }
 
-                // แสดงผลลัพธ์
                 console.log(
-                    `📊 Final results: ${successCount} success, ${errorCount} errors`
+                    `Final results: ${successCount} success, ${errorCount} errors`
                 );
 
                 if (successCount > 0) {
                     toast.success(
-                        `✅ บันทึกสำเร็จ ${successCount} รายการ${
+                        `บันทึกสำเร็จ ${successCount} รายการ${
                             errorCount > 0
                                 ? ` (ไม่สำเร็จ ${errorCount} รายการ)`
                                 : ""
@@ -704,7 +696,6 @@ export default function AdminEvaluationAssignmentForm() {
                 }
 
                 if (errorMessages.length > 0) {
-                    // แสดง error แค่ข้อความแรกเพื่อไม่ให้ spam
                     const uniqueErrors = [...new Set(errorMessages)];
                     uniqueErrors.slice(0, 3).forEach((message) => {
                         toast.error(message);
@@ -724,7 +715,7 @@ export default function AdminEvaluationAssignmentForm() {
                 }
             } catch (error) {
                 console.error(
-                    "💥 Unexpected error in individual submission:",
+                    "Unexpected error in individual submission:",
                     error
                 );
                 toast.error("เกิดข้อผิดพลาดที่ไม่คาดคิด");
@@ -743,20 +734,20 @@ export default function AdminEvaluationAssignmentForm() {
 
     // Debug function
     const debugSubmitData = useCallback(() => {
-        console.log("=== 🔍 Debug Submit Data ===");
-        console.log("👤 Selected Evaluator:", selectedEvaluator);
-        console.log("🎯 Selected Angle:", selectedAngle);
-        console.log("👥 Selected Evaluatees:", selectedEvaluatees);
+        console.log("=== Debug Submit Data ===");
+        console.log("Selected Evaluator:", selectedEvaluator);
+        console.log("Selected Angle:", selectedAngle);
+        console.log("Selected Evaluatees:", selectedEvaluatees);
         console.log(
-            "📝 Assignments to submit:",
+            "Assignments to submit:",
             selectedEvaluatees.map((evaluatee) => ({
                 evaluator_id: selectedEvaluator!.value,
                 evaluatee_id: evaluatee.value,
                 angle: selectedAngle!.value,
             }))
         );
-        console.log("✅ Form valid:", isFormValid);
-        console.log("⚠️ Validation errors:", validationErrors);
+        console.log("Form valid:", isFormValid);
+        console.log("Validation errors:", validationErrors);
         console.log("=====================================");
     }, [
         selectedEvaluator,
@@ -821,910 +812,907 @@ export default function AdminEvaluationAssignmentForm() {
                 />
             }
         >
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-                {/* Enhanced Header */}
-                <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-2xl shadow-xl p-8 text-white">
-                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-                        <div>
-                            <h1 className="text-3xl font-bold mb-2 flex items-center">
-                                <Zap className="w-8 h-8 mr-3" />✨
-                                เพิ่มความสัมพันธ์ผู้ประเมิน - ผู้ถูกประเมิน
-                            </h1>
-                            <p className="text-blue-100 text-lg">
-                                สร้างความสัมพันธ์การประเมินแบบ 360 องศา
-                                ด้วยระบบที่ทันสมัยและใช้งานง่าย
-                            </p>
-                        </div>
-
-                        {/* Quick Actions */}
-                        <div className="flex flex-wrap gap-3">
-                            <button
-                                onClick={handleResetForm}
-                                className="flex items-center px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-                                title="รีเซ็ตฟอร์ม (Ctrl+R)"
-                            >
-                                <RotateCcw className="w-4 h-4 mr-2" />
-                                รีเซ็ต
-                            </button>
-                            <button
-                                onClick={debugSubmitData}
-                                className="flex items-center px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-                                title="Debug ข้อมูล (Ctrl+D)"
-                            >
-                                <Info className="w-4 h-4 mr-2" />
-                                Debug
-                            </button>
-                            <button
-                                onClick={() => setShowDetails(!showDetails)}
-                                className="flex items-center px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-                            >
-                                {showDetails ? (
-                                    <EyeOff className="w-4 h-4 mr-2" />
-                                ) : (
-                                    <Eye className="w-4 h-4 mr-2" />
-                                )}
-                                {showDetails ? "ซ่อน" : "แสดง"}รายละเอียด
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Progress Indicator */}
-                    <div className="mt-6">
-                        <div className="flex items-center justify-between text-sm mb-2">
-                            <span>ความคืบหน้า</span>
-                            <span>
-                                {selectedEvaluator ? "1" : "0"} /
-                                {selectedAngle ? "2" : "1"} /
-                                {selectedEvaluatees.length > 0 ? "3" : "2"}
-                            </span>
-                        </div>
-                        <div className="w-full bg-white/20 rounded-full h-2">
-                            <div
-                                className="bg-white rounded-full h-2 transition-all duration-500"
-                                style={{
-                                    width: `${
-                                        (selectedEvaluator ? 33 : 0) +
-                                        (selectedAngle ? 33 : 0) +
-                                        (selectedEvaluatees.length > 0 ? 34 : 0)
-                                    }%`,
-                                }}
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Validation Errors */}
-                {validationErrors.length > 0 && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                        <div className="flex items-center mb-2">
-                            <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
-                            <h4 className="text-red-800 font-medium">
-                                กรุณาแก้ไขข้อผิดพลาดต่อไปนี้:
-                            </h4>
-                        </div>
-                        <ul className="list-disc list-inside text-red-700 space-y-1">
-                            {validationErrors.map((error, index) => (
-                                <li key={index}>{error}</li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-
-                <form onSubmit={handleSubmitAll} className="space-y-8">
-                    {/* Rest of the form components remain the same as before */}
-                    {/* Step 1: Evaluatee Selection */}
-                    <Card className="p-8 shadow-xl bg-white dark:bg-zinc-900 border-l-4 border-blue-500">
-                        <div className="flex items-center justify-between mb-6">
-                            <div className="flex items-center">
-                                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mr-4">
-                                    <span className="text-blue-600 dark:text-blue-400 font-bold">
-                                        1
-                                    </span>
+            <div className="gradient-primary-soft min-h-screen -my-6 px-4 sm:px-6 lg:px-8 py-6">
+                <motion.div
+                    className="max-w-7xl mx-auto px-2 sm:px-6 py-8 space-y-8"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                >
+                    {/* Enhanced Header */}
+                    <motion.div variants={itemVariants} className="glass-card rounded-2xl p-8">
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 gradient-primary rounded-xl text-white shadow-lg shadow-violet-500/25">
+                                    <Zap className="w-7 h-7" />
                                 </div>
                                 <div>
-                                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                                        👤 เลือกผู้ประเมิน
-                                    </h2>
-                                    <p className="text-gray-600 dark:text-gray-400">
-                                        เลือกบุคคลที่จะทำหน้าที่ประเมิน
+                                    <h1 className="text-2xl lg:text-3xl font-bold text-gradient-primary">
+                                        เพิ่มความสัมพันธ์ผู้ประเมิน
+                                    </h1>
+                                    <p className="text-gray-500 dark:text-gray-400 mt-1">
+                                        สร้างความสัมพันธ์การประเมินแบบ 360 องศา
                                     </p>
                                 </div>
                             </div>
 
-                            {/* Advanced Filters Toggle */}
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    setShowAdvancedFilters(!showAdvancedFilters)
-                                }
-                                className="flex items-center px-4 py-2 text-gray-600 hover:text-gray-900 border rounded-lg hover:bg-gray-50 transition-colors"
-                            >
-                                <Filter className="w-4 h-4 mr-2" />
-                                ตัวกรอง
-                                {showAdvancedFilters ? (
-                                    <ChevronUp className="w-4 h-4 ml-2" />
-                                ) : (
-                                    <ChevronDown className="w-4 h-4 ml-2" />
-                                )}
-                            </button>
+                            {/* Quick Actions */}
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    onClick={handleResetForm}
+                                    className="flex items-center px-4 py-2 bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/30 dark:hover:bg-violet-900/50 text-violet-700 dark:text-violet-300 rounded-xl transition-colors"
+                                    title="รีเซ็ตฟอร์ม (Ctrl+R)"
+                                >
+                                    <RotateCcw className="w-4 h-4 mr-2" />
+                                    รีเซ็ต
+                                </button>
+                                <button
+                                    onClick={() => setShowDetails(!showDetails)}
+                                    className="flex items-center px-4 py-2 bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/30 dark:hover:bg-violet-900/50 text-violet-700 dark:text-violet-300 rounded-xl transition-colors"
+                                >
+                                    {showDetails ? (
+                                        <EyeOff className="w-4 h-4 mr-2" />
+                                    ) : (
+                                        <Eye className="w-4 h-4 mr-2" />
+                                    )}
+                                    {showDetails ? "ซ่อน" : "แสดง"}รายละเอียด
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Advanced Filters */}
-                        {showAdvancedFilters && (
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">
-                                        ค้นหา
-                                    </label>
-                                    <div className="relative">
-                                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                                        <input
-                                            type="text"
-                                            placeholder="ชื่อ, ตำแหน่ง, รหัส..."
-                                            value={searchEvaluatee}
-                                            onChange={(e) =>
-                                                setSearchEvaluatee(
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                        />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">
-                                        เกรด
-                                    </label>
-                                    <select
-                                        value={gradeFilter}
-                                        onChange={(e) =>
-                                            setGradeFilter(e.target.value)
-                                        }
-                                        className="w-full py-2 px-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                        <option value="all">ทั้งหมด</option>
-                                        <option value="4-8">
-                                            C4-C8 (2 องศา)
-                                        </option>
-                                        <option value="9-12">
-                                            C9-C12 (4 องศา)
-                                        </option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">
-                                        ประเภท
-                                    </label>
-                                    <select
-                                        value={typeFilter}
-                                        onChange={(e) =>
-                                            setTypeFilter(e.target.value)
-                                        }
-                                        className="w-full py-2 px-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                        <option value="all">ทั้งหมด</option>
-                                        <option value="internal">ภายใน</option>
-                                        <option value="external">ภายนอก</option>
-                                    </select>
-                                </div>
+                        {/* Progress Indicator */}
+                        <div className="mt-6">
+                            <div className="flex items-center justify-between text-sm mb-2 text-gray-600 dark:text-gray-400">
+                                <span>ความคืบหน้า</span>
+                                <span>
+                                    {selectedEvaluator ? "1" : "0"} /
+                                    {selectedAngle ? "2" : "1"} /
+                                    {selectedEvaluatees.length > 0 ? "3" : "2"}
+                                </span>
                             </div>
-                        )}
-
-                        <Select
-                            options={filteredEvaluatorOptions}
-                            value={selectedEvaluator}
-                            onChange={handleEvaluatorChange}
-                            placeholder="🔍 ค้นหาและเลือกผู้ประเมิน..."
-                            isClearable
-                            isSearchable
-                            className="react-select-container"
-                            classNamePrefix="react-select"
-                            menuPortalTarget={document.body}
-                            styles={selectStyles}
-                            noOptionsMessage={() =>
-                                "ไม่พบข้อมูลที่ตรงกับการค้นหา"
-                            }
-                            loadingMessage={() => "กำลังโหลด..."}
-                        />
-
-                        {selectedEvaluator && (
-                            <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex-1">
-                                        <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">
-                                            👤 ข้อมูลผู้ประเมิน
-                                        </h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                            <div>
-                                                <span className="text-blue-700 dark:text-blue-300">
-                                                    เกรด:
-                                                </span>
-                                                <span className="ml-2 font-medium">
-                                                    C{selectedEvaluator.grade}
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span className="text-blue-700 dark:text-blue-300">
-                                                    บทบาท:
-                                                </span>
-                                                <span className="ml-2 font-medium">
-                                                    ผู้ประเมิน
-                                                </span>
-                                            </div>
-                                        </div>
-                                        {showDetails && (
-                                            <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-700">
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-blue-600 dark:text-blue-400">
-                                                    <div>
-                                                        🏢 ตำแหน่ง:{" "}
-                                                        {
-                                                            selectedEvaluator.position_title
-                                                        }
-                                                    </div>
-                                                    <div>
-                                                        🏛️ กอง:{" "}
-                                                        {
-                                                            selectedEvaluator.department_name
-                                                        }
-                                                    </div>
-                                                    <div>
-                                                        🏢 ฝ่าย:{" "}
-                                                        {
-                                                            selectedEvaluator.faction_name
-                                                        }
-                                                    </div>
-                                                    <div>
-                                                        🎯 สายงาน:{" "}
-                                                        {
-                                                            selectedEvaluator.division_name
-                                                        }
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="ml-4">
-                                        {selectedEvaluator.grade >= 9 ? (
-                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 text-green-800">
-                                                ✅ ประเมิน 4 องศา
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-yellow-100 text-yellow-800">
-                                                ⚠️ ประเมิน 2 องศา
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
+                            <div className="w-full bg-violet-100 dark:bg-violet-900/20 rounded-full h-2">
+                                <div
+                                    className="gradient-primary rounded-full h-2 transition-all duration-500"
+                                    style={{
+                                        width: `${
+                                            (selectedEvaluator ? 33 : 0) +
+                                            (selectedAngle ? 33 : 0) +
+                                            (selectedEvaluatees.length > 0 ? 34 : 0)
+                                        }%`,
+                                    }}
+                                />
                             </div>
-                        )}
-                    </Card>
+                        </div>
+                    </motion.div>
 
-                    {/* Step 2: Angle Selection */}
-                    {availableAngles.length > 0 && (
-                        <Card className="p-8 shadow-xl bg-white dark:bg-zinc-900 border-l-4 border-green-500">
-                            <div className="flex items-center mb-6">
-                                <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mr-4">
-                                    <span className="text-green-600 dark:text-green-400 font-bold">
-                                        2
-                                    </span>
-                                </div>
-                                <div>
-                                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                                        🎯 เลือกองศาการประเมิน
-                                    </h2>
-                                    <p className="text-gray-600 dark:text-gray-400">
-                                        เลือกมุมมองการประเมินที่เหมาะสม
-                                    </p>
-                                </div>
+                    {/* Validation Errors */}
+                    {validationErrors.length > 0 && (
+                        <motion.div variants={itemVariants} className="glass-card rounded-2xl p-5 border-l-4 border-red-500">
+                            <div className="flex items-center mb-2">
+                                <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
+                                <h4 className="text-red-800 dark:text-red-300 font-medium">
+                                    กรุณาแก้ไขข้อผิดพลาดต่อไปนี้:
+                                </h4>
                             </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                {availableAngles.map((angle) => (
-                                    <div
-                                        key={angle.value}
-                                        onClick={() => handleAngleChange(angle)}
-                                        className={`p-6 border-2 rounded-xl cursor-pointer transition-all transform hover:scale-105 ${
-                                            selectedAngle?.value === angle.value
-                                                ? `border-${angle.color}-500 bg-${angle.color}-50 dark:bg-${angle.color}-900/20 shadow-lg`
-                                                : "border-gray-200 hover:border-gray-300 dark:border-gray-700 hover:shadow-md"
-                                        }`}
-                                    >
-                                        <div className="text-center">
-                                            <div className="text-4xl mb-3">
-                                                {angle.icon}
-                                            </div>
-                                            <h3 className="font-bold mb-2">
-                                                {angle.shortLabel}
-                                            </h3>
-                                            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                                                {angle.description}
-                                            </p>
-                                            {selectedAngle?.value ===
-                                                angle.value && (
-                                                <div className="mt-3">
-                                                    <CheckCircle className="w-6 h-6 text-green-500 mx-auto" />
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
+                            <ul className="list-disc list-inside text-red-700 dark:text-red-400 space-y-1">
+                                {validationErrors.map((error, index) => (
+                                    <li key={index}>{error}</li>
                                 ))}
-                            </div>
-                        </Card>
+                            </ul>
+                        </motion.div>
                     )}
 
-                    {/* Step 3: Evaluator Selection */}
-                    {selectedAngle && (
-                        <Card className="p-8 shadow-xl bg-white dark:bg-zinc-900 border-l-4 border-purple-500">
+                    <form onSubmit={handleSubmitAll} className="space-y-8">
+                        {/* Fiscal Year Selector */}
+                        <motion.div variants={itemVariants} className="glass-card rounded-2xl p-6 border-l-4 border-amber-500">
+                            <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
+                                    <span className="text-amber-600 dark:text-amber-400 text-lg">📅</span>
+                                </div>
+                                <div className="flex-1">
+                                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">ปีงบประมาณ</h2>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">เลือกปีงบประมาณที่ต้องการสร้างคู่ประเมิน</p>
+                                </div>
+                                <select
+                                    value={selectedFiscalYear}
+                                    onChange={(e) => setSelectedFiscalYear(Number(e.target.value))}
+                                    className="px-4 py-2.5 border-2 border-amber-300 dark:border-amber-600 rounded-xl text-sm font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 focus:ring-2 focus:ring-amber-500"
+                                >
+                                    {fiscal_years.map((y: number) => (
+                                        <option key={y} value={y}>พ.ศ. {Number(y) + 543} ({y})</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </motion.div>
+
+                        {/* Step 1: Evaluator Selection */}
+                        <motion.div variants={itemVariants} className="glass-card rounded-2xl p-8 border-l-4 border-violet-500">
                             <div className="flex items-center justify-between mb-6">
                                 <div className="flex items-center">
-                                    <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center mr-4">
-                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
-                                            3
+                                    <div className="w-10 h-10 bg-violet-100 dark:bg-violet-900/30 rounded-full flex items-center justify-center mr-4">
+                                        <span className="text-violet-600 dark:text-violet-400 font-bold">
+                                            1
                                         </span>
                                     </div>
                                     <div>
                                         <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                                            👥 เลือกผู้ถูกประเมิน (
-                                            {selectedAngle.icon}{" "}
-                                            {selectedAngle.shortLabel})
+                                            เลือกผู้ประเมิน
                                         </h2>
-                                        <p className="text-gray-600 dark:text-gray-400">
-                                            เลือกผู้ที่จะได้รับการประเมินในมุมมองนี้
+                                        <p className="text-gray-500 dark:text-gray-400">
+                                            เลือกบุคคลที่จะทำหน้าที่ประเมิน
                                         </p>
                                     </div>
                                 </div>
 
-                                {/* Bulk Actions */}
-                                <div className="flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={addAllFilteredEvaluatees}
-                                        disabled={
-                                            filteredEvaluateeOptions.length ===
-                                            0
-                                        }
-                                        className="flex items-center px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        <Plus className="w-4 h-4 mr-1" />
-                                        เพิ่มทั้งหมด
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={clearAllEvaluatees}
-                                        disabled={
-                                            selectedEvaluatees.length === 0
-                                        }
-                                        className="flex items-center px-3 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        <Trash2 className="w-4 h-4 mr-1" />
-                                        ล้างทั้งหมด
-                                    </button>
-                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setShowAdvancedFilters(!showAdvancedFilters)
+                                    }
+                                    className="flex items-center px-4 py-2 text-violet-600 dark:text-violet-400 hover:text-violet-800 border border-violet-200 dark:border-violet-700 rounded-xl hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+                                >
+                                    <Filter className="w-4 h-4 mr-2" />
+                                    ตัวกรอง
+                                    {showAdvancedFilters ? (
+                                        <ChevronUp className="w-4 h-4 ml-2" />
+                                    ) : (
+                                        <ChevronDown className="w-4 h-4 ml-2" />
+                                    )}
+                                </button>
                             </div>
 
-                            {/* Evaluatee Search */}
-                            <div className="mb-4">
-                                <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                                    <input
-                                        type="text"
-                                        placeholder="🔍 ค้นหาผู้ถูกประเมิน..."
-                                        value={searchEvaluatee}
-                                        onChange={(e) =>
-                                            setSearchEvaluatee(e.target.value)
-                                        }
-                                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                                    />
-                                </div>
-                            </div>
-
-                            <Select
-                                options={filteredEvaluateeOptions}
-                                onChange={(selected) =>
-                                    selected && addEvaluatee(selected)
-                                }
-                                placeholder={`เลือกผู้ถูกประเมินสำหรับ${selectedAngle.label}...`}
-                                isClearable
-                                value={null}
-                                isSearchable
-                                className="react-select-container mb-6"
-                                classNamePrefix="react-select"
-                                menuPortalTarget={document.body}
-                                styles={selectStyles}
-                                noOptionsMessage={() =>
-                                    "ไม่พบผู้ถูกประเมินที่เหมาะสม"
-                                }
-                                loadingMessage={() => "กำลังโหลด..."}
-                            />
-
-                            {/* Special message for angle types */}
-                            {selectedAngle?.value === "left" &&
-                                filteredEvaluateeOptions.length > 0 && (
-                                    <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
-                                        <div className="flex items-start">
-                                            <div className="text-yellow-600 dark:text-yellow-400 mr-3 mt-0.5">
-                                                ⚡
-                                            </div>
-                                            <div className="text-yellow-700 dark:text-yellow-300">
-                                                <div className="font-medium mb-1">
-                                                    องศาซ้าย -
-                                                    เลือกเพื่อนร่วมงาน
-                                                </div>
-                                                <div className="text-sm">
-                                                    เลือกผู้ที่จะได้รับการประเมินจากเพื่อนร่วมงานในองค์กร
-                                                    (ผู้ใช้ภายใน)
-                                                </div>
-                                            </div>
+                            {/* Advanced Filters */}
+                            {showAdvancedFilters && (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-violet-50/50 dark:bg-violet-900/10 rounded-xl">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                                            ค้นหา
+                                        </label>
+                                        <div className="relative">
+                                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                                            <input
+                                                type="text"
+                                                placeholder="ชื่อ, ตำแหน่ง, รหัส..."
+                                                value={searchEvaluatee}
+                                                onChange={(e) =>
+                                                    setSearchEvaluatee(
+                                                        e.target.value
+                                                    )
+                                                }
+                                                className="w-full pl-10 pr-4 py-2 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                                            />
                                         </div>
                                     </div>
-                                )}
-
-                            {selectedAngle?.value === "right" &&
-                                filteredEvaluateeOptions.length > 0 && (
-                                    <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                                        <div className="flex items-start">
-                                            <div className="text-blue-600 dark:text-blue-400 mr-3 mt-0.5">
-                                                🌐
-                                            </div>
-                                            <div className="text-blue-700 dark:text-blue-300">
-                                                <div className="font-medium mb-1">
-                                                    องศาขวา - เลือกบุคคลภายนอก
-                                                </div>
-                                                <div className="text-sm">
-                                                    เลือกผู้ที่จะได้รับการประเมินจากบุคคลภายนอกองค์กร
-                                                </div>
-                                            </div>
-                                        </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                                            เกรด
+                                        </label>
+                                        <select
+                                            value={gradeFilter}
+                                            onChange={(e) =>
+                                                setGradeFilter(e.target.value)
+                                            }
+                                            className="w-full py-2 px-3 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                                        >
+                                            <option value="all">ทั้งหมด</option>
+                                            <option value="4-8">
+                                                C4-C8 (2 องศา)
+                                            </option>
+                                            <option value="9-13">
+                                                C9-C13 (4 องศา)
+                                            </option>
+                                        </select>
                                     </div>
-                                )}
-
-                            {/* Statistics */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                                <div className="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                                    <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                        {filteredEvaluateeOptions.length}
-                                    </div>
-                                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                                        ผู้ถูกประเมินที่เหมาะสม
-                                        {filteredEvaluateeOptions.length >
-                                            0 && (
-                                            <span className="ml-1 text-green-600 dark:text-green-400">
-                                                ✓
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                                        {selectedEvaluatees.length}
-                                    </div>
-                                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                                        ผู้ถูกประเมินที่เลือก
-                                    </div>
-                                </div>
-                                <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                                        {selectedAngle.shortLabel}
-                                    </div>
-                                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                                        องศาการประเมิน
-                                    </div>
-                                </div>
-                                <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                                        {selectedEvaluator
-                                            ? `C${selectedEvaluator.grade}`
-                                            : "-"}
-                                    </div>
-                                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                                        เกรดผู้ประเมิน
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Selected Evaluators List */}
-                            {selectedEvaluatees.length > 0 && (
-                                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-6">
-                                    <h4 className="font-medium mb-4 flex items-center justify-between">
-                                        <div className="flex items-center">
-                                            <CheckCircle className="w-5 h-5 text-green-500 mr-2" />
-                                            ผู้ถูกประเมินที่เลือก (
-                                            {selectedEvaluatees.length} คน)
-                                        </div>
-                                        <div className="text-sm text-gray-500">
-                                            ทั้งหมดจะถูกประมวลผล
-                                        </div>
-                                    </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {selectedEvaluatees.map(
-                                            (evaluator, index) => (
-                                                <div
-                                                    key={evaluator.value}
-                                                    className="flex items-center justify-between p-4 bg-white dark:bg-zinc-800 rounded-lg border hover:shadow-md transition-shadow"
-                                                >
-                                                    <div className="flex items-center space-x-3 flex-1 min-w-0">
-                                                        <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
-                                                            {index + 1}
-                                                        </div>
-                                                        <div className="min-w-0 flex-1">
-                                                            <div className="font-medium text-gray-900 dark:text-white truncate">
-                                                                {
-                                                                    evaluator.shortLabel
-                                                                }
-                                                            </div>
-                                                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                                                {evaluator.user_type ===
-                                                                "external"
-                                                                    ? "ภายนอก"
-                                                                    : "ภายใน"}
-                                                            </div>
-                                                            {showDetails && (
-                                                                <div className="text-xs text-gray-400 dark:text-gray-500 mt-1 truncate">
-                                                                    {
-                                                                        evaluator.position_title
-                                                                    }
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            removeEvaluatee(
-                                                                evaluator.value
-                                                            )
-                                                        }
-                                                        className="text-red-500 hover:text-red-700 transition-colors p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
-                                                        title="ลบออกจากรายการ"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                            )
-                                        )}
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                                            ประเภท
+                                        </label>
+                                        <select
+                                            value={typeFilter}
+                                            onChange={(e) =>
+                                                setTypeFilter(e.target.value)
+                                            }
+                                            className="w-full py-2 px-3 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                                        >
+                                            <option value="all">ทั้งหมด</option>
+                                            <option value="internal">ภายใน</option>
+                                            <option value="external">ภายนอก</option>
+                                        </select>
                                     </div>
                                 </div>
                             )}
 
-                            {filteredEvaluatorOptions.length === 0 &&
-                                selectedEvaluatees.length === 0 && (
-                                    <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                                        <div className="text-6xl mb-4">🔍</div>
-                                        <h3 className="text-lg font-medium mb-2">
-                                            ไม่พบผู้ประเมินที่เหมาะสม
-                                        </h3>
-                                        <p className="text-sm">
-                                            ลองปรับเงื่อนไขการค้นหาหรือเลือกองศาอื่น
-                                        </p>
-                                    </div>
-                                )}
-                        </Card>
-                    )}
+                            <Select
+                                options={filteredEvaluatorOptions}
+                                value={selectedEvaluator}
+                                onChange={handleEvaluatorChange}
+                                placeholder="ค้นหาและเลือกผู้ประเมิน..."
+                                isClearable
+                                isSearchable
+                                className="react-select-container"
+                                classNamePrefix="react-select"
+                                menuPortalTarget={document.body}
+                                styles={selectStyles}
+                                noOptionsMessage={() =>
+                                    "ไม่พบข้อมูลที่ตรงกับการค้นหา"
+                                }
+                                loadingMessage={() => "กำลังโหลด..."}
+                            />
 
-                    {/* Summary and Submit */}
-                    {selectedEvaluator &&
-                        selectedAngle &&
-                        selectedEvaluatees.length > 0 && (
-                            <Card className="p-8 shadow-xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-l-4 border-indigo-500">
-                                <h3 className="text-2xl font-bold mb-6 flex items-center text-indigo-900 dark:text-indigo-100">
-                                    <CheckCircle className="w-6 h-6 mr-3 text-green-500" />
-                                    📝 สรุปข้อมูลก่อนบันทึก
-                                </h3>
-
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                                    <div className="bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-sm">
-                                        <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                            👤 ผู้ประเมิน
-                                        </h4>
-                                        <div className="text-lg font-bold text-gray-900 dark:text-white">
-                                            {selectedEvaluator.shortLabel}
-                                        </div>
-                                        <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                            {selectedEvaluator.position_title}
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-sm">
-                                        <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                            🎯 องศาการประเมิน
-                                        </h4>
-                                        <div className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
-                                            {selectedAngle.icon}{" "}
-                                            {selectedAngle.shortLabel}
-                                        </div>
-                                        <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                            {selectedAngle.description}
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-sm">
-                                        <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                            👥 จำนวนผู้ประเมิน
-                                        </h4>
-                                        <div className="text-lg font-bold text-gray-900 dark:text-white">
-                                            {selectedEvaluatees.length} คน
-                                        </div>
-                                        <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                            พร้อมสำหรับการประเมิน
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Quick Preview */}
-                                <div className="bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-sm mb-6">
-                                    <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">
-                                        🔍 ตัวอย่างความสัมพันธ์ที่จะสร้าง
-                                    </h4>
-                                    <div className="space-y-2 max-h-32 overflow-y-auto">
-                                        {selectedEvaluatees
-                                            .slice(0, 3)
-                                            .map((evaluator, index) => (
-                                                <div
-                                                    key={evaluator.value}
-                                                    className="text-sm text-gray-600 dark:text-gray-400 flex items-center"
-                                                >
-                                                    <span className="w-6 h-6 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center text-xs mr-3">
-                                                        {index + 1}
+                            {selectedEvaluator && (
+                                <div className="mt-6 p-4 bg-violet-50 dark:bg-violet-900/20 rounded-xl border border-violet-200 dark:border-violet-800">
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <h4 className="font-medium text-violet-900 dark:text-violet-100 mb-2">
+                                                ข้อมูลผู้ประเมิน
+                                            </h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                                <div>
+                                                    <span className="text-violet-700 dark:text-violet-300">
+                                                        เกรด:
                                                     </span>
-                                                    <span className="font-medium">
-                                                        {
-                                                            selectedEvaluator.shortLabel
-                                                        }
-                                                    </span>
-                                                    <span className="mx-2">
-                                                        →
-                                                    </span>
-                                                    <span>ประเมิน</span>
-                                                    <span className="mx-2">
-                                                        →
-                                                    </span>
-                                                    <span className="font-medium">
-                                                        {evaluator.shortLabel}
-                                                    </span>
-                                                    <span className="ml-2 text-purple-600 dark:text-purple-400">
-                                                        (
-                                                        {
-                                                            selectedAngle.shortLabel
-                                                        }
-                                                        )
+                                                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
+                                                        C{selectedEvaluator.grade}
                                                     </span>
                                                 </div>
-                                            ))}
-                                        {selectedEvaluatees.length > 3 && (
-                                            <div className="text-sm text-gray-500 dark:text-gray-400 italic">
-                                                ... และอีก{" "}
-                                                {selectedEvaluatees.length - 3}{" "}
-                                                รายการ
+                                                <div>
+                                                    <span className="text-violet-700 dark:text-violet-300">
+                                                        บทบาท:
+                                                    </span>
+                                                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
+                                                        ผู้ประเมิน
+                                                    </span>
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Action Buttons */}
-                                <div className="flex flex-col sm:flex-row justify-between gap-4">
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        onClick={() =>
-                                            router.visit(
-                                                route("assignments.index")
-                                            )
-                                        }
-                                        className="px-6 py-3"
-                                    >
-                                        ← กลับไปหน้ารายการ
-                                    </Button>
-
-                                    <div className="flex gap-3">
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={handleResetForm}
-                                            className="px-6 py-3"
-                                            title="รีเซ็ตฟอร์ม (Ctrl+R)"
-                                        >
-                                            <RotateCcw className="w-4 h-4 mr-2" />
-                                            รีเซ็ต
-                                        </Button>
-
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={handleSubmitIndividual}
-                                            className="px-6 py-3"
-                                            title="บันทึกทีละรายการ (Fallback)"
-                                            disabled={
-                                                isSubmitting || !isFormValid
-                                            }
-                                        >
-                                            <Users className="w-4 h-4 mr-2" />
-                                            บันทึกทีละราย
-                                        </Button>
-
-                                        <Button
-                                            type="submit"
-                                            disabled={
-                                                isSubmitting || !isFormValid
-                                            }
-                                            className="px-8 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                                            title="บันทึกข้อมูล (Ctrl+S)"
-                                        >
-                                            {isSubmitting ? (
-                                                <>
-                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                                                    กำลังบันทึก...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Save className="w-4 h-4 mr-2" />
-                                                    บันทึกแบบกลุ่ม (
-                                                    {selectedEvaluatees.length}{" "}
-                                                    รายการ)
-                                                </>
+                                            {showDetails && (
+                                                <div className="mt-3 pt-3 border-t border-violet-200 dark:border-violet-700">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-violet-600 dark:text-violet-400">
+                                                        <div>
+                                                            ตำแหน่ง:{" "}
+                                                            {selectedEvaluator.position_title}
+                                                        </div>
+                                                        <div>
+                                                            กอง:{" "}
+                                                            {selectedEvaluator.department_name}
+                                                        </div>
+                                                        <div>
+                                                            ฝ่าย:{" "}
+                                                            {selectedEvaluator.faction_name}
+                                                        </div>
+                                                        <div>
+                                                            สายงาน:{" "}
+                                                            {selectedEvaluator.division_name}
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             )}
-                                        </Button>
+                                        </div>
+                                        <div className="ml-4">
+                                            {selectedEvaluator.grade >= 9 ? (
+                                                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                                                    <CheckCircle className="w-4 h-4 mr-1" /> ประเมิน 4 องศา
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300">
+                                                    <AlertCircle className="w-4 h-4 mr-1" /> ประเมิน 2 องศา
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
-                            </Card>
+                            )}
+                        </motion.div>
+
+                        {/* Step 2: Angle Selection */}
+                        {availableAngles.length > 0 && (
+                            <motion.div variants={itemVariants} className="glass-card rounded-2xl p-8 border-l-4 border-fuchsia-500">
+                                <div className="flex items-center mb-6">
+                                    <div className="w-10 h-10 bg-fuchsia-100 dark:bg-fuchsia-900/30 rounded-full flex items-center justify-center mr-4">
+                                        <span className="text-fuchsia-600 dark:text-fuchsia-400 font-bold">
+                                            2
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                                            เลือกองศาการประเมิน
+                                        </h2>
+                                        <p className="text-gray-500 dark:text-gray-400">
+                                            เลือกมุมมองการประเมินที่เหมาะสม
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {availableAngles.map((angle) => (
+                                        <div
+                                            key={angle.value}
+                                            onClick={() => handleAngleChange(angle)}
+                                            className={cn(
+                                                "p-6 border-2 rounded-xl cursor-pointer transition-all transform hover:scale-105",
+                                                selectedAngle?.value === angle.value
+                                                    ? "border-violet-500 bg-violet-50 dark:bg-violet-900/20 shadow-lg shadow-violet-500/10"
+                                                    : "border-gray-200 dark:border-gray-700 hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-md"
+                                            )}
+                                        >
+                                            <div className="text-center">
+                                                <div className={cn(
+                                                    "w-12 h-12 mx-auto mb-3 rounded-xl flex items-center justify-center",
+                                                    selectedAngle?.value === angle.value
+                                                        ? "gradient-primary text-white shadow-md"
+                                                        : "bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400"
+                                                )}>
+                                                    <UserCheck className="w-6 h-6" />
+                                                </div>
+                                                <h3 className="font-bold mb-2 text-gray-900 dark:text-white">
+                                                    {angle.shortLabel}
+                                                </h3>
+                                                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                                                    {angle.description}
+                                                </p>
+                                                {selectedAngle?.value ===
+                                                    angle.value && (
+                                                    <div className="mt-3">
+                                                        <CheckCircle className="w-6 h-6 text-violet-500 mx-auto" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </motion.div>
                         )}
-                </form>
 
-                {/* Enhanced Help Section */}
-                <Card className="p-8 shadow-xl bg-white dark:bg-zinc-900">
-                    <div className="flex items-center justify-between mb-6">
-                        <h4 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
-                            <BookOpen className="w-5 h-5 mr-2" />
-                            💡 คู่มือการใช้งาน
-                        </h4>
-                        <button
-                            onClick={() => setShowDetails(!showDetails)}
-                            className="text-blue-600 hover:text-blue-800 transition-colors"
-                        >
-                            {showDetails ? "ซ่อนรายละเอียด" : "แสดงรายละเอียด"}
-                        </button>
-                    </div>
+                        {/* Step 3: Evaluatee Selection */}
+                        {selectedAngle && (
+                            <motion.div variants={itemVariants} className="glass-card rounded-2xl p-8 border-l-4 border-purple-500">
+                                <div className="flex items-center justify-between mb-6">
+                                    <div className="flex items-center">
+                                        <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mr-4">
+                                            <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                                3
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                                                เลือกผู้ถูกประเมิน ({selectedAngle.shortLabel})
+                                            </h2>
+                                            <p className="text-gray-500 dark:text-gray-400">
+                                                เลือกผู้ที่จะได้รับการประเมินในมุมมองนี้
+                                            </p>
+                                        </div>
+                                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-3">
-                                📋 ขั้นตอนการใช้งาน
-                            </h5>
-                            <ol className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                                <li className="flex items-start">
-                                    <span className="bg-blue-100 text-blue-800 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5">
-                                        1
-                                    </span>
-                                    เลือกผู้ประเมิน
-                                    (เลือกคนที่จะทำหน้าที่ประเมินผู้อื่น)
-                                </li>
-                                <li className="flex items-start">
-                                    <span className="bg-green-100 text-green-800 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5">
-                                        2
-                                    </span>
-                                    เลือกองศาการประเมิน
-                                    (ขึ้นอยู่กับเกรดของผู้ถูกประเมิน)
-                                </li>
-                                <li className="flex items-start">
-                                    <span className="bg-purple-100 text-purple-800 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5">
-                                        3
-                                    </span>
-                                    เลือกผู้ประเมิน
-                                    (สามารถเลือกได้หลายคนต่อองศา)
-                                </li>
-                                <li className="flex items-start">
-                                    <span className="bg-indigo-100 text-indigo-800 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5">
-                                        4
-                                    </span>
-                                    ตรวจสอบข้อมูลและบันทึก
-                                </li>
-                            </ol>
-                        </div>
-
-                        <div>
-                            <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-3">
-                                ⚡ คีย์บอร์ดชอร์ทคัต
-                            </h5>
-                            <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                                <li>
-                                    •{" "}
-                                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs">
-                                        Ctrl + S
-                                    </kbd>{" "}
-                                    บันทึกข้อมูล
-                                </li>
-                                <li>
-                                    •{" "}
-                                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs">
-                                        Ctrl + R
-                                    </kbd>{" "}
-                                    รีเซ็ตฟอร์ม
-                                </li>
-                                <li>
-                                    •{" "}
-                                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs">
-                                        Ctrl + D
-                                    </kbd>{" "}
-                                    Debug ข้อมูล
-                                </li>
-                                <li>
-                                    • ใช้ปุ่ม "เพิ่มทั้งหมด"
-                                    เพื่อเลือกผู้ประเมินที่กรองแล้วทั้งหมด
-                                </li>
-                                <li>
-                                    •
-                                    ใช้ตัวกรองขั้นสูงเพื่อค้นหาผู้ใช้ที่ต้องการได้รวดเร็ว
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-
-                    {showDetails && (
-                        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-3">
-                                        🎯 เกณฑ์การประเมิน
-                                    </h5>
-                                    <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                                        <li>
-                                            • <strong>C5-C8:</strong> ประเมิน 2
-                                            องศา (บน, ซ้าย)
-                                        </li>
-                                        <li>
-                                            • <strong>C9-C12:</strong> ประเมิน 4
-                                            องศา (บน, ล่าง, ซ้าย, ขวา)
-                                        </li>
-                                        <li>
-                                            • <strong>องศาบน:</strong>{" "}
-                                            ผู้บังคับบัญชาที่เกรดสูงกว่า
-                                        </li>
-                                        <li>
-                                            • <strong>องศาล่าง:</strong>{" "}
-                                            ผู้ใต้บังคับบัญชาที่เกรดต่ำกว่า
-                                        </li>
-                                        <li>
-                                            • <strong>องศาซ้าย:</strong>{" "}
-                                            เพื่อนร่วมงานระดับเดียวกัน
-                                        </li>
-                                        <li>
-                                            • <strong>องศาขวา:</strong>{" "}
-                                            ผู้ประเมินภายนอก
-                                        </li>
-                                    </ul>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={addAllFilteredEvaluatees}
+                                            disabled={
+                                                filteredEvaluateeOptions.length ===
+                                                0
+                                            }
+                                            className="flex items-center px-3 py-2 text-sm bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-xl hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <Plus className="w-4 h-4 mr-1" />
+                                            เพิ่มทั้งหมด
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={clearAllEvaluatees}
+                                            disabled={
+                                                selectedEvaluatees.length === 0
+                                            }
+                                            className="flex items-center px-3 py-2 text-sm bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-xl hover:bg-red-200 dark:hover:bg-red-900/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <Trash2 className="w-4 h-4 mr-1" />
+                                            ล้างทั้งหมด
+                                        </button>
+                                    </div>
                                 </div>
 
-                                <div>
-                                    <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-3">
-                                        ⚠️ ข้อควรระวัง
-                                    </h5>
-                                    <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                                        <li>• ไม่สามารถให้ประเมินตนเองได้</li>
-                                        <li>
-                                            •
-                                            ตรวจสอบความเหมาะสมของผู้ประเมินก่อนเลือก
-                                        </li>
-                                        <li>
-                                            •
-                                            แนะนำให้มีผู้ประเมินหลายคนต่อองศาเพื่อความน่าเชื่อถือ
-                                        </li>
-                                        <li>
-                                            •
-                                            ระบบจะกรองผู้ประเมินที่เหมาะสมโดยอัตโนมัติ
-                                        </li>
-                                        <li>
-                                            •
-                                            ข้อมูลจะถูกบันทึกทันทีหลังจากกดบันทึก
-                                        </li>
-                                        <li>
-                                            • หากบันทึกแบบกลุ่มไม่สำเร็จ
-                                            สามารถใช้การบันทึกทีละรายการได้
-                                        </li>
-                                    </ul>
+                                {/* Evaluatee Search */}
+                                <div className="mb-4">
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                                        <input
+                                            type="text"
+                                            placeholder="ค้นหาผู้ถูกประเมิน..."
+                                            value={searchEvaluatee}
+                                            onChange={(e) =>
+                                                setSearchEvaluatee(e.target.value)
+                                            }
+                                            className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                                        />
+                                    </div>
                                 </div>
+
+                                <Select
+                                    options={filteredEvaluateeOptions}
+                                    onChange={(selected) =>
+                                        selected && addEvaluatee(selected)
+                                    }
+                                    placeholder={`เลือกผู้ถูกประเมินสำหรับ${selectedAngle.label}...`}
+                                    isClearable
+                                    value={null}
+                                    isSearchable
+                                    className="react-select-container mb-6"
+                                    classNamePrefix="react-select"
+                                    menuPortalTarget={document.body}
+                                    styles={selectStyles}
+                                    noOptionsMessage={() =>
+                                        "ไม่พบผู้ถูกประเมินที่เหมาะสม"
+                                    }
+                                    loadingMessage={() => "กำลังโหลด..."}
+                                />
+
+                                {/* Angle info messages */}
+                                {selectedAngle?.value === "left" &&
+                                    filteredEvaluateeOptions.length > 0 && (
+                                        <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                                            <div className="flex items-start">
+                                                <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 mr-3 mt-0.5 flex-shrink-0" />
+                                                <div className="text-amber-700 dark:text-amber-300">
+                                                    <div className="font-medium mb-1">
+                                                        องศาซ้าย - เลือกเพื่อนร่วมงาน
+                                                    </div>
+                                                    <div className="text-sm">
+                                                        เลือกผู้ที่จะได้รับการประเมินจากเพื่อนร่วมงานในองค์กร
+                                                        (ผู้ใช้ภายใน)
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                {selectedAngle?.value === "right" &&
+                                    filteredEvaluateeOptions.length > 0 && (
+                                        <div className="mb-4 p-4 bg-violet-50 dark:bg-violet-900/20 rounded-xl border border-violet-200 dark:border-violet-800">
+                                            <div className="flex items-start">
+                                                <Info className="w-5 h-5 text-violet-600 dark:text-violet-400 mr-3 mt-0.5 flex-shrink-0" />
+                                                <div className="text-violet-700 dark:text-violet-300">
+                                                    <div className="font-medium mb-1">
+                                                        องศาขวา - เลือกบุคคลภายนอก
+                                                    </div>
+                                                    <div className="text-sm">
+                                                        เลือกผู้ที่จะได้รับการประเมินจากบุคคลภายนอกองค์กร
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                {/* Statistics */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                                    <div className="text-center p-3 bg-violet-50 dark:bg-violet-900/20 rounded-xl">
+                                        <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                                            {filteredEvaluateeOptions.length}
+                                        </div>
+                                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                                            ผู้ถูกประเมินที่เหมาะสม
+                                        </div>
+                                    </div>
+                                    <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
+                                        <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                                            {selectedEvaluatees.length}
+                                        </div>
+                                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                                            ผู้ถูกประเมินที่เลือก
+                                        </div>
+                                    </div>
+                                    <div className="text-center p-3 bg-fuchsia-50 dark:bg-fuchsia-900/20 rounded-xl">
+                                        <div className="text-2xl font-bold text-fuchsia-600 dark:text-fuchsia-400">
+                                            {selectedAngle.shortLabel}
+                                        </div>
+                                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                                            องศาการประเมิน
+                                        </div>
+                                    </div>
+                                    <div className="text-center p-3 bg-violet-50 dark:bg-violet-900/20 rounded-xl">
+                                        <div className="text-2xl font-bold text-violet-600 dark:text-violet-400">
+                                            {selectedEvaluator
+                                                ? `C${selectedEvaluator.grade}`
+                                                : "-"}
+                                        </div>
+                                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                                            เกรดผู้ประเมิน
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Selected Evaluatees List */}
+                                {selectedEvaluatees.length > 0 && (
+                                    <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-6">
+                                        <h4 className="font-medium mb-4 flex items-center justify-between text-gray-900 dark:text-white">
+                                            <div className="flex items-center">
+                                                <CheckCircle className="w-5 h-5 text-green-500 mr-2" />
+                                                ผู้ถูกประเมินที่เลือก (
+                                                {selectedEvaluatees.length} คน)
+                                            </div>
+                                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                                ทั้งหมดจะถูกประมวลผล
+                                            </div>
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {selectedEvaluatees.map(
+                                                (evaluator, index) => (
+                                                    <div
+                                                        key={evaluator.value}
+                                                        className="flex items-center justify-between p-4 bg-white dark:bg-zinc-800 rounded-xl border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow"
+                                                    >
+                                                        <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                                            <div className="w-10 h-10 gradient-primary rounded-full flex items-center justify-center text-white font-bold shadow-md">
+                                                                {index + 1}
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="font-medium text-gray-900 dark:text-white truncate">
+                                                                    {
+                                                                        evaluator.shortLabel
+                                                                    }
+                                                                </div>
+                                                                <div className="text-sm text-gray-500 dark:text-gray-400">
+                                                                    {evaluator.user_type ===
+                                                                    "external"
+                                                                        ? "ภายนอก"
+                                                                        : "ภายใน"}
+                                                                </div>
+                                                                {showDetails && (
+                                                                    <div className="text-xs text-gray-400 dark:text-gray-500 mt-1 truncate">
+                                                                        {
+                                                                            evaluator.position_title
+                                                                        }
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                removeEvaluatee(
+                                                                    evaluator.value
+                                                                )
+                                                            }
+                                                            className="text-red-500 hover:text-red-700 transition-colors p-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                            title="ลบออกจากรายการ"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                )
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {filteredEvaluatorOptions.length === 0 &&
+                                    selectedEvaluatees.length === 0 && (
+                                        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                                            <Search className="w-12 h-12 mx-auto mb-4 text-violet-300 dark:text-violet-600" />
+                                            <h3 className="text-lg font-medium mb-2">
+                                                ไม่พบผู้ประเมินที่เหมาะสม
+                                            </h3>
+                                            <p className="text-sm">
+                                                ลองปรับเงื่อนไขการค้นหาหรือเลือกองศาอื่น
+                                            </p>
+                                        </div>
+                                    )}
+                            </motion.div>
+                        )}
+
+                        {/* Summary and Submit */}
+                        {selectedEvaluator &&
+                            selectedAngle &&
+                            selectedEvaluatees.length > 0 && (
+                                <motion.div variants={itemVariants} className="glass-card rounded-2xl p-8 border-l-4 border-green-500">
+                                    <h3 className="text-2xl font-bold mb-6 flex items-center text-gradient-primary">
+                                        <CheckCircle className="w-6 h-6 mr-3 text-green-500" />
+                                        สรุปข้อมูลก่อนบันทึก
+                                    </h3>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                                        <div className="bg-violet-50 dark:bg-violet-900/20 p-6 rounded-xl">
+                                            <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
+                                                <Users className="w-4 h-4 mr-2 text-violet-500" />
+                                                ผู้ประเมิน
+                                            </h4>
+                                            <div className="text-lg font-bold text-gray-900 dark:text-white">
+                                                {selectedEvaluator.shortLabel}
+                                            </div>
+                                            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                                {selectedEvaluator.position_title}
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-fuchsia-50 dark:bg-fuchsia-900/20 p-6 rounded-xl">
+                                            <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
+                                                <UserCheck className="w-4 h-4 mr-2 text-fuchsia-500" />
+                                                องศาการประเมิน
+                                            </h4>
+                                            <div className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
+                                                {selectedAngle.shortLabel}
+                                            </div>
+                                            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                                {selectedAngle.description}
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-purple-50 dark:bg-purple-900/20 p-6 rounded-xl">
+                                            <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
+                                                <Users className="w-4 h-4 mr-2 text-purple-500" />
+                                                จำนวนผู้ถูกประเมิน
+                                            </h4>
+                                            <div className="text-lg font-bold text-gray-900 dark:text-white">
+                                                {selectedEvaluatees.length} คน
+                                            </div>
+                                            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                                พร้อมสำหรับการประเมิน
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Quick Preview */}
+                                    <div className="bg-white dark:bg-zinc-800 p-6 rounded-xl border border-gray-100 dark:border-gray-700 mb-6">
+                                        <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center">
+                                            <Eye className="w-4 h-4 mr-2 text-violet-500" />
+                                            ตัวอย่างความสัมพันธ์ที่จะสร้าง
+                                        </h4>
+                                        <div className="space-y-2 max-h-32 overflow-y-auto">
+                                            {selectedEvaluatees
+                                                .slice(0, 3)
+                                                .map((evaluator, index) => (
+                                                    <div
+                                                        key={evaluator.value}
+                                                        className="text-sm text-gray-600 dark:text-gray-400 flex items-center"
+                                                    >
+                                                        <span className="w-6 h-6 bg-violet-100 dark:bg-violet-900/30 rounded-full flex items-center justify-center text-xs mr-3 text-violet-600 dark:text-violet-400">
+                                                            {index + 1}
+                                                        </span>
+                                                        <span className="font-medium">
+                                                            {selectedEvaluator.shortLabel}
+                                                        </span>
+                                                        <span className="mx-2 text-violet-400">
+                                                            →
+                                                        </span>
+                                                        <span>ประเมิน</span>
+                                                        <span className="mx-2 text-violet-400">
+                                                            →
+                                                        </span>
+                                                        <span className="font-medium">
+                                                            {evaluator.shortLabel}
+                                                        </span>
+                                                        <span className="ml-2 text-violet-600 dark:text-violet-400">
+                                                            ({selectedAngle.shortLabel})
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            {selectedEvaluatees.length > 3 && (
+                                                <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                                                    ... และอีก{" "}
+                                                    {selectedEvaluatees.length - 3}{" "}
+                                                    รายการ
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex flex-col sm:flex-row justify-between gap-4">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                router.visit(
+                                                    route("assignments.index")
+                                                )
+                                            }
+                                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/80 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-all"
+                                        >
+                                            <ArrowLeft className="w-4 h-4" />
+                                            กลับไปหน้ารายการ
+                                        </button>
+
+                                        <div className="flex gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={handleResetForm}
+                                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/80 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-all"
+                                                title="รีเซ็ตฟอร์ม (Ctrl+R)"
+                                            >
+                                                <RotateCcw className="w-4 h-4" />
+                                                รีเซ็ต
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={handleSubmitIndividual}
+                                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/80 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-all"
+                                                title="บันทึกทีละรายการ (Fallback)"
+                                                disabled={
+                                                    isSubmitting || !isFormValid
+                                                }
+                                            >
+                                                <Users className="w-4 h-4" />
+                                                บันทึกทีละราย
+                                            </button>
+
+                                            <button
+                                                type="submit"
+                                                disabled={
+                                                    isSubmitting || !isFormValid
+                                                }
+                                                className={cn(
+                                                    "inline-flex items-center gap-2 px-8 py-2.5 gradient-primary text-white rounded-xl font-medium",
+                                                    "hover:shadow-lg hover:shadow-violet-500/25 transition-all duration-200",
+                                                    "disabled:opacity-50 disabled:cursor-not-allowed"
+                                                )}
+                                                title="บันทึกข้อมูล (Ctrl+S)"
+                                            >
+                                                {isSubmitting ? (
+                                                    <>
+                                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                                        กำลังบันทึก...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Save className="w-4 h-4" />
+                                                        บันทึกแบบกลุ่ม (
+                                                        {selectedEvaluatees.length}{" "}
+                                                        รายการ)
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )}
+                    </form>
+
+                    {/* Enhanced Help Section */}
+                    <motion.div variants={itemVariants} className="glass-card rounded-2xl p-8">
+                        <div className="flex items-center justify-between mb-6">
+                            <h4 className="text-xl font-bold text-gradient-primary flex items-center">
+                                <BookOpen className="w-5 h-5 mr-2 text-violet-500" />
+                                คู่มือการใช้งาน
+                            </h4>
+                            <button
+                                onClick={() => setShowDetails(!showDetails)}
+                                className="text-violet-600 hover:text-violet-800 dark:text-violet-400 dark:hover:text-violet-300 transition-colors"
+                            >
+                                {showDetails ? "ซ่อนรายละเอียด" : "แสดงรายละเอียด"}
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-3">
+                                    ขั้นตอนการใช้งาน
+                                </h5>
+                                <ol className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                                    <li className="flex items-start">
+                                        <span className="bg-violet-100 dark:bg-violet-900/30 text-violet-800 dark:text-violet-300 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5 flex-shrink-0">
+                                            1
+                                        </span>
+                                        เลือกผู้ประเมิน (เลือกคนที่จะทำหน้าที่ประเมินผู้อื่น)
+                                    </li>
+                                    <li className="flex items-start">
+                                        <span className="bg-fuchsia-100 dark:bg-fuchsia-900/30 text-fuchsia-800 dark:text-fuchsia-300 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5 flex-shrink-0">
+                                            2
+                                        </span>
+                                        เลือกองศาการประเมิน (ขึ้นอยู่กับเกรดของผู้ถูกประเมิน)
+                                    </li>
+                                    <li className="flex items-start">
+                                        <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5 flex-shrink-0">
+                                            3
+                                        </span>
+                                        เลือกผู้ถูกประเมิน (สามารถเลือกได้หลายคนต่อองศา)
+                                    </li>
+                                    <li className="flex items-start">
+                                        <span className="bg-violet-100 dark:bg-violet-900/30 text-violet-800 dark:text-violet-300 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5 flex-shrink-0">
+                                            4
+                                        </span>
+                                        ตรวจสอบข้อมูลและบันทึก
+                                    </li>
+                                </ol>
+                            </div>
+
+                            <div>
+                                <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-3">
+                                    คีย์บอร์ดชอร์ทคัต
+                                </h5>
+                                <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                                    <li>
+                                        {" "}
+                                        <kbd className="px-2 py-1 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-lg text-xs">
+                                            Ctrl + S
+                                        </kbd>{" "}
+                                        บันทึกข้อมูล
+                                    </li>
+                                    <li>
+                                        {" "}
+                                        <kbd className="px-2 py-1 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-lg text-xs">
+                                            Ctrl + R
+                                        </kbd>{" "}
+                                        รีเซ็ตฟอร์ม
+                                    </li>
+                                    <li>
+                                        {" "}
+                                        <kbd className="px-2 py-1 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-lg text-xs">
+                                            Ctrl + D
+                                        </kbd>{" "}
+                                        Debug ข้อมูล
+                                    </li>
+                                    <li>
+                                        ใช้ปุ่ม "เพิ่มทั้งหมด"
+                                        เพื่อเลือกผู้ประเมินที่กรองแล้วทั้งหมด
+                                    </li>
+                                    <li>
+                                        ใช้ตัวกรองขั้นสูงเพื่อค้นหาผู้ใช้ที่ต้องการได้รวดเร็ว
+                                    </li>
+                                </ul>
                             </div>
                         </div>
-                    )}
-                </Card>
+
+                        {showDetails && (
+                            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-3">
+                                            เกณฑ์การประเมิน
+                                        </h5>
+                                        <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                                            <li>
+                                                <strong>C5-C8:</strong> ประเมิน 2
+                                                องศา (บน, ซ้าย)
+                                            </li>
+                                            <li>
+                                                <strong>C9-C12:</strong> ประเมิน 4
+                                                องศา (บน, ล่าง, ซ้าย, ขวา)
+                                            </li>
+                                            <li>
+                                                <strong>ผู้บังคับบัญชา:</strong>{" "}
+                                                ผู้ที่มีระดับสูงกว่าในสายบังคับบัญชา
+                                            </li>
+                                            <li>
+                                                <strong>ผู้ใต้บังคับบัญชา:</strong>{" "}
+                                                ผู้ที่มีระดับต่ำกว่าในสายบังคับบัญชา
+                                            </li>
+                                            <li>
+                                                <strong>องศาซ้าย:</strong>{" "}
+                                                เพื่อนร่วมงานระดับเดียวกัน
+                                            </li>
+                                            <li>
+                                                <strong>องศาขวา:</strong>{" "}
+                                                ผู้ประเมินภายนอก
+                                            </li>
+                                        </ul>
+                                    </div>
+
+                                    <div>
+                                        <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-3">
+                                            ข้อควรระวัง
+                                        </h5>
+                                        <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                                            <li>ไม่สามารถให้ประเมินตนเองได้</li>
+                                            <li>
+                                                ตรวจสอบความเหมาะสมของผู้ประเมินก่อนเลือก
+                                            </li>
+                                            <li>
+                                                แนะนำให้มีผู้ประเมินหลายคนต่อองศาเพื่อความน่าเชื่อถือ
+                                            </li>
+                                            <li>
+                                                ระบบจะกรองผู้ประเมินที่เหมาะสมโดยอัตโนมัติ
+                                            </li>
+                                            <li>
+                                                ข้อมูลจะถูกบันทึกทันทีหลังจากกดบันทึก
+                                            </li>
+                                            <li>
+                                                หากบันทึกแบบกลุ่มไม่สำเร็จ
+                                                สามารถใช้การบันทึกทีละรายการได้
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </motion.div>
+                </motion.div>
             </div>
         </MainLayout>
     );

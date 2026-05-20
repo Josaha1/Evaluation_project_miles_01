@@ -1,9 +1,12 @@
 import MainLayout from "@/Layouts/MainLayout";
 import { usePage, router } from "@inertiajs/react";
 import { useEffect } from "react";
-import { Pencil, Trash2, PlusCircle, Eye } from "lucide-react";
+import { Pencil, Trash2, PlusCircle, Eye, ClipboardList } from "lucide-react";
 import Breadcrumb from "@/Components/ui/breadcrumb";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
+
 interface Evaluation {
     id: number;
     title: string;
@@ -11,7 +14,7 @@ interface Evaluation {
     user_type: string;
     parts_count?: number;
     created_at: string;
-    status: string; // <- เพิ่ม
+    status: string;
 }
 
 export default function AdminEvaluationManager() {
@@ -19,10 +22,12 @@ export default function AdminEvaluationManager() {
         evaluations: Evaluation[];
         flash: any;
     }>().props;
+
     useEffect(() => {
         if (flash.success) toast.success(flash.success);
         if (flash.error) toast.error(flash.error);
     }, [flash]);
+
     const handleDelete = (id: number) => {
         if (confirm("คุณแน่ใจหรือไม่ว่าต้องการลบแบบประเมินนี้?")) {
             router.delete(route("evaluations.destroy", { evaluation: id }));
@@ -44,130 +49,129 @@ export default function AdminEvaluationManager() {
                 />
             }
         >
-            <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
-                <div className="flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                        📋 รายการแบบประเมิน
-                    </h1>
-                    <a
-                        href={route("evaluations.create")}
-                        className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded shadow hover:bg-indigo-700"
+            <div className="gradient-primary-soft min-h-screen">
+                <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
+                    {/* Header */}
+                    <motion.div
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5 }}
+                        className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
                     >
-                        <PlusCircle className="w-5 h-5 mr-2" />{" "}
-                        สร้างแบบประเมินใหม่
-                    </a>
-                </div>
+                        <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-3">
+                            <div className="p-2 gradient-primary rounded-xl">
+                                <ClipboardList className="w-6 h-6 text-white" />
+                            </div>
+                            <span className="text-gradient-primary">รายการแบบประเมิน</span>
+                        </h1>
+                        <a
+                            href={route("evaluations.create")}
+                            className="inline-flex items-center px-5 py-2 gradient-primary text-white rounded-xl hover:shadow-lg hover:shadow-violet-500/25 transition-all"
+                        >
+                            <PlusCircle className="w-5 h-5 mr-2" />
+                            สร้างแบบประเมินใหม่
+                        </a>
+                    </motion.div>
 
-                <div className="bg-white dark:bg-gray-800 rounded shadow overflow-x-auto">
-                    <table className="min-w-full table-auto divide-y divide-gray-200 dark:divide-gray-700">
-                        <thead className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                            <tr>
-                                <th className="p-4 text-left">
-                                    ชื่อแบบประเมิน
-                                </th>
-                                <th className="p-4 text-left">ประเภท</th>
-                                <th className="p-4 text-left">จำนวนส่วน</th>
-                                <th className="p-4 text-left">วันที่สร้าง</th>
-                                <th className="p-4 text-left">สถานะ</th>
-                                <th className="p-4 text-center">การจัดการ</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {evaluations.map((evalItem) => (
-                                <tr
-                                    key={evalItem.id}
-                                    className="border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
-                                >
-                                    <td className="p-4 text-gray-800 dark:text-white font-medium">
-                                        {evalItem.title}
-                                    </td>
-                                    <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
-                                        {evalItem.user_type}
-                                    </td>
-                                    <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
-                                        {evalItem.parts_count ?? "-"}
-                                    </td>
-                                    <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
-                                        {new Date(
-                                            evalItem.created_at
-                                        ).toLocaleDateString("th-TH")}
-                                    </td>
-                                    <td className="p-4 text-sm">
-                                        <span
-                                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
-                                                evalItem.status === "published"
-                                                    ? "bg-green-100 text-green-700"
-                                                    : "bg-yellow-100 text-yellow-700"
-                                            }`}
+                    {/* Table */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: 0.1 }}
+                        className="glass-card rounded-2xl overflow-hidden"
+                    >
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full table-auto divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead className="gradient-primary text-white">
+                                    <tr>
+                                        <th className="p-4 text-left font-semibold">ชื่อแบบประเมิน</th>
+                                        <th className="p-4 text-left font-semibold">ประเภท</th>
+                                        <th className="p-4 text-left font-semibold">จำนวนส่วน</th>
+                                        <th className="p-4 text-left font-semibold">วันที่สร้าง</th>
+                                        <th className="p-4 text-left font-semibold">สถานะ</th>
+                                        <th className="p-4 text-center font-semibold">การจัดการ</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {evaluations.map((evalItem, index) => (
+                                        <motion.tr
+                                            key={evalItem.id}
+                                            initial={{ opacity: 0, x: -10 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            transition={{ delay: index * 0.05 }}
+                                            className="border-t dark:border-gray-700 hover:bg-violet-50/50 dark:hover:bg-violet-900/10 transition-colors"
                                         >
-                                            {evalItem.status === "published"
-                                                ? "เผยแพร่แล้ว"
-                                                : "ฉบับร่าง"}
-                                        </span>
-                                    </td>
-
-                                    <td className="p-4 text-center space-x-2">
-                                        <button
-                                            onClick={() =>
-                                                router.visit(
-                                                    route(
-                                                        "evaluations.preview",
-                                                        {
-                                                            evaluation:
-                                                                evalItem.id,
+                                            <td className="p-4 text-gray-800 dark:text-white font-medium">
+                                                {evalItem.title}
+                                            </td>
+                                            <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
+                                                {evalItem.user_type}
+                                            </td>
+                                            <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
+                                                {evalItem.parts_count ?? "-"}
+                                            </td>
+                                            <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
+                                                {new Date(evalItem.created_at).toLocaleDateString("th-TH")}
+                                            </td>
+                                            <td className="p-4 text-sm">
+                                                <span
+                                                    className={cn(
+                                                        "inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold",
+                                                        evalItem.status === "published"
+                                                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                                    )}
+                                                >
+                                                    {evalItem.status === "published" ? "เผยแพร่แล้ว" : "ฉบับร่าง"}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <button
+                                                        onClick={() =>
+                                                            router.visit(
+                                                                route("evaluations.preview", { evaluation: evalItem.id })
+                                                            )
                                                         }
-                                                    )
-                                                )
-                                            }
-                                            className="text-green-600 hover:text-green-800"
-                                            title="ดูตัวอย่างแบบประเมิน"
-                                        >
-                                            <Eye className="w-5 h-5" />
-                                        </button>
-
-                                        <>
-                                            <button
-                                                onClick={() =>
-                                                    router.visit(
-                                                        route(
-                                                            "evaluations.edit",
-                                                            {
-                                                                evaluation:
-                                                                    evalItem.id,
-                                                            }
-                                                        )
-                                                    )
-                                                }
-                                                className="text-indigo-600 hover:text-indigo-800"
-                                                title="แก้ไข"
-                                            >
-                                                <Pencil className="w-5 h-5" />
-                                            </button>
-                                            <button
-                                                onClick={() =>
-                                                    handleDelete(evalItem.id)
-                                                }
-                                                className="text-red-600 hover:text-red-800"
-                                                title="ลบ"
-                                            >
-                                                <Trash2 className="w-5 h-5" />
-                                            </button>
-                                        </>
-                                    </td>
-                                </tr>
-                            ))}
-                            {evaluations.length === 0 && (
-                                <tr>
-                                    <td
-                                        colSpan={5}
-                                        className="text-center p-4 text-gray-500 dark:text-gray-400"
-                                    >
-                                        ไม่มีรายการแบบประเมิน
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                                                        className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-900/20 transition-colors"
+                                                        title="ดูตัวอย่างแบบประเมิน"
+                                                    >
+                                                        <Eye className="w-5 h-5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() =>
+                                                            router.visit(
+                                                                route("evaluations.edit", { evaluation: evalItem.id })
+                                                            )
+                                                        }
+                                                        className="p-2 rounded-lg text-violet-600 hover:bg-violet-100 dark:hover:bg-violet-900/20 transition-colors"
+                                                        title="แก้ไข"
+                                                    >
+                                                        <Pencil className="w-5 h-5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDelete(evalItem.id)}
+                                                        className="p-2 rounded-lg text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors"
+                                                        title="ลบ"
+                                                    >
+                                                        <Trash2 className="w-5 h-5" />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </motion.tr>
+                                    ))}
+                                    {evaluations.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} className="text-center p-12 text-gray-500 dark:text-gray-400">
+                                                <ClipboardList className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                                                <p className="text-lg">ไม่มีรายการแบบประเมิน</p>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </motion.div>
                 </div>
             </div>
         </MainLayout>

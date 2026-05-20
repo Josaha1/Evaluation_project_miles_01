@@ -17,6 +17,7 @@ class Answer extends Model
         'value',
         'other_text',
         'external_access_code_id',
+        'external_session_id',
         'fiscal_year',
     ];
 

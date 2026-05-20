@@ -93,6 +93,9 @@ export default function SelfEvaluationStep() {
     const [showCompletionModal, setShowCompletionModal] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Always reflects latest answers — used by autoSave so it never reads stale closure
+    const answersRef = React.useRef(answers);
+    React.useEffect(() => { answersRef.current = answers; }, [answers]);
 
     useEffect(() => {
         if (existingAnswers) {
@@ -160,9 +163,12 @@ export default function SelfEvaluationStep() {
     }, [groupedQuestions.length]);
 
     const autoSave = React.useCallback(async () => {
+        // Read latest answers via ref so we never use stale closure data
+        const latest = answersRef.current;
         const currentAnswers = currentGroup?.questions.reduce((acc, q) => {
-            const val = answers[q.id];
-            if (val !== undefined && val !== "") acc[q.id] = val;
+            if (Object.prototype.hasOwnProperty.call(latest, q.id)) {
+                acc[q.id] = latest[q.id];
+            }
             return acc;
         }, {} as Record<number, any>);
 
@@ -183,7 +189,7 @@ export default function SelfEvaluationStep() {
             setSaveStatus('error');
             setTimeout(() => setSaveStatus('idle'), 5000);
         }
-    }, [answers, currentGroup, step, evaluation.id, current_part.id, evaluatee_id, auth.user.id, fiscal_year]);
+    }, [currentGroup, step, evaluation.id, current_part.id, evaluatee_id, auth.user.id, fiscal_year]);
 
     useEffect(() => {
         return () => {
@@ -199,22 +205,25 @@ export default function SelfEvaluationStep() {
         }, 2000);
     };
 
+    const hasAnswerValue = (ans: any): boolean => {
+        // Unwrap {value, other_text} envelope
+        if (typeof ans === 'object' && ans !== null && !Array.isArray(ans) && 'value' in ans) {
+            ans = (ans as any).value;
+        }
+        if (ans === undefined || ans === null || ans === "") return false;
+        if (Array.isArray(ans) && ans.length === 0) return false;
+        return true;
+    };
+
     const isGroupComplete = currentGroup?.questions.every((q) => {
-        const ans = answers[q.id];
-        return (
-            ans !== undefined &&
-            ans !== "" &&
-            !(Array.isArray(ans) && ans.length === 0)
-        );
+        // open_text is optional — never blocks completion
+        if (q.type === "open_text") return true;
+        return hasAnswerValue(answers[q.id]);
     });
 
     const answeredInGroup = currentGroup?.questions.filter((q) => {
-        const ans = answers[q.id];
-        return (
-            ans !== undefined &&
-            ans !== "" &&
-            !(Array.isArray(ans) && ans.length === 0)
-        );
+        if (q.type === "open_text") return true;
+        return hasAnswerValue(answers[q.id]);
     }).length ?? 0;
 
     const handlePrevious = () => {
@@ -469,6 +478,7 @@ export default function SelfEvaluationStep() {
                                             updateAnswer(question.id, value)
                                         }
                                         questionNumber={index + 1}
+                                        hideScoreDescription
                                     />
                                 </motion.div>
                             ))}
@@ -582,7 +592,7 @@ export default function SelfEvaluationStep() {
                 </div>
             </div>
 
-            {/* Completion Modal */}
+            {/* Completion Modal — explicit submit confirmation */}
             <Dialog
                 open={showCompletionModal}
                 onOpenChange={setShowCompletionModal}
@@ -590,39 +600,60 @@ export default function SelfEvaluationStep() {
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="text-center text-xl font-bold">
-                            การประเมินตนเองเสร็จสมบูรณ์!
+                            ยืนยันส่งแบบประเมิน?
                         </DialogTitle>
                         <DialogDescription className="text-center">
-                            คุณได้ทำแบบประเมินตนเองเรียบร้อยแล้ว
+                            หลังส่งแล้วจะไม่สามารถกลับมาแก้ไขได้อีก
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex justify-center py-6">
                         <motion.div
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            transition={{
-                                type: "spring",
-                                stiffness: 200,
-                                damping: 15,
-                            }}
+                            transition={{ type: "spring", stiffness: 200, damping: 15 }}
                             className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/30"
                         >
                             <CheckCircle className="w-10 h-10 text-white" />
                         </motion.div>
                     </div>
-                    <DialogFooter className="sm:justify-center">
+                    <DialogFooter className="sm:justify-center gap-2">
                         <Button
-                            onClick={() => {
-                                setShowCompletionModal(false);
-                                router.visit(route("dashboard"), {
-                                    method: "get",
-                                    preserveScroll: false,
-                                    preserveState: false,
-                                });
+                            variant="outline"
+                            onClick={() => setShowCompletionModal(false)}
+                            disabled={isLoading}
+                        >
+                            กลับไปแก้ไข
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                setIsLoading(true);
+                                try {
+                                    // Build all answers payload from current state
+                                    const allAnswers = Object.entries(answersRef.current).map(([qId, val]) => ({
+                                        question_id: Number(qId),
+                                        value: val,
+                                    }));
+                                    await axios.post(route("evaluations.self.submit"), {
+                                        evaluation_id: evaluation.id,
+                                        evaluatee_id: evaluatee_id ?? auth.user.id,
+                                        fiscal_year: fiscal_year,
+                                        answers: allAnswers,
+                                    });
+                                    setShowCompletionModal(false);
+                                    router.visit(route("dashboard"), {
+                                        method: "get",
+                                        preserveScroll: false,
+                                        preserveState: false,
+                                    });
+                                } catch {
+                                    toast.error("ส่งไม่สำเร็จ กรุณาลองอีกครั้ง");
+                                    setIsLoading(false);
+                                }
                             }}
+                            disabled={isLoading}
                             className="gradient-primary text-white px-8 py-3 rounded-xl font-medium shadow-lg shadow-violet-500/25"
                         >
-                            กลับหน้าหลัก
+                            {isLoading ? "กำลังส่ง..." : "ยืนยันส่ง"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -1,7 +1,7 @@
 import '../css/app.css'
 
 import { createInertiaApp } from '@inertiajs/react'
-import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers'
+
 import { createRoot } from 'react-dom/client'
 import { route as routeFn } from 'ziggy-js'
 
@@ -22,7 +22,12 @@ const appName = import.meta.env.VITE_APP_NAME || 'Laventory'
 
 createInertiaApp({
   title: (title) => `${title} - ${appName}`,
-  resolve: (name) => resolvePageComponent(`./pages/${name}.tsx`, import.meta.glob('./pages/**/*.tsx')),
+  resolve: (name) => {
+    const pages = import.meta.glob('./pages/**/*.tsx');
+    const page = pages[`./pages/${name}.tsx`];
+    if (!page) throw new Error(`Page not found: ${name}`);
+    return page();
+  },
   setup({ el, App, props }) {
     const root = createRoot(el);
 

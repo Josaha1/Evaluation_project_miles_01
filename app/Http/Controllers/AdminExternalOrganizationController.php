@@ -12,21 +12,47 @@ class AdminExternalOrganizationController extends Controller
     {
         $search = $request->input('search');
 
-        $query = ExternalOrganization::withCount(['accessCodes', 'evaluationSessions']);
+        $query = ExternalOrganization::withCount([
+            'accessCodes',
+            'accessCodes as completed_codes_count' => fn ($q) =>
+                $q->whereHas('sessions', fn ($s) => $s->whereNotNull('completed_at')),
+            'evaluationSessions',
+            'evaluationSessions as completed_sessions_count' => fn ($q) =>
+                $q->whereNotNull('completed_at'),
+        ])
+            ->withCount([
+                // Aggregate stakeholders across all codes of this org
+                'accessCodes as stakeholders_count' => function ($q) {
+                    $q->join('external_stakeholders', 'external_stakeholders.external_access_code_id', '=', 'external_access_codes.id')
+                      ->select(\Illuminate\Support\Facades\DB::raw('count(external_stakeholders.id)'));
+                },
+            ]);
 
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('contact_person', 'like', "%{$search}%")
-                  ->orWhere('contact_email', 'like', "%{$search}%");
+                  ->orWhere('contact_email', 'like', "%{$search}%")
+                  ->orWhere('org_code', 'like', "%{$search}%");
             });
         }
 
-        $organizations = $query->orderBy('id', 'desc')->paginate(10)->withQueryString();
+        $organizations = $query->orderBy('id', 'desc')->paginate(15)->withQueryString();
+
+        // Summary stats
+        $totals = [
+            'groups'          => ExternalOrganization::count(),
+            'active'          => ExternalOrganization::where('is_active', true)->count(),
+            'codes_total'     => \App\Models\ExternalAccessCode::count(),
+            'stakeholders'    => \App\Models\ExternalStakeholder::count(),
+            'sessions_total'  => \App\Models\ExternalEvaluationSession::count(),
+            'sessions_done'   => \App\Models\ExternalEvaluationSession::whereNotNull('completed_at')->count(),
+        ];
 
         return Inertia::render('AdminExternalOrganizationIndex', [
             'organizations' => $organizations,
-            'filters' => ['search' => $search],
+            'filters'       => ['search' => $search],
+            'totals'        => $totals,
         ]);
     }
 

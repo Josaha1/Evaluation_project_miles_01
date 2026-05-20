@@ -12,7 +12,7 @@ class Divisions extends Model
 
     public function users()
     {
-        return $this->hasMany(User::class);
+        return $this->hasMany(User::class, 'division_id');
     }
 
     public function departments()

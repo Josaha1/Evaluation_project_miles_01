@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { BarChart3, Users, Star, MessageCircle, TrendingUp, Award, FileText, Download } from 'lucide-react';
+import FiscalYearSelector from '@/Components/FiscalYearSelector';
 import MainLayout from '@/Layouts/MainLayout';
 
 interface SatisfactionEvaluationResultsProps {
@@ -10,6 +11,7 @@ interface SatisfactionEvaluationResultsProps {
         description: string;
     };
     fiscalYear: string;
+    availableYears: string[];
     stats: {
         total_responses: number;
         average_score: number;
@@ -37,6 +39,7 @@ interface SatisfactionEvaluationResultsProps {
 const SatisfactionEvaluationResults: React.FC<SatisfactionEvaluationResultsProps> = ({
     evaluation,
     fiscalYear,
+    availableYears,
     stats,
     questions,
     ratingScale,
@@ -54,7 +57,7 @@ const SatisfactionEvaluationResults: React.FC<SatisfactionEvaluationResultsProps
 
     const getScoreBackground = (score: number) => {
         if (score >= 4.5) return 'bg-green-50 border-green-200';
-        if (score >= 3.5) return 'bg-blue-50 border-blue-200';
+        if (score >= 3.5) return 'bg-violet-50 border-violet-200';
         if (score >= 2.5) return 'bg-yellow-50 border-yellow-200';
         if (score >= 1.5) return 'bg-orange-50 border-orange-200';
         return 'bg-red-50 border-red-200';
@@ -125,7 +128,7 @@ const SatisfactionEvaluationResults: React.FC<SatisfactionEvaluationResultsProps
                     <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-500 rounded-full flex items-center justify-center">
+                                <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-violet-500 rounded-full flex items-center justify-center">
                                     <BarChart3 className="w-6 h-6 text-gray-300" />
                                 </div>
                                 <div>
@@ -133,10 +136,17 @@ const SatisfactionEvaluationResults: React.FC<SatisfactionEvaluationResultsProps
                                         ผลการประเมินความพึงพอใจ
                                     </h1>
                                     <p className="text-gray-600">
-                                        {evaluation.title} - ปีงบประมาณ {fiscalYear}
+                                        {evaluation.title}
                                     </p>
                                 </div>
                             </div>
+                            <div className="flex items-center gap-3">
+                                <FiscalYearSelector
+                                    value={fiscalYear}
+                                    years={availableYears.length > 0 ? availableYears : [fiscalYear]}
+                                    onChange={(year) => router.get(route('admin.satisfaction-evaluation.results', { evaluation: evaluation.id }), { fiscal_year: year }, { preserveState: true })}
+                                    variant="filter"
+                                />
                             <button
                                 onClick={exportResults}
                                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -144,6 +154,7 @@ const SatisfactionEvaluationResults: React.FC<SatisfactionEvaluationResultsProps
                                 <Download className="w-4 h-4 text-gray-300" />
                                 ส่งออกรายงาน
                             </button>
+                            </div>
                         </div>
                     </div>
 
@@ -154,7 +165,7 @@ const SatisfactionEvaluationResults: React.FC<SatisfactionEvaluationResultsProps
                                 <Users className="w-8 h-8 text-gray-600" />
                                 <div>
                                     <p className="text-sm text-gray-600">จำนวนผู้ประเมิน</p>
-                                    <p className="text-2xl font-bold text-blue-600">{stats.total_responses}</p>
+                                    <p className="text-2xl font-bold text-violet-600">{stats.total_responses}</p>
                                 </div>
                             </div>
                         </div>
@@ -210,7 +221,7 @@ const SatisfactionEvaluationResults: React.FC<SatisfactionEvaluationResultsProps
                                             onClick={() => setSelectedTab(tab.id as any)}
                                             className={`flex items-center space-x-2 py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
                                                 selectedTab === tab.id
-                                                    ? 'border-blue-500 text-blue-600'
+                                                    ? 'border-violet-500 text-violet-600'
                                                     : 'border-transparent text-gray-500 hover:text-gray-700'
                                             }`}
                                         >
@@ -249,7 +260,7 @@ const SatisfactionEvaluationResults: React.FC<SatisfactionEvaluationResultsProps
                                                     </div>
                                                     <div className="w-full bg-gray-200 rounded-full h-2">
                                                         <div 
-                                                            className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+                                                            className="bg-gradient-to-r from-violet-500 to-purple-500 h-2 rounded-full transition-all duration-300"
                                                             style={{ width: `${(score / 5) * 100}%` }}
                                                         />
                                                     </div>

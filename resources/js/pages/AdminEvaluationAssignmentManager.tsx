@@ -20,39 +20,6 @@ const itemVariants = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 
 
 const translateAngleToThai = (angle: string) => ({ top: "บน", bottom: "ล่าง", left: "ซ้าย", right: "ขวา", self: "ตนเอง" } as Record<string,string>)[angle] || angle;
 
-const EXCEL_CELL_INITIAL_LIMIT = 5;
-const EvaluatorListCell: React.FC<{
-    items: any[];
-    colorClass: string;
-    onDelete: (id: number) => void;
-    fallbackName?: (p: any) => string;
-}> = ({ items, colorClass, onDelete, fallbackName }) => {
-    const [expanded, setExpanded] = useState(false);
-    if (items.length === 0) return <span className="text-gray-300">-</span>;
-    const visible = expanded ? items : items.slice(0, EXCEL_CELL_INITIAL_LIMIT);
-    const hidden = items.length - visible.length;
-    return (
-        <div className="space-y-0.5">
-            {visible.map((p: any) => (
-                <div key={p.id} className="flex items-center gap-1 group">
-                    <span className={colorClass}>• {fallbackName ? fallbackName(p) : `${p.evaluator?.fname ?? ''} ${p.evaluator?.lname ?? ''}`}</span>
-                    <button onClick={() => onDelete(p.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700">
-                        <Trash2 className="w-3 h-3" />
-                    </button>
-                </div>
-            ))}
-            {items.length > EXCEL_CELL_INITIAL_LIMIT && (
-                <button
-                    onClick={() => setExpanded(!expanded)}
-                    className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline mt-0.5"
-                >
-                    {expanded ? `▲ ย่อ` : `▼ ดูเพิ่ม (+${hidden})`}
-                </button>
-            )}
-        </div>
-    );
-};
-
 const formatUserDetails = (user: any) => {
     if (!user) return "ไม่พบข้อมูล";
     return `ตำแหน่ง: ${user.position?.title || user.position_title || "ไม่ระบุ"}, กอง: ${user.department?.name || user.department_name || "ไม่ระบุ"}, ฝ่าย: ${user.faction?.name || user.faction_name || "ไม่ระบุ"}, สายงาน: ${user.division?.name || user.division_name || "ไม่ระบุ"}`;
@@ -534,22 +501,53 @@ export default function AdminEvaluationAssignmentManager() {
                                         </td>
                                         <td className="p-2 text-center"><span className="inline-block px-2 py-0.5 rounded-full text-xs bg-violet-100 text-violet-800">{g.evaluatee.grade || '-'}</span></td>
                                         <td className="p-2 text-center">{g.self.length > 0 ? <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-violet-200 text-violet-800">✓</span> : <span className="text-gray-300">-</span>}</td>
-                                        <td className="p-2 text-xs align-top">
-                                            <EvaluatorListCell items={g.top} colorClass="text-blue-700" onDelete={handleDelete} />
+                                        <td className="p-2 text-xs">
+                                            {g.top.length > 0 ? (
+                                                <div className="space-y-0.5">
+                                                    {g.top.map((p: any) => (
+                                                        <div key={p.id} className="flex items-center gap-1 group">
+                                                            <span className="text-blue-700">• {p.evaluator?.fname} {p.evaluator?.lname}</span>
+                                                            <button onClick={() => handleDelete(p.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : <span className="text-gray-300">-</span>}
                                         </td>
-                                        <td className="p-2 text-xs align-top">
-                                            <EvaluatorListCell items={g.bottom} colorClass="text-emerald-700" onDelete={handleDelete} />
+                                        <td className="p-2 text-xs">
+                                            {g.bottom.length > 0 ? (
+                                                <div className="space-y-0.5">
+                                                    {g.bottom.map((p: any) => (
+                                                        <div key={p.id} className="flex items-center gap-1 group">
+                                                            <span className="text-emerald-700">• {p.evaluator?.fname} {p.evaluator?.lname}</span>
+                                                            <button onClick={() => handleDelete(p.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : <span className="text-gray-300">-</span>}
                                         </td>
-                                        <td className="p-2 text-xs align-top">
-                                            <EvaluatorListCell items={g.left} colorClass="text-orange-700" onDelete={handleDelete} />
+                                        <td className="p-2 text-xs">
+                                            {g.left.length > 0 ? (
+                                                <div className="space-y-0.5">
+                                                    {g.left.map((p: any) => (
+                                                        <div key={p.id} className="flex items-center gap-1 group">
+                                                            <span className="text-orange-700">• {p.evaluator?.fname} {p.evaluator?.lname}</span>
+                                                            <button onClick={() => handleDelete(p.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : <span className="text-gray-300">-</span>}
                                         </td>
-                                        <td className="p-2 text-xs align-top">
-                                            <EvaluatorListCell
-                                                items={g.right}
-                                                colorClass="text-pink-700"
-                                                onDelete={handleDelete}
-                                                fallbackName={(p) => `${p.evaluator?.fname || 'External'} ${p.evaluator?.lname || ''}`}
-                                            />
+                                        <td className="p-2 text-xs">
+                                            {g.right.length > 0 ? (
+                                                <div className="space-y-0.5">
+                                                    {g.right.map((p: any) => (
+                                                        <div key={p.id} className="flex items-center gap-1 group">
+                                                            <span className="text-pink-700">• {p.evaluator?.fname || 'External'} {p.evaluator?.lname || ''}</span>
+                                                            <button onClick={() => handleDelete(p.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : <span className="text-gray-300">-</span>}
                                         </td>
                                         <td className="p-2 text-center font-bold text-violet-700">{total}</td>
                                     </tr>
@@ -637,7 +635,6 @@ export default function AdminEvaluationAssignmentManager() {
                                 </div>
                                 <button onClick={()=>window.location.reload()} className="p-2 text-gray-500 hover:text-violet-600" title="รีเฟรช"><RefreshCw className="w-5 h-5"/></button>
                                 <a href={route("assignments.import")} className="inline-flex items-center px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl shadow-md"><Upload className="w-4 h-4 mr-1.5"/>นำเข้า Excel</a>
-                                <a href={`${route("assignments.export")}?fiscal_year=${selectedYear.value}`} className="inline-flex items-center px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-xl shadow-md" title="1 แถว = 1 ผู้ประเมิน"><FileSpreadsheet className="w-4 h-4 mr-1.5"/>ส่งออก Excel</a>
                                 <a href={route("assignments.create")} className="inline-flex items-center px-3 py-2 gradient-primary text-white text-sm font-medium rounded-xl shadow-md"><Plus className="w-4 h-4 mr-1.5"/>เพิ่ม</a>
                             </div>
                         </div>

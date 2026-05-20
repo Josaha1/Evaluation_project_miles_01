@@ -1996,4 +1996,71 @@ class AdminEvaluationAssignmentController extends Controller
         return $query->distinct('ea.evaluator_id')->count('ea.evaluator_id');
     }
 
+    /**
+     * เปลี่ยนแบบประเมินของ assignment เดียว
+     */
+    public function changeEvaluation(Request $request, EvaluationAssignment $assignment)
+    {
+        $data = $request->validate([
+            "evaluation_id" => ["required", "integer", "exists:evaluations,id"],
+        ]);
+        $error = $this->validateChangeEvaluation($assignment, (int) $data["evaluation_id"]);
+        if ($error) return response()->json(["message" => $error], 422);
+        $assignment->evaluation_id = (int) $data["evaluation_id"];
+        $assignment->save();
+        return response()->json([
+            "success"       => true,
+            "assignment_id" => $assignment->id,
+            "evaluation_id" => $assignment->evaluation_id,
+        ]);
+    }
+
+    /**
+     * เปลี่ยนแบบประเมิน bulk — all-or-nothing rollback
+     */
+    public function bulkChangeEvaluation(Request $request)
+    {
+        $data = $request->validate([
+            "assignment_ids"   => ["required", "array", "min:1"],
+            "assignment_ids.*" => ["integer", "exists:evaluation_assignments,id"],
+            "evaluation_id"    => ["required", "integer", "exists:evaluations,id"],
+        ]);
+        $newId  = (int) $data["evaluation_id"];
+        $errors = [];
+        $rows   = EvaluationAssignment::whereIn("id", $data["assignment_ids"])->get();
+        foreach ($rows as $row) {
+            $err = $this->validateChangeEvaluation($row, $newId);
+            if ($err) $errors[] = ["assignment_id" => $row->id, "reason" => $err];
+        }
+        if (! empty($errors)) {
+            return response()->json([
+                "message"       => "มี assignment บางรายการเปลี่ยนไม่ได้ — ไม่บันทึกอะไรเลย",
+                "failed_count"  => count($errors),
+                "success_count" => 0,
+                "errors"        => $errors,
+            ], 422);
+        }
+        DB::transaction(function () use ($rows, $newId) {
+            foreach ($rows as $row) {
+                $row->evaluation_id = $newId;
+                $row->save();
+            }
+        });
+        return response()->json([
+            "success_count" => $rows->count(),
+            "failed_count"  => 0,
+            "errors"        => [],
+        ]);
+    }
+
+    private function validateChangeEvaluation(EvaluationAssignment $assignment, int $newEvaluationId): ?string
+    {
+        if ($assignment->submitted_at !== null) return "เปลี่ยนแบบประเมินไม่ได้ — assignment นี้ถูกส่งแล้ว";
+        $eval = Evaluation::find($newEvaluationId);
+        if (! $eval) return "ไม่พบแบบประเมินปลายทาง";
+        if ($eval->status !== "published") return "แบบประเมินปลายทางยังไม่ published";
+        if ((string) $eval->fiscal_year !== (string) $assignment->fiscal_year) return "ปีงบประมาณของแบบประเมินไม่ตรงกับ assignment";
+        return null;
+    }
+
 }

@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RoleMiddleware;
 use App\Http\Middleware\ExternalAuthMiddleware;
@@ -22,6 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => RoleMiddleware::class,
             'external' => ExternalAuthMiddleware::class,
         ]);
+        $middleware->redirectUsersTo(function (Request $request) {
+            return $request->user()?->role === 'admin' ? '/dashboardadmin' : '/dashboard';
+        });
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

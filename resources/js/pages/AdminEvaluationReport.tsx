@@ -6,23 +6,18 @@ import IndividualDetailedReport from "@/Components/IndividualDetailedReport";
 import FiscalYearSelector from "@/Components/FiscalYearSelector";
 import { motion } from "framer-motion";
 import {
-    BarChart3, TrendingUp, FileText, Download, Search, X,
-    Grid3X3, ClipboardList,
+    BarChart3, FileText, Download, Search, X, ClipboardList,
 } from "lucide-react";
 
 import type { PageProps, TabId } from "./AdminReport/types";
 import { useReportFilters } from "./AdminReport/useReportFilters";
-import DashboardTab from "./AdminReport/DashboardTab";
-import AnalyticsTab from "./AdminReport/AnalyticsTab";
 import ReportsTab from "./AdminReport/ReportsTab";
 import ExportsTab from "./AdminReport/ExportsTab";
 import AssignmentsTab from "./AdminReport/AssignmentsTab";
 
 const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
-    { id: "dashboard", label: "ภาพรวม", icon: Grid3X3 },
     { id: "assignments", label: "การจับคู่", icon: ClipboardList },
     { id: "reports", label: "ผู้ถูกประเมิน", icon: FileText },
-    { id: "analytics", label: "วิเคราะห์", icon: TrendingUp },
     { id: "exports", label: "ส่งออก", icon: Download },
 ];
 
@@ -45,7 +40,7 @@ const AdminEvaluationReport: React.FC = () => {
         externalOrgMetrics = [],
     } = props;
 
-    const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+    const [activeTab, setActiveTab] = useState<TabId>("assignments");
     const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
 
     const { filters: reportFilters, setters, filteredResults, activeFilterCount } =
@@ -121,8 +116,8 @@ const AdminEvaluationReport: React.FC = () => {
                     </div>
                 </div>
 
-                {/* ─── Filter Bar (visible on dashboard/reports tabs) ─── */}
-                {(activeTab === "dashboard" || activeTab === "reports") && (
+                {/* ─── Filter Bar (visible on reports tab) ─── */}
+                {activeTab === "reports" && (
                     <div className="sticky top-0 z-40 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700 shadow-sm">
                         <div className="px-6 py-3">
                             <div className="flex flex-wrap gap-3 items-center">
@@ -180,21 +175,6 @@ const AdminEvaluationReport: React.FC = () => {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.3 }}
                     >
-                        {activeTab === "dashboard" && (
-                            <DashboardTab
-                                dashboardStats={dashboardStats}
-                                evaluationMetrics={evaluationMetrics}
-                                externalOrgMetrics={externalOrgMetrics}
-                                filteredResults={filteredResults}
-                                onViewIndividual={(id) => setSelectedUserId(id)}
-                            />
-                        )}
-                        {activeTab === "analytics" && (
-                            <AnalyticsTab
-                                evaluationMetrics={evaluationMetrics}
-                                externalOrgMetrics={externalOrgMetrics}
-                            />
-                        )}
                         {activeTab === "reports" && (
                             <ReportsTab
                                 filteredResults={filteredResults}

@@ -11,7 +11,7 @@ export default function CookieConsentBanner() {
     const [settings, setSettings] = useState({
         necessary: true,
         analytics: false,
-       
+        marketing: false,
     });
     useEffect(() => {
         if (typeof window !== "undefined") {
@@ -47,7 +47,7 @@ export default function CookieConsentBanner() {
                         เว็บไซต์นี้ใช้คุกกี้เพื่อปรับปรุงประสบการณ์ของคุณ อ่าน{" "}
                         <Link
                             href={route("cookie.policy")}
-                            className="underline text-blue-400 hover:text-blue-300 transition-colors"
+                            className="underline text-violet-400 hover:text-violet-300 transition-colors"
                         >
                             นโยบายคุกกี้
                         </Link>
@@ -69,7 +69,7 @@ export default function CookieConsentBanner() {
                         </Button>
                         <Button
                             onClick={handleAcceptAll}
-                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-green-400 to-blue-500 hover:brightness-110 transition-all font-semibold shadow-sm"
+                            className="px-4 py-2 rounded-xl gradient-primary hover:brightness-110 transition-all font-semibold shadow-sm text-white"
                         >
                             ยอมรับทั้งหมด
                         </Button>

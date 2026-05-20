@@ -60,17 +60,19 @@ class EvaluationAssignmentController extends Controller
         ])->where('status', 'published')->get()->keyBy('id');
 
         // Pre-compute question IDs per evaluation (cached in memory)
+        // Exclude open_text — optional, doesn't count toward progress/completion
+        $isRequired = fn($q) => $q->type !== 'open_text';
         $evalQuestionIds = [];
         $evalPartQuestionIds = [];
         foreach ($allEvaluations as $evalId => $eval) {
             $evalParts = $eval->parts->sortBy('order')->values();
-            $allQIds = $evalParts->flatMap(function ($part) {
+            $allQIds = $evalParts->flatMap(function ($part) use ($isRequired) {
                 return collect()
-                    ->merge($part->questions->pluck('id'))
+                    ->merge($part->questions->filter($isRequired)->pluck('id'))
                     ->merge($part->aspects->flatMap(fn($a) =>
                         collect()
-                            ->merge($a->questions->pluck('id'))
-                            ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
+                            ->merge($a->questions->filter($isRequired)->pluck('id'))
+                            ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->filter($isRequired)->pluck('id')) ?? collect())
                     ));
             })->unique()->filter();
             $evalQuestionIds[$evalId] = $allQIds;
@@ -78,23 +80,26 @@ class EvaluationAssignmentController extends Controller
             $partQIds = [];
             foreach ($evalParts as $index => $part) {
                 $partQIds[$index] = collect()
-                    ->merge($part->questions->pluck('id'))
+                    ->merge($part->questions->filter($isRequired)->pluck('id'))
                     ->merge($part->aspects->flatMap(fn($aspect) =>
                         collect()
-                            ->merge($aspect->questions->pluck('id'))
-                            ->merge(optional($aspect->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
+                            ->merge($aspect->questions->filter($isRequired)->pluck('id'))
+                            ->merge(optional($aspect->subaspects)->flatMap(fn($s) => $s->questions->filter($isRequired)->pluck('id')) ?? collect())
                     ));
             }
             $evalPartQuestionIds[$evalId] = $partQIds;
         }
 
         // Load assignments with eager-loaded relations
+        // Exclude self-eval rows (evaluator==evaluatee) — they're rendered in the dedicated
+        // "ประเมินตนเอง" card via $selfEvaluation, not in governor/executive/staff target groups.
         $rawAssignments = EvaluationAssignment::with([
             'evaluatee.position', 'evaluatee.department', 'evaluatee.division',
             'evaluation',
         ])
             ->where('evaluator_id', $userId)
             ->where('fiscal_year', $fiscalYear)
+            ->whereColumn('evaluator_id', '!=', 'evaluatee_id')
             ->whereHas('evaluatee')
             ->get();
 
@@ -106,7 +111,7 @@ class EvaluationAssignmentController extends Controller
             ->select('evaluation_id', 'evaluatee_id', 'question_id')
             ->get()
             ->groupBy(fn($a) => $a->evaluation_id . '_' . $a->evaluatee_id)
-            ->map(fn($group) => $group->pluck('question_id'));
+            ->map(fn($group) => $group->pluck('question_id')->unique());
 
         $assignments = $rawAssignments->map(function ($a) use ($userId, $allEvaluations, $evalQuestionIds, $evalPartQuestionIds, $answeredQuestions) {
                 $stepToResume = 1;
@@ -133,7 +138,7 @@ class EvaluationAssignmentController extends Controller
                     $answeredInEval = $answered->intersect($questionIds);
 
                     $totalQuestions = $questionIds->count();
-                    $progress = $totalQuestions > 0 ? round(($answeredInEval->count() / $totalQuestions) * 100, 2) : 0;
+                    $progress = $totalQuestions > 0 ? min(100, round(($answeredInEval->count() / $totalQuestions) * 100, 2)) : 0;
 
                     // Find step to resume from cached part question IDs
                     $partQIds = $evalPartQuestionIds[$evaluation->id] ?? [];
@@ -157,8 +162,11 @@ class EvaluationAssignmentController extends Controller
                     'progress'        => $progress,
                     'step_to_resume'  => $stepToResume,
                     'angle'           => $a->angle ?? 'unknown',
+                    'is_submitted'    => !is_null($a->submitted_at),
                     'evaluation_id'   => $evaluation ? $evaluation->id : ($a->evaluation_id ?? null),
                     'evaluation_title'=> $evaluation ? $evaluation->title : ($a->evaluation ? $a->evaluation->title : 'ไม่ระบุ'),
+                    'evaluation_grade_min' => $evaluation ? (int) $evaluation->grade_min : null,
+                    'evaluation_grade_max' => $evaluation ? (int) $evaluation->grade_max : null,
                 ];
             });
 
@@ -195,35 +203,37 @@ class EvaluationAssignmentController extends Controller
         $selfStep     = 1;
 
         if ($evaluation) {
-            $questionIds = $parts->flatMap(function ($part) {
+            $questionIds = $parts->flatMap(function ($part) use ($isRequired) {
                 return collect()
-                    ->merge($part->questions->pluck('id'))
+                    ->merge($part->questions->filter($isRequired)->pluck('id'))
                     ->merge($part->aspects->flatMap(fn($a) =>
                         collect()
-                            ->merge($a->questions->pluck('id'))
-                            ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
+                            ->merge($a->questions->filter($isRequired)->pluck('id'))
+                            ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->filter($isRequired)->pluck('id')) ?? collect())
                     ));
             })->unique()->filter();
 
             // Single query: load all self-evaluation answered question IDs (filtered by fiscal year)
+            // Use unique() to deduplicate — answers may have multiple rows per question (multi-choice etc.)
             $selfAnsweredIds = Answer::where('evaluation_id', $evaluation->id)
                 ->where('user_id', $userId)
                 ->where('evaluatee_id', $userId)
                 ->where('fiscal_year', $fiscalYear)
                 ->whereIn('question_id', $questionIds)
-                ->pluck('question_id');
+                ->pluck('question_id')
+                ->unique();
 
             $totalQuestions = $questionIds->count();
-            $selfProgress   = $totalQuestions > 0 ? round(($selfAnsweredIds->count() / $totalQuestions) * 100, 2) : 0;
+            $selfProgress   = $totalQuestions > 0 ? min(100, round(($selfAnsweredIds->count() / $totalQuestions) * 100, 2)) : 0;
 
             // Find step to resume using in-memory check (no extra queries)
             foreach ($parts as $i => $part) {
                 $partQ = collect()
-                    ->merge($part->questions->pluck('id'))
+                    ->merge($part->questions->filter($isRequired)->pluck('id'))
                     ->merge($part->aspects->flatMap(fn($a) =>
                         collect()
-                            ->merge($a->questions->pluck('id'))
-                            ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->pluck('id')) ?? collect())
+                            ->merge($a->questions->filter($isRequired)->pluck('id'))
+                            ->merge(optional($a->subaspects)->flatMap(fn($s) => $s->questions->filter($isRequired)->pluck('id')) ?? collect())
                     ));
 
                 if ($partQ->diff($selfAnsweredIds)->isNotEmpty()) {
@@ -233,15 +243,24 @@ class EvaluationAssignmentController extends Controller
             }
         }
 
-        $selfEvaluation = collect([[
-            'id'              => 0,
-            'evaluatee_name'  => trim("{$user->prename} {$user->fname} {$user->lname}"),
-            'evaluatee_photo' => $user->photo_url ?? '/images/default.jpg',
+        // Only show self-evaluation card if user has angle='self' assignment in this fiscal year
+        $selfAssignment = EvaluationAssignment::where('evaluator_id', $userId)
+            ->where('evaluatee_id', $userId)
+            ->where('fiscal_year', $fiscalYear)
+            ->where('angle', 'self')
+            ->first();
 
-            'grade'           => $user->grade ?? '-',
-            'progress'        => $selfProgress,
-            'step_to_resume'  => $selfStep,
-        ]]);
+        $selfEvaluation = $selfAssignment
+            ? collect([[
+                'id'              => 0,
+                'evaluatee_name'  => trim("{$user->prename} {$user->fname} {$user->lname}"),
+                'evaluatee_photo' => $user->photo_url ?? '/images/default.jpg',
+                'grade'           => $user->grade ?? '-',
+                'progress'        => $selfProgress,
+                'step_to_resume'  => $selfStep,
+                'is_submitted'    => !is_null($selfAssignment->submitted_at),
+            ]])
+            : collect();
 
         // Group evaluations by evaluation_id for the new dashboard display
         $evaluationGroups = $assignments->groupBy('evaluation_id')->map(function ($group, $evaluationId) {

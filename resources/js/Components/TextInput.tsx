@@ -16,7 +16,7 @@ const TextInput = forwardRef<HTMLInputElement, TextInputProps>(
         placeholder-gray-400 dark:placeholder-gray-500
         shadow-sm 
         focus:outline-none focus:ring-2 focus:ring-offset-2
-        focus:border-blue-500 focus:ring-blue-500/20 
+        focus:border-violet-500 focus:ring-violet-500/20 
         dark:focus:border-blue-400 dark:focus:ring-blue-400/20
         disabled:bg-gray-50 dark:disabled:bg-gray-800
         disabled:text-gray-500 dark:disabled:text-gray-400

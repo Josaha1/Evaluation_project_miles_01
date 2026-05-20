@@ -9,73 +9,221 @@ use App\Models\ExternalOrganization;
 use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class AdminAccessCodeController extends Controller
 {
+    /**
+     * List access codes — 1 row = 1 access_code (1 group × 1 evaluatee × fy).
+     * Each code lists its pre-listed stakeholders (from external_stakeholders)
+     * + completed sessions in an expand panel.
+     */
     public function index(Request $request)
     {
-        $query = ExternalAccessCode::with(['organization', 'evaluatee', 'evaluation', 'session']);
+        $query = ExternalAccessCode::with([
+                'organization',
+                'evaluatee:id,fname,lname,grade,prename',  // null for group-shared codes
+                'evaluation:id,title',
+                'sessions' => function ($q) {
+                    $q->whereNotNull('completed_at')
+                      ->select('id', 'external_access_code_id', 'evaluator_name', 'evaluator_position', 'evaluatee_id', 'completed_at')
+                      ->orderBy('completed_at', 'desc');
+                },
+                'stakeholders:id,external_access_code_id,evaluatee_id,sequence_no,organization_name,sub_group,contact_person,external_session_id',
+                'codeEvaluatees.evaluatee:id,fname,lname,grade,prename',
+            ])
+            ->withCount('stakeholders')
+            ->withCount('codeEvaluatees as evaluatees_count');
 
         if ($request->filled('organization_id')) {
             $query->where('external_organization_id', $request->organization_id);
         }
-
-        // Filter by fiscal_year first (indexed, reduces result set early)
         if ($request->filled('fiscal_year')) {
             $query->where('fiscal_year', $request->fiscal_year);
         }
-
         if ($request->filled('status')) {
             switch ($request->status) {
-                case 'unused':
-                    $query->where('is_used', false);
-                    break;
-                case 'used':
-                    $query->where('is_used', true);
-                    break;
-                case 'expired':
+                case 'active':
                     $query->where('is_used', false)
-                          ->where('expires_at', '<', now());
+                          ->where(function ($q) { $q->whereNull('expires_at')->orWhere('expires_at', '>=', now()); });
+                    break;
+                case 'used': $query->where('use_count', '>', 0); break;
+                case 'unused': $query->where('use_count', 0); break;
+                case 'expired': $query->where('expires_at', '<', now()); break;
+                case 'revoked': $query->where('is_used', true); break;
+                case 'limit_reached':
+                    $query->whereNotNull('max_uses')->whereColumn('use_count', '>=', 'max_uses');
                     break;
             }
         }
-
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('code', 'like', "%{$search}%")
-                  ->orWhereHas('evaluatee', function ($q2) use ($search) {
-                      $q2->where('fname', 'like', "%{$search}%")
-                         ->orWhere('lname', 'like', "%{$search}%");
-                  })
-                  ->orWhereHas('organization', function ($q2) use ($search) {
-                      $q2->where('name', 'like', "%{$search}%");
+            $term = $request->search;
+            $query->where(function ($q) use ($term) {
+                $q->where('code', 'like', "%{$term}%")
+                  ->orWhereHas('evaluatee', fn ($e) => $e->where('fname', 'like', "%{$term}%")->orWhere('lname', 'like', "%{$term}%"))
+                  ->orWhereHas('organization', fn ($o) => $o->where('name', 'like', "%{$term}%"));
+            });
+        }
+
+        $codes = $query->orderByDesc('id')->paginate(15)->withQueryString();
+
+        $fiscalYears = cache()->remember('access_code_fiscal_years', 3600, function () {
+            return ExternalAccessCode::select('fiscal_year')->distinct()->orderByDesc('fiscal_year')->pluck('fiscal_year')->toArray();
+        });
+
+        $organizations = ExternalOrganization::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+
+        return Inertia::render('AdminAccessCodeIndex', [
+            'codes'         => $codes,
+            'organizations' => $organizations,
+            'fiscalYears'   => $fiscalYears,
+            'filters'       => $request->only(['search', 'organization_id', 'status', 'fiscal_year']),
+        ]);
+    }
+
+    /**
+     * @deprecated unused — kept temporarily for reference. Will be removed.
+     */
+    private function buildStakeholderCodesView(Request $request)
+    {
+        $q = \App\Models\ExternalStakeholder::query()
+            ->whereNotNull('code')
+            ->with([
+                'evaluatee:id,fname,lname,prename,grade',
+                'session:id,evaluator_name,evaluator_position,completed_at,evaluatee_id',
+            ]);
+
+        if ($request->filled('fiscal_year')) {
+            $q->where('fiscal_year', $request->fiscal_year);
+        }
+        if ($request->filled('organization_id')) {
+            $orgName = ExternalOrganization::where('id', $request->organization_id)->value('name');
+            if ($orgName) $q->where('group_label', $orgName);
+        }
+        if ($request->filled('search')) {
+            $term = $request->search;
+            $q->where(function ($w) use ($term) {
+                $w->where('code', 'like', "%{$term}%")
+                  ->orWhere('organization_name', 'like', "%{$term}%")
+                  ->orWhere('contact_person', 'like', "%{$term}%")
+                  ->orWhere('group_label', 'like', "%{$term}%")
+                  ->orWhereHas('evaluatee', function ($e) use ($term) {
+                      $e->where('fname', 'like', "%{$term}%")
+                        ->orWhere('lname', 'like', "%{$term}%");
                   });
             });
         }
 
-        $codes = $query->orderBy('id', 'desc')->paginate(15)->withQueryString();
+        // Get distinct codes for pagination
+        $allRows = $q->orderByDesc('id')->get();
+        $grouped = $allRows->groupBy('code');
 
-        $fiscalYears = cache()->remember('access_code_fiscal_years', 3600, function () {
-            return ExternalAccessCode::select('fiscal_year')
-                ->distinct()
-                ->orderBy('fiscal_year', 'desc')
-                ->pluck('fiscal_year')
-                ->toArray();
-        });
+        // Apply status filter on aggregated data
+        $status = $request->input('status');
+        if ($status) {
+            $grouped = $grouped->filter(function ($group) use ($status) {
+                $total = $group->count();
+                $submitted = $group->whereNotNull('external_session_id')->count();
+                return match ($status) {
+                    'unused'        => $submitted === 0,
+                    'used'          => $submitted > 0 && $submitted < $total,
+                    'limit_reached' => $submitted >= $total,
+                    default         => true,
+                };
+            });
+        }
 
-        $organizations = ExternalOrganization::where('is_active', true)
-            ->orderBy('name')->get(['id', 'name']);
+        // Manual paginate
+        $perPage = 15;
+        $page = max(1, (int) $request->input('page', 1));
+        $total = $grouped->count();
+        $items = $grouped->slice(($page - 1) * $perPage, $perPage)->map(function ($group, $code) {
+            $first = $group->first();
+            $byEvaluatee = $group->groupBy('evaluatee_id');
 
-        return Inertia::render('AdminAccessCodeIndex', [
-            'codes' => $codes,
-            'organizations' => $organizations,
-            'fiscalYears' => $fiscalYears,
-            'filters' => $request->only(['search', 'organization_id', 'status', 'fiscal_year']),
-        ]);
+            $evaluatees = $byEvaluatee->map(function ($rows, $evId) {
+                $r = $rows->first();
+                $u = $r->evaluatee;
+                $session = $rows->first(fn ($x) => $x->session && $x->session->completed_at);
+                return [
+                    'id'           => $evId,
+                    'name'         => $u ? trim(($u->prename ?? '') . ($u->fname ?? '') . ' ' . ($u->lname ?? '')) : '(ไม่พบ)',
+                    'grade'        => $u?->grade,
+                    'submitted'    => $session !== null,
+                    'session_at'   => $session?->session?->completed_at,
+                ];
+            })->values();
+
+            return [
+                'code'              => $code,
+                'fiscal_year'       => (int) $first->fiscal_year,
+                'organization_name' => $first->organization_name,
+                'group_label'       => $first->group_label,
+                'sub_group'         => $first->sub_group,
+                'contact_person'    => $first->contact_person,
+                'contact_info'      => $first->contact_info,
+                'evaluatees'        => $evaluatees,
+                'total'             => $evaluatees->count(),
+                'submitted'         => $evaluatees->where('submitted', true)->count(),
+                'first_id'          => $first->id,
+            ];
+        })->values()->all();
+
+        return [
+            'data'         => $items,
+            'current_page' => $page,
+            'last_page'    => max(1, (int) ceil($total / $perPage)),
+            'total'        => $total,
+            'links'        => $this->buildPaginationLinks($page, max(1, (int) ceil($total / $perPage)), $request),
+        ];
+    }
+
+    private function buildLegacyCodesQuery(Request $request)
+    {
+        $query = ExternalAccessCode::with([
+                'organization',
+                'evaluatee:id,fname,lname,grade,prename',
+                'evaluation:id,title',
+                'sessions' => function ($q) {
+                    $q->whereNotNull('completed_at')
+                      ->select('id', 'external_access_code_id', 'evaluator_name', 'evaluator_position', 'evaluatee_id', 'completed_at')
+                      ->orderBy('completed_at', 'desc');
+                },
+            ])
+            ->whereNotIn('id', \App\Models\ExternalStakeholder::select('external_access_code_id')->whereNotNull('external_access_code_id'));
+
+        if ($request->filled('organization_id')) {
+            $query->where('external_organization_id', $request->organization_id);
+        }
+        if ($request->filled('fiscal_year')) {
+            $query->where('fiscal_year', $request->fiscal_year);
+        }
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('code', 'like', "%{$search}%")
+                  ->orWhereHas('evaluatee', fn ($q2) => $q2->where('fname', 'like', "%{$search}%")->orWhere('lname', 'like', "%{$search}%"))
+                  ->orWhereHas('organization', fn ($q2) => $q2->where('name', 'like', "%{$search}%"));
+            });
+        }
+
+        return $query->orderByDesc('id')->paginate(15)->withQueryString();
+    }
+
+    private function buildPaginationLinks(int $current, int $last, Request $request): array
+    {
+        $url = fn ($p) => $request->fullUrlWithQuery(['page' => $p]);
+        $links = [
+            ['url' => $current > 1 ? $url($current - 1) : null, 'label' => '&laquo; Previous', 'active' => false],
+        ];
+        for ($p = 1; $p <= $last; $p++) {
+            $links[] = ['url' => $url($p), 'label' => (string) $p, 'active' => $p === $current];
+        }
+        $links[] = ['url' => $current < $last ? $url($current + 1) : null, 'label' => 'Next &raquo;', 'active' => false];
+        return $links;
     }
 
     /**
@@ -87,20 +235,45 @@ class AdminAccessCodeController extends Controller
             ->orderBy('name')->get(['id', 'name']);
 
         $evaluations = Evaluation::where('status', 'published')
-            ->orderBy('title')->get(['id', 'title', 'user_type', 'grade_min', 'grade_max']);
+            ->orderBy('title')->get(['id', 'title', 'user_type', 'grade_min', 'grade_max', 'fiscal_year']);
 
-        // Get evaluatee IDs via a single subquery (faster than whereHas)
+        // Build list of grades that have an external evaluation form available, by fiscal year
+        $externalEvals = Evaluation::where('status', 'published')
+            ->where('user_type', 'external')
+            ->get(['grade_min', 'grade_max', 'fiscal_year']);
+
+        $supportedGradesByFy = [];  // [fy => [grade => true]]
+        foreach ($externalEvals as $e) {
+            $fy = (int) ($e->fiscal_year ?? 0);
+            for ($g = $e->grade_min; $g <= $e->grade_max; $g++) {
+                $supportedGradesByFy[$fy][$g] = true;
+            }
+        }
+
+        // Only show evaluatees with grade >= 9 (executives + governor — external evals only cover these)
         $evaluateeIds = EvaluationAssignment::select('evaluatee_id')
             ->distinct()
             ->pluck('evaluatee_id');
 
         $evaluatees = User::whereIn('id', $evaluateeIds)
+            ->where('grade', '>=', 9)
+            ->orderByDesc('grade')
+            ->orderBy('fname')
             ->get(['id', 'fname', 'lname', 'grade', 'emid']);
 
+        // Convert to simpler shape for frontend
+        $supportedFlat = [];
+        foreach ($supportedGradesByFy as $fy => $grades) {
+            foreach (array_keys($grades) as $g) {
+                $supportedFlat[] = ['fiscal_year' => $fy, 'grade' => $g];
+            }
+        }
+
         return Inertia::render('AdminAccessCodeGenerate', [
-            'organizations' => $organizations,
-            'evaluations' => $evaluations,
-            'evaluatees' => $evaluatees,
+            'organizations'         => $organizations,
+            'evaluations'           => $evaluations,
+            'evaluatees'            => $evaluatees,
+            'supported_eval_grades' => $supportedFlat,  // [{fiscal_year, grade}]
         ]);
     }
 
@@ -111,61 +284,96 @@ class AdminAccessCodeController extends Controller
     {
         $validated = $request->validate([
             'organization_id' => 'required|exists:external_organizations,id',
-            'evaluation_id' => 'required|exists:evaluations,id',
-            'evaluatee_ids' => 'required|array|min:1',
+            'evaluatee_ids'   => 'required|array|min:1',
             'evaluatee_ids.*' => 'integer',
-            'fiscal_year' => 'required|integer|min:2020|max:2100',
-            'expires_at' => 'nullable|date|after:today',
+            'fiscal_year'     => 'required|integer|min:2020|max:2100',
+            'expires_at'      => 'nullable|date|after:today',
+            'max_uses'        => 'nullable|integer|min:1',  // null = unlimited
         ]);
 
-        // Validate evaluatee IDs in a single query (instead of N queries)
-        $validIds = User::whereIn('id', $validated['evaluatee_ids'])->pluck('id')->toArray();
-        if (count($validIds) !== count($validated['evaluatee_ids'])) {
+        // Load evaluatees with grade — needed for auto-pick evaluation form
+        $evaluatees = User::whereIn('id', $validated['evaluatee_ids'])
+            ->select('id', 'grade', 'fname', 'lname')->get()->keyBy('id');
+
+        if ($evaluatees->count() !== count($validated['evaluatee_ids'])) {
             return back()->withErrors(['evaluatee_ids' => 'มีผู้ถูกประเมินที่ไม่พบในระบบ'])->withInput();
         }
 
-        // Batch load all relevant assignments in 1 query
-        $allAssignments = EvaluationAssignment::where('evaluation_id', $validated['evaluation_id'])
-            ->where('fiscal_year', $validated['fiscal_year'])
-            ->whereIn('evaluatee_id', $validated['evaluatee_ids'])
-            ->get()
-            ->groupBy('evaluatee_id');
-
-        // Load organization once
         $organization = ExternalOrganization::findOrFail($validated['organization_id']);
+        $fiscalYear = (int) $validated['fiscal_year'];
 
-        // Pre-generate all unique codes at once (avoid N exists() queries)
-        $codes = $this->generateUniqueCodes($organization->org_code, count($validated['evaluatee_ids']));
-
-        // Prepare bulk insert data
-        $now = now();
-        $insertData = [];
-        foreach ($validated['evaluatee_ids'] as $i => $evaluateeId) {
-            $evaluateeAssignments = $allAssignments->get($evaluateeId, collect());
-            $assignment = $evaluateeAssignments->firstWhere('angle', 'right')
-                ?? $evaluateeAssignments->first();
-
-            $insertData[] = [
-                'code' => $codes[$i],
-                'external_organization_id' => $validated['organization_id'],
-                'evaluation_assignment_id' => $assignment?->id,
-                'evaluatee_id' => $evaluateeId,
-                'evaluation_id' => $validated['evaluation_id'],
-                'fiscal_year' => $validated['fiscal_year'],
-                'expires_at' => $validated['expires_at'] ?? null,
-                'created_at' => $now,
-                'updated_at' => $now,
+        // Auto-pick evaluation form per evaluatee based on grade (external user_type)
+        $skipped = [];
+        $evalAssignmentMap = []; // [evaluatee_id => ['eval_id'=>X, 'assignment_id'=>Y]]
+        foreach ($evaluatees as $evaluatee) {
+            $grade = (int) $evaluatee->grade;
+            $eval = \App\Services\EvaluationLookupService::findByGrade($grade, 'external', $fiscalYear);
+            if (!$eval) {
+                $skipped[] = "{$evaluatee->fname} {$evaluatee->lname} (g{$grade})";
+                continue;
+            }
+            // Find existing right-angle assignment if any
+            $assignment = EvaluationAssignment::where('evaluation_id', $eval->id)
+                ->where('fiscal_year', $fiscalYear)
+                ->where('evaluatee_id', $evaluatee->id)
+                ->where('angle', 'right')
+                ->first();
+            $evalAssignmentMap[$evaluatee->id] = [
+                'eval_id'       => $eval->id,
+                'assignment_id' => $assignment?->id,
             ];
         }
 
-        // Bulk insert in a single query
-        ExternalAccessCode::insert($insertData);
+        if (empty($evalAssignmentMap)) {
+            return back()->withErrors([
+                'evaluatee_ids' => 'ไม่พบแบบประเมินภายนอก (external) สำหรับเกรดของผู้ถูกประเมิน — กรุณาสร้างแบบประเมิน external ก่อน',
+            ])->withInput();
+        }
 
-        // Clear fiscal years cache
+        // Generate 1 code per (org + fiscal_year) — covers ALL selected evaluatees via pivot
+        // Pick first evaluatee+evaluation as primary (legacy field for backward compat)
+        $firstEvaluateeId = array_key_first($evalAssignmentMap);
+        $firstEval = $evalAssignmentMap[$firstEvaluateeId];
+
+        $code = $this->generateUniqueCodes($organization->org_code, 1)[0];
+
+        $accessCode = ExternalAccessCode::create([
+            'code'                     => $code,
+            'external_organization_id' => $validated['organization_id'],
+            'evaluation_assignment_id' => $firstEval['assignment_id'],
+            'evaluatee_id'             => $firstEvaluateeId,                  // primary (default landing)
+            'evaluation_id'            => $firstEval['eval_id'],
+            'fiscal_year'              => $fiscalYear,
+            'max_uses'                 => $validated['max_uses'] ?? null,
+            'expires_at'               => $validated['expires_at'] ?? null,
+        ]);
+
+        // Insert pivot rows for ALL evaluatees this code covers
+        $now = now();
+        $pivotData = [];
+        foreach ($evalAssignmentMap as $evaluateeId => $info) {
+            $pivotData[] = [
+                'external_access_code_id' => $accessCode->id,
+                'evaluatee_id'            => $evaluateeId,
+                'evaluation_id'           => $info['eval_id'],
+                'created_at'              => $now,
+                'updated_at'              => $now,
+            ];
+        }
+        DB::table('external_code_evaluatees')->insert($pivotData);
+
         cache()->forget('access_code_fiscal_years');
 
-        return redirect()->route('admin.access-codes.index')
-            ->with('success', "สร้าง Access Code สำเร็จ " . count($insertData) . " รายการ");
+        $msg = "สร้าง Access Code สำเร็จ — รหัสเดียวครอบ " . count($pivotData) . " ผู้ถูกประเมิน";
+        $redirect = redirect()->route('admin.access-codes.index')->with('success', $msg);
+
+        if (!empty($skipped)) {
+            $skipMsg = "ข้าม " . count($skipped) . " ราย: " . implode(', ', $skipped);
+            $skipMsg .= " — เนื่องจากไม่พบแบบประเมินภายนอก (external) สำหรับเกรดของผู้ถูกประเมินในปี งบประมาณนี้";
+            $redirect->with('warning', $skipMsg);
+        }
+
+        return $redirect;
     }
 
     /**

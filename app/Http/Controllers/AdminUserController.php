@@ -6,6 +6,8 @@ use App\Models\Divisions;
 use App\Models\Factions;
 use App\Models\Position;
 use App\Models\User;
+use App\Services\UserImportService;
+use App\Services\UserReconciliationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -174,6 +176,142 @@ class AdminUserController extends Controller
     // ========================================
     // Helper Methods สำหรับสร้างข้อมูลใหม่
     // ========================================
+
+    // ========================================
+    // Excel Import (รายชื่อพนักงานใหม่)
+    // ========================================
+
+    public function showImport()
+    {
+        return Inertia::render('AdminUserImport', [
+            'divisions'   => Divisions::orderBy('name')->get(['id', 'name']),
+            'departments' => Departments::orderBy('name')->get(['id', 'name']),
+            'factions'    => Factions::orderBy('name')->get(['id', 'name']),
+            'positions'   => Position::orderBy('title')->get(['id', 'title']),
+        ]);
+    }
+
+    public function previewImport(Request $request, UserImportService $service)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls',
+        ]);
+
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
+
+        try {
+            $rows = $service->parseFile($request->file('file')->getPathname());
+            $preview = $service->buildPreview($rows);
+            return response()->json($preview);
+        } catch (\Throwable $e) {
+            Log::error('UserImport preview failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'อ่านไฟล์ไม่สำเร็จ: ' . $e->getMessage()], 422);
+        }
+    }
+
+    public function executeImport(Request $request, UserImportService $service)
+    {
+        $request->validate([
+            'rows'     => 'required|array',
+            'mappings' => 'nullable|array',
+        ]);
+
+        ini_set('memory_limit', '512M');
+        set_time_limit(180);
+
+        try {
+            $result = $service->execute($request->input('rows'), $request->input('mappings', []));
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            Log::error('UserImport execute failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'นำเข้าไม่สำเร็จ: ' . $e->getMessage()], 500);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // User Data Reconciliation (QT-2569-004)
+    // ──────────────────────────────────────────────────────────────────
+
+    public function showReconcile()
+    {
+        return Inertia::render('AdminUserReconcile', [
+            'lookups' => [
+                'divisions'   => Divisions::orderBy('name')->get(['id', 'name']),
+                'departments' => Departments::orderBy('name')->get(['id', 'name']),
+                'factions'    => Factions::orderBy('name')->get(['id', 'name']),
+                'positions'   => Position::orderBy('title')->get(['id', 'title']),
+            ],
+        ]);
+    }
+
+    public function previewReconcile(Request $request, UserReconciliationService $service)
+    {
+        $request->validate([
+            'files'   => 'required|array|min:1',
+            'files.*' => 'file|mimes:xlsx,xls',
+        ]);
+
+        ini_set('memory_limit', '512M');
+        set_time_limit(180);
+
+        try {
+            $paths = collect($request->file('files'))->map->getPathname()->all();
+            $excelRows = $service->parseMany($paths);
+            $result = $service->diffAgainstDb($excelRows);
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            Log::error('UserReconcile preview failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'อ่านไฟล์ไม่สำเร็จ: ' . $e->getMessage()], 422);
+        }
+    }
+
+    public function executeReconcile(Request $request, UserReconciliationService $service)
+    {
+        $request->validate([
+            'diffs'                          => 'required|array',
+            'approvals'                      => 'required|array',
+            'approvals.*.user_id'            => 'required|integer|exists:users,id',
+            'approvals.*.fields'             => 'required|array|min:1',
+            'approvals.*.fields.*'           => 'string',
+            'blocked_actions'                => 'nullable|array',
+            'blocked_actions.*.user_id'      => 'required_with:blocked_actions|integer|exists:users,id',
+            'blocked_actions.*.field'        => 'required_with:blocked_actions|string',
+            'blocked_actions.*.action'       => 'required_with:blocked_actions|in:create,map,skip',
+            'blocked_actions.*.excel_value'  => 'nullable|string',
+            'blocked_actions.*.target_id'    => 'nullable|integer',
+        ]);
+
+        ini_set('memory_limit', '512M');
+        set_time_limit(180);
+
+        try {
+            $result = $service->applyChanges(
+                $request->input('diffs'),
+                $request->input('approvals'),
+                $request->input('blocked_actions', [])
+            );
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            Log::error('UserReconcile execute failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'อัปเดตไม่สำเร็จ: ' . $e->getMessage()], 500);
+        }
+    }
+
+    public function rollbackReconcile(Request $request, UserReconciliationService $service)
+    {
+        $request->validate([
+            'batch_id' => 'required|uuid|exists:user_change_logs,batch_id',
+        ]);
+
+        try {
+            $result = $service->rollback($request->input('batch_id'));
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            Log::error('UserReconcile rollback failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'ย้อนกลับไม่สำเร็จ: ' . $e->getMessage()], 500);
+        }
+    }
 
     public function storeDepartment(Request $request)
     {

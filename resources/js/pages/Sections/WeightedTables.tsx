@@ -55,7 +55,7 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
             <button
                 onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-indigo-500 hover:text-white dark:bg-gray-700 dark:text-white"
+                className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-violet-500 hover:text-white dark:bg-gray-700 dark:text-white"
             >
                 «
             </button>
@@ -90,7 +90,7 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
                             onClick={() => setCurrentPage(Number(page))}
                             className={`px-3 py-1 rounded text-sm ${
                                 currentPage === page
-                                    ? "bg-indigo-600 text-white"
+                                    ? "bg-violet-600 text-white"
                                     : "bg-gray-100 hover:bg-gray-300 dark:bg-gray-700 dark:text-white"
                             }`}
                         >
@@ -103,7 +103,7 @@ const WeightedTables: React.FC<Props> = ({ data, title }) => {
                     setCurrentPage((p) => Math.min(p + 1, totalPages))
                 }
                 disabled={currentPage === totalPages}
-                className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-indigo-500 hover:text-white dark:bg-gray-700 dark:text-white" 
+                className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-violet-500 hover:text-white dark:bg-gray-700 dark:text-white" 
             >
                 »
             </button>

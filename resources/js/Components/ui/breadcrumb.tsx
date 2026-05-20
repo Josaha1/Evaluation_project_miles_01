@@ -21,7 +21,7 @@ export default function Breadcrumb({ items, className }: BreadcrumbProps) {
                         {item.href && !item.active ? (
                             <a
                                 href={item.href}
-                                className="hover:underline text-indigo-600 dark:text-indigo-400 font-medium"
+                                className="hover:underline text-violet-600 dark:text-violet-400 font-medium"
                             >
                                 {item.label}
                             </a>

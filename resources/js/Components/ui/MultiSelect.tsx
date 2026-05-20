@@ -65,11 +65,11 @@ export default function MultiSelect({ options, selected, onChange, placeholder }
                         >
                             {({ active }) => (
                                 <li
-                                    className={`cursor-pointer flex items-center justify-between px-4 py-2 ${active ? 'bg-indigo-100 dark:bg-indigo-600' : ''}`}
+                                    className={`cursor-pointer flex items-center justify-between px-4 py-2 ${active ? 'bg-violet-100 dark:bg-violet-600' : ''}`}
                                     onClick={() => toggle(opt.value)}
                                 >
                                     <span>{opt.label}</span>
-                                    {selected.includes(opt.value) && <Check className="w-4 h-4 text-indigo-600" />}
+                                    {selected.includes(opt.value) && <Check className="w-4 h-4 text-violet-600" />}
                                 </li>
                             )}
                         </Listbox.Option>

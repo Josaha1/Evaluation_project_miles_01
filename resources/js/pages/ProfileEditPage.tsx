@@ -232,13 +232,13 @@ export default function ProfileEditPage() {
         if (flash.error) toast.error(flash.error);
     }, [flash]);
 
-    // Select theme and styles
+    // Select theme and styles -- violet brand
     const selectTheme = (theme: any) => ({
         ...theme,
         colors: {
             ...theme.colors,
-            primary: "#6366f1",
-            primary25: "#e0e7ff",
+            primary: "#7c3aed",
+            primary25: "#ede9fe",
             neutral0: darkMode ? "#374151" : "#fff",
             neutral5: darkMode ? "#4b5563" : "#f3f4f6",
             neutral10: darkMode ? "#6b7280" : "#e5e7eb",
@@ -253,11 +253,15 @@ export default function ProfileEditPage() {
             ...base,
             backgroundColor: darkMode ? "#374151" : "#fff",
             borderColor: darkMode ? "#6b7280" : "#d1d5db",
+            borderWidth: "2px",
             borderRadius: "0.75rem",
             paddingLeft: "0.5rem",
             paddingRight: "0.5rem",
             fontSize: "0.875rem",
             minHeight: "2.75rem",
+            "&:hover": {
+                borderColor: "#7c3aed",
+            },
         }),
         menu: (base: any) => ({
             ...base,
@@ -278,11 +282,11 @@ export default function ProfileEditPage() {
         option: (base: any, state: any) => ({
             ...base,
             backgroundColor: state.isSelected
-                ? "#6366f1"
+                ? "#7c3aed"
                 : state.isFocused
                 ? darkMode
                     ? "#4b5563"
-                    : "#f3f4f6"
+                    : "#f5f3ff"
                 : darkMode
                 ? "#374151"
                 : "#fff",
@@ -299,15 +303,15 @@ export default function ProfileEditPage() {
         // Validation for custom password mode
         if (passwordMode === 'custom') {
             if (!customPassword) {
-                toast.error("❌ กรุณาใส่รหัสผ่าน");
+                toast.error("กรุณาใส่รหัสผ่าน");
                 return;
             }
             if (customPassword !== confirmPassword) {
-                toast.error("❌ รหัสผ่านไม่ตรงกัน");
+                toast.error("รหัสผ่านไม่ตรงกัน");
                 return;
             }
             if (customPassword.length < 6) {
-                toast.error("❌ รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
+                toast.error("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
                 return;
             }
         }
@@ -318,7 +322,7 @@ export default function ProfileEditPage() {
             forceFormData: true,
             preserveState: true,
             onSuccess: () => {
-                toast.success("✅ บันทึกโปรไฟล์สำเร็จ");
+                toast.success("บันทึกโปรไฟล์สำเร็จ");
                 clearPhotoSelection();
                 setPasswordMode('none');
                 setCustomPassword('');
@@ -331,7 +335,7 @@ export default function ProfileEditPage() {
                 if (errors.error) {
                     toast.error(errors.error);
                 } else {
-                    toast.error("❌ เกิดข้อผิดพลาด กรุณาตรวจสอบข้อมูล");
+                    toast.error("เกิดข้อผิดพลาด กรุณาตรวจสอบข้อมูล");
                 }
             },
         });
@@ -340,20 +344,16 @@ export default function ProfileEditPage() {
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            // Check file size (2MB)
             if (file.size > 2 * 1024 * 1024) {
                 toast.error("ขนาดไฟล์ต้องไม่เกิน 2MB");
                 return;
             }
-
-            // Check file type
             if (!file.type.match(/^image\/(jpeg|png|jpg|gif|webp)$/)) {
                 toast.error(
                     "ไฟล์ต้องเป็นรูปภาพประเภท jpeg, png, jpg, gif, webp"
                 );
                 return;
             }
-
             setData("photo", file);
             setPreview(URL.createObjectURL(file));
         }
@@ -376,10 +376,10 @@ export default function ProfileEditPage() {
             { name: inputValue },
             {
                 onSuccess: () => {
-                    toast.success("✅ เพิ่มหน่วยงานใหม่แล้ว");
+                    toast.success("เพิ่มหน่วยงานใหม่แล้ว");
                     router.reload({ only: ["departments"] });
                 },
-                onError: () => toast.error("❌ ไม่สามารถเพิ่มหน่วยงานได้"),
+                onError: () => toast.error("ไม่สามารถเพิ่มหน่วยงานได้"),
             }
         );
     };
@@ -390,10 +390,10 @@ export default function ProfileEditPage() {
             { name: inputValue },
             {
                 onSuccess: () => {
-                    toast.success("✅ เพิ่มฝ่ายใหม่แล้ว");
+                    toast.success("เพิ่มฝ่ายใหม่แล้ว");
                     router.reload({ only: ["factions"] });
                 },
-                onError: () => toast.error("❌ ไม่สามารถเพิ่มฝ่ายได้"),
+                onError: () => toast.error("ไม่สามารถเพิ่มฝ่ายได้"),
             }
         );
     };
@@ -404,35 +404,31 @@ export default function ProfileEditPage() {
             { title: inputValue },
             {
                 onSuccess: () => {
-                    toast.success("✅ เพิ่มตำแหน่งใหม่แล้ว");
+                    toast.success("เพิ่มตำแหน่งใหม่แล้ว");
                     router.reload({ only: ["positions"] });
                 },
-                onError: () => toast.error("❌ ไม่สามารถเพิ่มตำแหน่งได้"),
+                onError: () => toast.error("ไม่สามารถเพิ่มตำแหน่งได้"),
             }
         );
     };
 
     return (
-        <MainLayout
-            title="แก้ไขโปรไฟล์"
-            
-        >
-            <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-blue-900/20">
+        <MainLayout title="แก้ไขโปรไฟล์">
+            <div className="gradient-primary-soft min-h-screen">
                 <div className="max-w-5xl mx-auto px-6 py-10">
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5 }}
                     >
-                        <Card className="p-8 shadow-xl border-0 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
+                        <div className="glass-card rounded-2xl p-8">
                             {/* Header */}
                             <div className="text-center mb-8">
                                 <div className="flex items-center justify-center space-x-3 mb-4">
-                                    <User
-                                        className="text-blue-600 dark:text-blue-400"
-                                        size={32}
-                                    />
-                                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                                    <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center">
+                                        <User className="text-white" size={22} />
+                                    </div>
+                                    <h1 className="text-3xl font-bold text-gradient-primary">
                                         แก้ไขข้อมูลส่วนตัว
                                     </h1>
                                 </div>
@@ -449,10 +445,7 @@ export default function ProfileEditPage() {
                                     className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl"
                                 >
                                     <div className="flex items-center space-x-2">
-                                        <AlertCircle
-                                            className="text-red-500"
-                                            size={20}
-                                        />
+                                        <AlertCircle className="text-red-500" size={20} />
                                         <p className="text-red-800 dark:text-red-200 text-sm font-medium">
                                             {errors.error}
                                         </p>
@@ -478,17 +471,14 @@ export default function ProfileEditPage() {
                                                         : "/images/default.png")
                                                 }
                                                 alt="รูปโปรไฟล์"
-                                                className="w-32 h-32 rounded-full mx-auto border-4 border-white dark:border-gray-600 shadow-lg object-cover"
+                                                className="w-32 h-32 rounded-full mx-auto border-4 border-violet-200 dark:border-violet-800 shadow-lg object-cover"
                                             />
                                             <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer">
-                                                <Camera
-                                                    className="text-white"
-                                                    size={24}
-                                                />
+                                                <Camera className="text-white" size={24} />
                                             </div>
                                         </div>
 
-                                        <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-2 cursor-pointer shadow-lg transition-colors">
+                                        <label className="absolute bottom-0 right-0 gradient-primary hover:opacity-90 text-white rounded-full p-2 cursor-pointer shadow-lg transition-opacity">
                                             <Upload size={16} />
                                             <input
                                                 type="file"
@@ -513,8 +503,7 @@ export default function ProfileEditPage() {
                                     )}
 
                                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                                        รองรับไฟล์ JPG, PNG, GIF, WEBP
-                                        ขนาดไม่เกิน 2MB
+                                        รองรับไฟล์ JPG, PNG, GIF, WEBP ขนาดไม่เกิน 2MB
                                     </p>
 
                                     {errors.photo && (
@@ -528,29 +517,12 @@ export default function ProfileEditPage() {
                                 {/* Form Fields */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* คำนำหน้า */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.2 }}
-                                    >
-                                        <Label htmlFor="prename">
-                                            คำนำหน้าชื่อ
-                                        </Label>
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+                                        <Label htmlFor="prename">คำนำหน้าชื่อ</Label>
                                         <Select
                                             options={prenameOptions}
-                                            value={
-                                                prenameOptions.find(
-                                                    (opt) =>
-                                                        opt.value ===
-                                                        data.prename
-                                                ) || null
-                                            }
-                                            onChange={(opt) =>
-                                                setData(
-                                                    "prename",
-                                                    opt?.value || ""
-                                                )
-                                            }
+                                            value={prenameOptions.find((opt) => opt.value === data.prename) || null}
+                                            onChange={(opt) => setData("prename", opt?.value || "")}
                                             isClearable
                                             placeholder="เลือกคำนำหน้า..."
                                             theme={selectTheme}
@@ -565,25 +537,16 @@ export default function ProfileEditPage() {
                                     </motion.div>
 
                                     {/* ชื่อ */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.25 }}
-                                    >
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
                                         <Label htmlFor="fname">
-                                            ชื่อ{" "}
-                                            <span className="text-red-500">
-                                                *
-                                            </span>
+                                            ชื่อ <span className="text-red-500">*</span>
                                         </Label>
                                         <Input
                                             id="fname"
                                             required
                                             value={data.fname}
-                                            onChange={(e) =>
-                                                setData("fname", e.target.value)
-                                            }
-                                            className="h-11 dark:bg-gray-700 dark:text-white"
+                                            onChange={(e) => setData("fname", e.target.value)}
+                                            className="h-11 rounded-xl border-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-700 dark:text-white"
                                             placeholder="กรอกชื่อ"
                                         />
                                         {errors.fname && (
@@ -595,25 +558,16 @@ export default function ProfileEditPage() {
                                     </motion.div>
 
                                     {/* นามสกุล */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.3 }}
-                                    >
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
                                         <Label htmlFor="lname">
-                                            นามสกุล{" "}
-                                            <span className="text-red-500">
-                                                *
-                                            </span>
+                                            นามสกุล <span className="text-red-500">*</span>
                                         </Label>
                                         <Input
                                             id="lname"
                                             required
                                             value={data.lname}
-                                            onChange={(e) =>
-                                                setData("lname", e.target.value)
-                                            }
-                                            className="h-11 dark:bg-gray-700 dark:text-white"
+                                            onChange={(e) => setData("lname", e.target.value)}
+                                            className="h-11 rounded-xl border-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-700 dark:text-white"
                                             placeholder="กรอกนามสกุล"
                                         />
                                         {errors.lname && (
@@ -625,23 +579,12 @@ export default function ProfileEditPage() {
                                     </motion.div>
 
                                     {/* เพศ */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.35 }}
-                                    >
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
                                         <Label htmlFor="sex">เพศ</Label>
                                         <Select
                                             options={sexOptions}
-                                            value={
-                                                sexOptions.find(
-                                                    (opt) =>
-                                                        opt.value === data.sex
-                                                ) || null
-                                            }
-                                            onChange={(opt) =>
-                                                setData("sex", opt?.value || "")
-                                            }
+                                            value={sexOptions.find((opt) => opt.value === data.sex) || null}
+                                            onChange={(opt) => setData("sex", opt?.value || "")}
                                             isClearable
                                             placeholder="เลือกเพศ..."
                                             theme={selectTheme}
@@ -656,29 +599,12 @@ export default function ProfileEditPage() {
                                     </motion.div>
 
                                     {/* สายงาน */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.4 }}
-                                    >
-                                        <Label htmlFor="division_id">
-                                            สายงาน
-                                        </Label>
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+                                        <Label htmlFor="division_id">สายงาน</Label>
                                         <Select
                                             options={divisionOptions}
-                                            value={
-                                                divisionOptions.find(
-                                                    (opt) =>
-                                                        opt.value ===
-                                                        data.division_id?.toString()
-                                                ) || null
-                                            }
-                                            onChange={(opt) =>
-                                                setData(
-                                                    "division_id",
-                                                    opt?.value || ""
-                                                )
-                                            }
+                                            value={divisionOptions.find((opt) => opt.value === data.division_id?.toString()) || null}
+                                            onChange={(opt) => setData("division_id", opt?.value || "")}
                                             isClearable
                                             placeholder="เลือกสายงาน..."
                                             theme={selectTheme}
@@ -687,86 +613,44 @@ export default function ProfileEditPage() {
                                         {errors.division_id && (
                                             <p className="text-red-500 text-xs mt-1 flex items-center space-x-1">
                                                 <AlertCircle size={12} />
-                                                <span>
-                                                    {errors.division_id}
-                                                </span>
+                                                <span>{errors.division_id}</span>
                                             </p>
                                         )}
                                     </motion.div>
 
                                     {/* หน่วยงาน */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.45 }}
-                                    >
-                                        <Label htmlFor="department_id">
-                                            หน่วยงาน
-                                        </Label>
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }}>
+                                        <Label htmlFor="department_id">หน่วยงาน</Label>
                                         <CreatableSelect
                                             options={departmentOptions}
-                                            value={
-                                                departmentOptions.find(
-                                                    (opt) =>
-                                                        opt.value ===
-                                                        data.department_id?.toString()
-                                                ) || null
-                                            }
-                                            onChange={(opt) =>
-                                                setData(
-                                                    "department_id",
-                                                    opt?.value || ""
-                                                )
-                                            }
-                                            onCreateOption={
-                                                handleCreateDepartment
-                                            }
+                                            value={departmentOptions.find((opt) => opt.value === data.department_id?.toString()) || null}
+                                            onChange={(opt) => setData("department_id", opt?.value || "")}
+                                            onCreateOption={handleCreateDepartment}
                                             isClearable
                                             placeholder="เลือกหรือสร้างหน่วยงาน..."
-                                            formatCreateLabel={(inputValue) =>
-                                                `สร้าง "${inputValue}"`
-                                            }
+                                            formatCreateLabel={(inputValue) => `สร้าง "${inputValue}"`}
                                             theme={selectTheme}
                                             styles={selectStyles}
                                         />
                                         {errors.department_id && (
                                             <p className="text-red-500 text-xs mt-1 flex items-center space-x-1">
                                                 <AlertCircle size={12} />
-                                                <span>
-                                                    {errors.department_id}
-                                                </span>
+                                                <span>{errors.department_id}</span>
                                             </p>
                                         )}
                                     </motion.div>
 
                                     {/* ฝ่าย */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.5 }}
-                                    >
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
                                         <Label htmlFor="faction_id">ฝ่าย</Label>
                                         <CreatableSelect
                                             options={factionOptions}
-                                            value={
-                                                factionOptions.find(
-                                                    (opt) =>
-                                                        opt.value ===
-                                                        data.faction_id?.toString()
-                                                ) || null
-                                            }
-                                            onChange={(opt) =>
-                                                setData(
-                                                    "faction_id",
-                                                    opt?.value || ""
-                                                )
-                                            }
+                                            value={factionOptions.find((opt) => opt.value === data.faction_id?.toString()) || null}
+                                            onChange={(opt) => setData("faction_id", opt?.value || "")}
                                             onCreateOption={handleCreateFaction}
                                             isClearable
                                             placeholder="เลือกหรือสร้างฝ่าย..."
-                                            formatCreateLabel={(inputValue) =>
-                                                `สร้าง "${inputValue}"`
-                                            }
+                                            formatCreateLabel={(inputValue) => `สร้าง "${inputValue}"`}
                                             theme={selectTheme}
                                             styles={selectStyles}
                                         />
@@ -779,72 +663,38 @@ export default function ProfileEditPage() {
                                     </motion.div>
 
                                     {/* ตำแหน่ง */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.55 }}
-                                    >
-                                        <Label htmlFor="position_id">
-                                            ตำแหน่ง
-                                        </Label>
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }}>
+                                        <Label htmlFor="position_id">ตำแหน่ง</Label>
                                         <CreatableSelect
                                             options={positionOptions}
-                                            value={
-                                                positionOptions.find(
-                                                    (opt) =>
-                                                        opt.value ===
-                                                        data.position_id?.toString()
-                                                ) || null
-                                            }
-                                            onChange={(opt) =>
-                                                setData(
-                                                    "position_id",
-                                                    opt?.value || ""
-                                                )
-                                            }
-                                            onCreateOption={
-                                                handleCreatePosition
-                                            }
+                                            value={positionOptions.find((opt) => opt.value === data.position_id?.toString()) || null}
+                                            onChange={(opt) => setData("position_id", opt?.value || "")}
+                                            onCreateOption={handleCreatePosition}
                                             isClearable
                                             placeholder="เลือกหรือสร้างตำแหน่ง..."
-                                            formatCreateLabel={(inputValue) =>
-                                                `สร้าง "${inputValue}"`
-                                            }
+                                            formatCreateLabel={(inputValue) => `สร้าง "${inputValue}"`}
                                             theme={selectTheme}
                                             styles={selectStyles}
                                         />
                                         {errors.position_id && (
                                             <p className="text-red-500 text-xs mt-1 flex items-center space-x-1">
                                                 <AlertCircle size={12} />
-                                                <span>
-                                                    {errors.position_id}
-                                                </span>
+                                                <span>{errors.position_id}</span>
                                             </p>
                                         )}
                                     </motion.div>
 
                                     {/* ระดับ */}
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.6 }}
-                                    >
+                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
                                         <Label htmlFor="grade">ระดับ</Label>
                                         <Input
                                             id="grade"
                                             type="number"
                                             value={data.grade || ""}
                                             onChange={(e) =>
-                                                setData(
-                                                    "grade",
-                                                    e.target.value
-                                                        ? parseInt(
-                                                              e.target.value
-                                                          )
-                                                        : ""
-                                                )
+                                                setData("grade", e.target.value ? parseInt(e.target.value) : "")
                                             }
-                                            className="h-11 dark:bg-gray-700 dark:text-white"
+                                            className="h-11 rounded-xl border-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-700 dark:text-white"
                                             placeholder="ระบุระดับ (1-20)"
                                             min="1"
                                             max="20"
@@ -866,69 +716,33 @@ export default function ProfileEditPage() {
                                     >
                                         <Label>วันเกิด</Label>
                                         <div className="grid grid-cols-3 gap-4">
-                                            <div>
-                                                <Select
-                                                    options={dayOptions}
-                                                    value={
-                                                        dayOptions.find(
-                                                            (d) =>
-                                                                d.value ===
-                                                                birthDay
-                                                        ) || null
-                                                    }
-                                                    onChange={(opt) =>
-                                                        setBirthDay(
-                                                            opt?.value || ""
-                                                        )
-                                                    }
-                                                    isClearable
-                                                    placeholder="วัน"
-                                                    theme={selectTheme}
-                                                    styles={selectStyles}
-                                                />
-                                            </div>
-                                            <div>
-                                                <Select
-                                                    options={monthOptions}
-                                                    value={
-                                                        monthOptions.find(
-                                                            (m) =>
-                                                                m.value ===
-                                                                birthMonth
-                                                        ) || null
-                                                    }
-                                                    onChange={(opt) =>
-                                                        setBirthMonth(
-                                                            opt?.value || ""
-                                                        )
-                                                    }
-                                                    isClearable
-                                                    placeholder="เดือน"
-                                                    theme={selectTheme}
-                                                    styles={selectStyles}
-                                                />
-                                            </div>
-                                            <div>
-                                                <Select
-                                                    options={yearOptions}
-                                                    value={
-                                                        yearOptions.find(
-                                                            (y) =>
-                                                                y.value ===
-                                                                birthYear
-                                                        ) || null
-                                                    }
-                                                    onChange={(opt) =>
-                                                        setBirthYear(
-                                                            opt?.value || ""
-                                                        )
-                                                    }
-                                                    isClearable
-                                                    placeholder="ปี"
-                                                    theme={selectTheme}
-                                                    styles={selectStyles}
-                                                />
-                                            </div>
+                                            <Select
+                                                options={dayOptions}
+                                                value={dayOptions.find((d) => d.value === birthDay) || null}
+                                                onChange={(opt) => setBirthDay(opt?.value || "")}
+                                                isClearable
+                                                placeholder="วัน"
+                                                theme={selectTheme}
+                                                styles={selectStyles}
+                                            />
+                                            <Select
+                                                options={monthOptions}
+                                                value={monthOptions.find((m) => m.value === birthMonth) || null}
+                                                onChange={(opt) => setBirthMonth(opt?.value || "")}
+                                                isClearable
+                                                placeholder="เดือน"
+                                                theme={selectTheme}
+                                                styles={selectStyles}
+                                            />
+                                            <Select
+                                                options={yearOptions}
+                                                value={yearOptions.find((y) => y.value === birthYear) || null}
+                                                onChange={(opt) => setBirthYear(opt?.value || "")}
+                                                isClearable
+                                                placeholder="ปี"
+                                                theme={selectTheme}
+                                                styles={selectStyles}
+                                            />
                                         </div>
                                         {errors.birthdate && (
                                             <p className="text-red-500 text-xs mt-1 flex items-center space-x-1">
@@ -938,7 +752,7 @@ export default function ProfileEditPage() {
                                         )}
                                     </motion.div>
 
-                                    {/* รหัสผ่าน - ใหม่ */}
+                                    {/* รหัสผ่าน */}
                                     <motion.div
                                         initial={{ opacity: 0, y: 20 }}
                                         animate={{ opacity: 1, y: 0 }}
@@ -947,7 +761,7 @@ export default function ProfileEditPage() {
                                     >
                                         <div className="space-y-4">
                                             <div className="flex items-center space-x-2 mb-4">
-                                                <Lock size={16} className="text-gray-500 dark:text-gray-400" />
+                                                <Lock size={16} className="text-violet-500 dark:text-violet-400" />
                                                 <Label className="text-base font-semibold">การจัดการรหัสผ่าน</Label>
                                             </div>
 
@@ -958,7 +772,7 @@ export default function ProfileEditPage() {
                                                     whileHover={{ scale: 1.02 }}
                                                     className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
                                                         passwordMode === 'none'
-                                                            ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
                                                             : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
                                                     }`}
                                                     onClick={() => setPasswordMode('none')}
@@ -969,11 +783,11 @@ export default function ProfileEditPage() {
                                                             name="passwordMode"
                                                             checked={passwordMode === 'none'}
                                                             onChange={() => setPasswordMode('none')}
-                                                            className="w-4 h-4 text-green-600"
+                                                            className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
                                                         />
                                                         <div>
                                                             <p className="font-medium text-gray-900 dark:text-white">
-                                                                💚 ไม่เปลี่ยนรหัสผ่าน
+                                                                ไม่เปลี่ยนรหัสผ่าน
                                                             </p>
                                                             <p className="text-sm text-gray-500 dark:text-gray-400">
                                                                 คงรหัสผ่านเดิม
@@ -987,7 +801,7 @@ export default function ProfileEditPage() {
                                                     whileHover={{ scale: 1.02 }}
                                                     className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
                                                         passwordMode === 'custom'
-                                                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                                                            ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20'
                                                             : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
                                                     }`}
                                                     onClick={() => setPasswordMode('custom')}
@@ -998,11 +812,11 @@ export default function ProfileEditPage() {
                                                             name="passwordMode"
                                                             checked={passwordMode === 'custom'}
                                                             onChange={() => setPasswordMode('custom')}
-                                                            className="w-4 h-4 text-blue-600"
+                                                            className="w-4 h-4 text-violet-600 focus:ring-violet-500"
                                                         />
                                                         <div>
                                                             <p className="font-medium text-gray-900 dark:text-white">
-                                                                🔐 กำหนดเอง
+                                                                กำหนดเอง
                                                             </p>
                                                             <p className="text-sm text-gray-500 dark:text-gray-400">
                                                                 ใส่รหัสผ่านที่ต้องการ
@@ -1027,11 +841,11 @@ export default function ProfileEditPage() {
                                                             name="passwordMode"
                                                             checked={passwordMode === 'birthdate'}
                                                             onChange={() => setPasswordMode('birthdate')}
-                                                            className="w-4 h-4 text-purple-600"
+                                                            className="w-4 h-4 text-purple-600 focus:ring-purple-500"
                                                         />
                                                         <div>
                                                             <p className="font-medium text-gray-900 dark:text-white">
-                                                                🎂 จากวันเกิด
+                                                                จากวันเกิด
                                                             </p>
                                                             <p className="text-sm text-gray-500 dark:text-gray-400">
                                                                 สร้างจากวันเดือนปีเกิด
@@ -1045,7 +859,7 @@ export default function ProfileEditPage() {
                                                     whileHover={{ scale: 1.02 }}
                                                     className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
                                                         passwordMode === 'default'
-                                                            ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
+                                                            ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
                                                             : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
                                                     }`}
                                                     onClick={() => setPasswordMode('default')}
@@ -1056,14 +870,14 @@ export default function ProfileEditPage() {
                                                             name="passwordMode"
                                                             checked={passwordMode === 'default'}
                                                             onChange={() => setPasswordMode('default')}
-                                                            className="w-4 h-4 text-orange-600"
+                                                            className="w-4 h-4 text-amber-600 focus:ring-amber-500"
                                                         />
                                                         <div>
                                                             <p className="font-medium text-gray-900 dark:text-white">
-                                                                🔑 รหัสเริ่มต้น
+                                                                รหัสเริ่มต้น
                                                             </p>
                                                             <p className="text-sm text-gray-500 dark:text-gray-400">
-                                                                01012568
+                                                                01012569
                                                             </p>
                                                         </div>
                                                     </div>
@@ -1076,7 +890,7 @@ export default function ProfileEditPage() {
                                                     initial={{ opacity: 0, height: 0 }}
                                                     animate={{ opacity: 1, height: 'auto' }}
                                                     exit={{ opacity: 0, height: 0 }}
-                                                    className="space-y-4 mt-4 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl"
+                                                    className="space-y-4 mt-4 p-4 bg-violet-50 dark:bg-violet-900/10 rounded-xl"
                                                 >
                                                     <div className="space-y-3">
                                                         <Label htmlFor="customPassword">รหัสผ่านใหม่</Label>
@@ -1086,7 +900,7 @@ export default function ProfileEditPage() {
                                                                 type={showPassword ? 'text' : 'password'}
                                                                 value={customPassword}
                                                                 onChange={(e) => setCustomPassword(e.target.value)}
-                                                                className="h-11 pr-12 dark:bg-gray-700 dark:text-white"
+                                                                className="h-11 pr-12 rounded-xl border-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-700 dark:text-white"
                                                                 placeholder="กรอกรหัสผ่านใหม่"
                                                             />
                                                             <button
@@ -1107,11 +921,11 @@ export default function ProfileEditPage() {
                                                                 type={showConfirmPassword ? 'text' : 'password'}
                                                                 value={confirmPassword}
                                                                 onChange={(e) => setConfirmPassword(e.target.value)}
-                                                                className={`h-11 pr-12 dark:bg-gray-700 dark:text-white ${
+                                                                className={`h-11 pr-12 rounded-xl border-2 focus:ring-violet-500 dark:bg-gray-700 dark:text-white ${
                                                                     customPassword && confirmPassword && customPassword !== confirmPassword
                                                                         ? 'border-red-500 focus:border-red-500'
                                                                         : customPassword && confirmPassword && customPassword === confirmPassword
-                                                                        ? 'border-green-500 focus:border-green-500'
+                                                                        ? 'border-emerald-500 focus:border-emerald-500'
                                                                         : ''
                                                                 }`}
                                                                 placeholder="ยืนยันรหัสผ่านใหม่"
@@ -1131,16 +945,16 @@ export default function ProfileEditPage() {
                                                             </p>
                                                         )}
                                                         {customPassword && confirmPassword && customPassword === confirmPassword && (
-                                                            <p className="text-green-500 text-xs flex items-center space-x-1">
+                                                            <p className="text-emerald-500 text-xs flex items-center space-x-1">
                                                                 <Check size={12} />
                                                                 <span>รหัสผ่านตรงกัน</span>
                                                             </p>
                                                         )}
                                                     </div>
 
-                                                    <div className="bg-blue-100 dark:bg-blue-900/20 p-3 rounded-lg">
-                                                        <p className="text-xs text-blue-800 dark:text-blue-200">
-                                                            💡 <strong>คำแนะนำ:</strong> รหัสผ่านควรมีอย่างน้อย 6 ตัวอักษร
+                                                    <div className="bg-violet-100 dark:bg-violet-900/20 p-3 rounded-xl">
+                                                        <p className="text-xs text-violet-800 dark:text-violet-200">
+                                                            <strong>คำแนะนำ:</strong> รหัสผ่านควรมีอย่างน้อย 6 ตัวอักษร
                                                             และควรประกอบด้วยตัวอักษรและตัวเลข
                                                         </p>
                                                     </div>
@@ -1160,13 +974,13 @@ export default function ProfileEditPage() {
                                                             รหัสผ่านที่สร้างจากวันเกิด:
                                                         </span>
                                                     </div>
-                                                    <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-purple-200 dark:border-purple-700">
+                                                    <div className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-purple-200 dark:border-purple-700">
                                                         <code className="text-lg font-mono text-purple-700 dark:text-purple-300">
                                                             {birthDay}{birthMonth}{parseInt(birthYear) + 543}
                                                         </code>
                                                     </div>
                                                     <p className="text-xs text-purple-600 dark:text-purple-300 mt-2">
-                                                        📅 วันที่ {birthDay}/{birthMonth}/{parseInt(birthYear) + 543} (พ.ศ.)
+                                                        วันที่ {birthDay}/{birthMonth}/{parseInt(birthYear) + 543} (พ.ศ.)
                                                     </p>
                                                 </motion.div>
                                             )}
@@ -1176,28 +990,28 @@ export default function ProfileEditPage() {
                                                 <motion.div
                                                     initial={{ opacity: 0, height: 0 }}
                                                     animate={{ opacity: 1, height: 'auto' }}
-                                                    className="p-4 bg-orange-50 dark:bg-orange-900/10 rounded-xl"
+                                                    className="p-4 bg-amber-50 dark:bg-amber-900/10 rounded-xl"
                                                 >
                                                     <div className="flex items-center space-x-2 mb-2">
-                                                        <Check className="text-orange-600" size={16} />
-                                                        <span className="text-sm font-medium text-orange-800 dark:text-orange-200">
+                                                        <Check className="text-amber-600" size={16} />
+                                                        <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
                                                             รหัสผ่านเริ่มต้น:
                                                         </span>
                                                     </div>
-                                                    <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-orange-200 dark:border-orange-700">
-                                                        <code className="text-lg font-mono text-orange-700 dark:text-orange-300">
-                                                            01012568
+                                                    <div className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-amber-200 dark:border-amber-700">
+                                                        <code className="text-lg font-mono text-amber-700 dark:text-amber-300">
+                                                            01012569
                                                         </code>
                                                     </div>
-                                                    <p className="text-xs text-orange-600 dark:text-orange-300 mt-2">
-                                                        01012568
+                                                    <p className="text-xs text-amber-600 dark:text-amber-300 mt-2">
+                                                        01012569
                                                     </p>
                                                 </motion.div>
                                             )}
 
                                             {/* Error Messages */}
                                             {errors.password && (
-                                                <p className="text-red-500 text-sm flex items-center space-x-1 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+                                                <p className="text-red-500 text-sm flex items-center space-x-1 bg-red-50 dark:bg-red-900/20 p-3 rounded-xl">
                                                     <AlertCircle size={16} />
                                                     <span>{errors.password}</span>
                                                 </p>
@@ -1216,7 +1030,7 @@ export default function ProfileEditPage() {
                                     <Button
                                         type="submit"
                                         disabled={processing || (passwordMode === 'custom' && (!customPassword || customPassword !== confirmPassword))}
-                                        className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                                        className="px-8 py-3 gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                                     >
                                         {processing ? (
                                             <>
@@ -1233,17 +1047,14 @@ export default function ProfileEditPage() {
                                             </>
                                         ) : (
                                             <>
-                                                <Save
-                                                    size={20}
-                                                    className="mr-2"
-                                                />
+                                                <Save size={20} className="mr-2" />
                                                 บันทึกการเปลี่ยนแปลง
                                             </>
                                         )}
                                     </Button>
                                 </motion.div>
                             </form>
-                        </Card>
+                        </div>
                     </motion.div>
                 </div>
             </div>
