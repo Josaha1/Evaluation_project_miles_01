@@ -368,6 +368,14 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
             ->name('export-external-org');
         Route::post('/export/detailed-data', [AdminEvaluationReportController::class, 'exportDetailedEvaluationData'])
             ->name('export-detailed-data');
+        Route::post('/export/pending-evaluators', [AdminEvaluationReportController::class, 'exportPendingEvaluators'])
+            ->name('export-pending-evaluators');
+        Route::post('/export/completed-evaluators-internal', [AdminEvaluationReportController::class, 'exportCompletedEvaluatorsInternal'])
+            ->name('export-completed-evaluators-internal');
+        Route::post('/export/completed-evaluators-external', [AdminEvaluationReportController::class, 'exportCompletedEvaluatorsExternal'])
+            ->name('export-completed-evaluators-external');
+        Route::post('/export/pending-evaluators-external', [AdminEvaluationReportController::class, 'exportPendingEvaluatorsExternal'])
+            ->name('export-pending-evaluators-external');
 
         // Data API endpoints
         Route::get('/api/dashboard-data', [AdminEvaluationReportController::class, 'getDashboardData'])
