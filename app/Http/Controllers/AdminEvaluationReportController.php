@@ -4329,24 +4329,63 @@ class AdminEvaluationReportController extends Controller
                 $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 $sheet->getStyle("A{$row}")->getFont()->setItalic(true)->getColor()->setRGB('9CA3AF');
             } else {
+                // group-by-evaluator: ข้อมูลผู้ประเมิน (A-I) merge เป็น 1 ครั้งต่อกลุ่ม
+                $prevEmid   = null;
+                $groupStart = 5;
+                $groupIdx   = 0;
+                $firstRow   = null;
+
+                $flush = function (int $groupEnd) use ($sheet, &$groupIdx, &$groupStart) {
+                    if ($groupEnd < $groupStart) return;
+                    if ($groupEnd > $groupStart) {
+                        foreach (range('A', 'I') as $col) {
+                            $sheet->mergeCells("{$col}{$groupStart}:{$col}{$groupEnd}");
+                        }
+                    }
+                    $sheet->getStyle("A{$groupStart}:I{$groupEnd}")->getAlignment()
+                        ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+                    if ($groupIdx % 2 === 1) {
+                        $sheet->getStyle("A{$groupStart}:N{$groupEnd}")->getFill()
+                            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                            ->getStartColor()->setRGB('F9FAFB');
+                    }
+                    if ($groupIdx > 0) {
+                        $sheet->getStyle("A{$groupStart}:N{$groupStart}")->getBorders()
+                            ->getTop()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+                    }
+                    $groupIdx++;
+                };
+
                 foreach ($rows as $r) {
-                    $sheet->setCellValue('A' . $row, $r->emid);
-                    $sheet->setCellValue('B' . $row, $r->prename ?? '');
-                    $sheet->setCellValue('C' . $row, $r->fname ?? '');
-                    $sheet->setCellValue('D' . $row, $r->lname ?? '');
-                    $sheet->setCellValue('E' . $row, $r->position ?? '-');
-                    $sheet->setCellValue('F' . $row, $r->grade ?? '-');
-                    $sheet->setCellValue('G' . $row, $r->department ?? '-');
-                    $sheet->setCellValue('H' . $row, $r->faction ?? '-');
-                    $sheet->setCellValue('I' . $row, $r->division ?? '-');
+                    if ($prevEmid !== null && $r->emid !== $prevEmid) {
+                        $flush($row - 1);
+                        $groupStart = $row;
+                        $firstRow   = null;
+                    }
+                    if ($firstRow === null) {
+                        $sheet->setCellValue('A' . $row, $r->emid);
+                        $sheet->setCellValue('B' . $row, $r->prename ?? '');
+                        $sheet->setCellValue('C' . $row, $r->fname ?? '');
+                        $sheet->setCellValue('D' . $row, $r->lname ?? '');
+                        $sheet->setCellValue('E' . $row, $r->position ?? '-');
+                        $sheet->setCellValue('F' . $row, $r->grade ?? '-');
+                        $sheet->setCellValue('G' . $row, $r->department ?? '-');
+                        $sheet->setCellValue('H' . $row, $r->faction ?? '-');
+                        $sheet->setCellValue('I' . $row, $r->division ?? '-');
+                        $firstRow = $row;
+                    }
                     $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
                     $sheet->setCellValue('J' . $row, $eeName ?: '-');
                     $sheet->setCellValue('K' . $row, $r->evaluatee_grade ?? '-');
                     $sheet->setCellValue('L' . $row, $angleLabels[$r->angle] ?? $r->angle);
                     $sheet->setCellValue('M' . $row, $r->evaluation_title ?? '-');
                     $sheet->setCellValue('N' . $row, $r->submitted_at ? \Carbon\Carbon::parse($r->submitted_at)->format('d/m/Y H:i') : '-');
+                    $prevEmid = $r->emid;
                     $row++;
                 }
+                $flush($row - 1);
+                $sheet->getStyle("F5:F" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("K5:L" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
             }
 
             $filename = 'completed-evaluators-internal-FY' . ($fiscalYear + 543) . '-' . now()->format('YmdHis') . '.xlsx';
@@ -4463,12 +4502,48 @@ class AdminEvaluationReportController extends Controller
                 $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 $sheet->getStyle("A{$row}")->getFont()->setItalic(true)->getColor()->setRGB('9CA3AF');
             } else {
+                // group-by-organization: ข้อมูลองค์กร (A-E) merge เป็น 1 ครั้งต่อกลุ่ม
+                $prevOrg    = null;
+                $groupStart = 5;
+                $groupIdx   = 0;
+                $firstRow   = null;
+
+                $flushExt = function (int $groupEnd) use ($sheet, &$groupIdx, &$groupStart) {
+                    if ($groupEnd < $groupStart) return;
+                    if ($groupEnd > $groupStart) {
+                        foreach (range('A', 'E') as $col) {
+                            $sheet->mergeCells("{$col}{$groupStart}:{$col}{$groupEnd}");
+                        }
+                    }
+                    $sheet->getStyle("A{$groupStart}:E{$groupEnd}")->getAlignment()
+                        ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+                    if ($groupIdx % 2 === 1) {
+                        $sheet->getStyle("A{$groupStart}:L{$groupEnd}")->getFill()
+                            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                            ->getStartColor()->setRGB('F9FAFB');
+                    }
+                    if ($groupIdx > 0) {
+                        $sheet->getStyle("A{$groupStart}:L{$groupStart}")->getBorders()
+                            ->getTop()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+                    }
+                    $groupIdx++;
+                };
+
                 foreach ($rows as $r) {
-                    $sheet->setCellValue('A' . $row, $r->org_name ?? '-');
-                    $sheet->setCellValue('B' . $row, $r->org_code ?? '-');
-                    $sheet->setCellValue('C' . $row, $r->contact_person ?? '-');
-                    $sheet->setCellValue('D' . $row, $r->contact_email ?? '-');
-                    $sheet->setCellValue('E' . $row, $r->contact_phone ?? '-');
+                    $orgKey = ($r->org_name ?? '') . '|' . ($r->org_code ?? '');
+                    if ($prevOrg !== null && $orgKey !== $prevOrg) {
+                        $flushExt($row - 1);
+                        $groupStart = $row;
+                        $firstRow   = null;
+                    }
+                    if ($firstRow === null) {
+                        $sheet->setCellValue('A' . $row, $r->org_name ?? '-');
+                        $sheet->setCellValue('B' . $row, $r->org_code ?? '-');
+                        $sheet->setCellValue('C' . $row, $r->contact_person ?? '-');
+                        $sheet->setCellValue('D' . $row, $r->contact_email ?? '-');
+                        $sheet->setCellValue('E' . $row, $r->contact_phone ?? '-');
+                        $firstRow = $row;
+                    }
                     $sheet->setCellValue('F' . $row, $r->access_code ?? '-');
                     $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
                     $sheet->setCellValue('G' . $row, $eeName ?: '-');
@@ -4478,8 +4553,12 @@ class AdminEvaluationReportController extends Controller
                     $sheet->setCellValue('K' . $row, $r->completed_at ? \Carbon\Carbon::parse($r->completed_at)->format('d/m/Y H:i') : '-');
                     $status = $r->completed_at ? 'สำเร็จ' : ($r->started_at ? 'กำลังทำ' : 'ยังไม่เริ่ม');
                     $sheet->setCellValue('L' . $row, $status);
+                    $prevOrg = $orgKey;
                     $row++;
                 }
+                $flushExt($row - 1);
+                $sheet->getStyle("H5:H" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("L5:L" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
             }
 
             $base = $completed ? 'completed-evaluators-external' : 'pending-evaluators-external';
