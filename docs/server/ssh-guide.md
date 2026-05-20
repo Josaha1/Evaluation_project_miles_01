@@ -7,6 +7,8 @@
 > ดูคู่มือ test แยก: [test-environment.md](./test-environment.md)
 >
 > **อัปเดต 2026-04-26**: เพิ่ม MySQL user สำหรับ DBeaver — ดู [dbeaver-access.md](./dbeaver-access.md)
+>
+> **อัปเดต 2026-05-20**: เพิ่ม **วิธีที่ 4 — Deploy จาก Git** (Recommended) VPS มี git + node20 + npm แล้ว build บน server ได้เลย ไม่ต้อง tar+scp
 
 ## ข้อมูล Server
 
@@ -21,6 +23,8 @@
 | **OS** | Ubuntu (kernel 6.8.0) |
 | **Hostname** | srv1545724 |
 | **PHP** | 8.2.30 (php8.2-fpm) |
+| **Node** | 20.20.2 (npm 10.8.2) |
+| **Git** | `/usr/bin/git` |
 | **Web Server** | nginx |
 | **Database** | MySQL (local socket, DB `evaluation_db`) |
 
@@ -243,7 +247,98 @@ echo "Deploy complete: $STAMP"
 '
 ```
 
-## Rollback
+### วิธีที่ 4: Deploy จาก Git (Recommended ตั้งแต่ 2026-05-20)
+
+> ตั้งแต่ 2026-05-20 VPS มี git + node20 + npm พร้อมใช้งาน — deploy ผ่าน git pull/checkout
+> แทนการ tar+scp ได้ ทำให้ history ตามทันบน server และ rollback ง่ายผ่าน `git checkout <sha>`
+
+**Prerequisite (one-time setup ต่อ instance):**
+
+```bash
+ssh -i ~/.ssh/hostinger_deploy root@187.127.97.68 '
+git config --global --add safe.directory /var/www/evaluation
+git config --global --add safe.directory /var/www/evaluation-test
+
+# init เฉพาะถ้ายังไม่มี .git
+for D in /var/www/evaluation /var/www/evaluation-test; do
+  if [ ! -d "$D/.git" ]; then
+    cd "$D"
+    git init -q
+    git remote add origin https://github.com/Josaha1/Evaluation_project_miles_01.git
+  fi
+done
+'
+```
+
+**Deploy flow ปกติ (หลัง push branch ขึ้น GitHub แล้ว):**
+
+```bash
+# ───────── LOCAL ─────────
+# 1. commit + push branch ของคุณ
+git push josaha <branch-name>
+
+# ───────── VPS ─────────
+ssh -i ~/.ssh/hostinger_deploy root@187.127.97.68 '
+set -e
+STAMP=$(date +%Y%m%d-%H%M%S)
+TARGET=/var/www/evaluation-test            # หรือ /var/www/evaluation สำหรับ prod
+BRANCH=feat/exports-fy26-prodsync          # ★ เปลี่ยนเป็น branch ที่ต้องการ deploy
+DB=evaluation_db_test                      # หรือ evaluation_db สำหรับ prod
+cd $TARGET
+
+# 1. Backup
+cp .env /var/backups/$(basename $TARGET)-env-$STAMP 2>/dev/null || true
+mysqldump $DB > /var/backups/$(basename $TARGET)-db-$STAMP.sql
+
+# 2. Fetch + apply (non-destructive — ใช้ checkout ไม่ใช่ reset --hard)
+git fetch --depth=1 origin $BRANCH
+git checkout origin/$BRANCH -- .
+git update-ref refs/heads/$BRANCH origin/$BRANCH
+git symbolic-ref HEAD refs/heads/$BRANCH
+
+# 3. Install + build บน VPS เลย (VPS มี node20+npm แล้ว)
+composer install --no-dev --optimize-autoloader --no-interaction
+npm ci 2>&1 | tail -3
+npm run build 2>&1 | tail -5
+
+# 4. Cache + reload
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+chown -R deploy:www-data .
+chmod -R 755 storage bootstrap/cache
+systemctl reload php8.2-fpm
+
+echo "Deploy from git: $(git log -1 --oneline) @ $STAMP"
+'
+```
+
+**ข้อดีของ git deploy:**
+- HEAD บน VPS ตามทัน git → `git log` บน VPS เห็น history ครบ
+- Rollback ทำได้ผ่าน `git checkout <sha> -- .` แทน untar
+- ไม่ต้อง scp tar (เร็วกว่าถ้า diff น้อย — fetch แค่ส่วนต่าง)
+- preview diff ก่อน apply ได้ด้วย `git diff HEAD origin/<branch> --name-only`
+
+**ข้อควรระวัง:**
+- ⚠️ `git checkout origin/<branch> -- .` จะ **overwrite tracked files** เป็น branch version — file ที่ branch เป็น "stale" จะ downgrade
+  - ตรวจสอบก่อนด้วย `git diff HEAD origin/<branch> --name-only`
+  - ถ้า prod มีไฟล์ที่ branch ไม่มี → จะคงไว้ (untracked) แต่ tracked files ที่ branch เป็นเวอร์ชั่นเก่ากว่า → จะถูก rollback
+- ⚠️ ห้ามใช้ `git reset --hard` (destructive — ลบ untracked files ด้วย)
+- ⚠️ ห้าม commit ทับ master โดยตรง — push เป็น branch แล้ว open PR
+
+**Rollback ผ่าน git:**
+
+```bash
+ssh -i ~/.ssh/hostinger_deploy root@187.127.97.68 '
+cd /var/www/evaluation-test
+git log --oneline -10                       # หา sha ที่ต้องการกลับไป
+git checkout <SHA> -- .                     # apply working tree เป็น sha นั้น
+php artisan config:cache && php artisan route:cache && php artisan view:cache
+systemctl reload php8.2-fpm
+'
+```
+
+## Rollback (วิธีเก่า — tarball)
 
 ```bash
 ssh -i ~/.ssh/hostinger_deploy root@187.127.97.68 '
