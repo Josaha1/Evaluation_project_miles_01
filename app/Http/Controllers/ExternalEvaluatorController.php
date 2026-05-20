@@ -847,24 +847,8 @@ class ExternalEvaluatorController extends Controller
         $accessCode = $sessionAccessCode;  // for logging compat
         $evaluateeId = $sessionEvaluateeId;
 
-        // Mark session as completed (touch + then clear so user can submit additional batches)
-        $externalSession->update(['completed_at' => now()]);
-        $externalSession->update(['completed_at' => null]);
-
-        Log::channel('stack')->info('External evaluation submitted', [
-            'session_id' => $externalSession->id,
-            'code_id' => $accessCode->id,
-            'evaluator_id' => $evaluatorId,
-            'evaluatee_id' => $evaluateeId,
-            'evaluation_id' => $evaluationId,
-            'answer_count' => count($data['answers']),
-            'ip' => $request->ip(),
-        ]);
-
-        // DO NOT clear session — allow evaluator to do more evaluations from dashboard
-        // User explicitly logs out via /external/logout when done
-
-        // Check if there are more evaluatees to evaluate
+        // คง session ไว้ถ้ายังเหลือ evaluatee — set completed_at เฉพาะตอนประเมินครบทุกคน
+        // เดิม set NOW แล้ว NULL ทันที = session ไม่เคย complete → middleware loop ผู้ใช้กลับ form
         $orgId = $accessCode->external_organization_id;
         $remaining = ExternalAccessCode::where('external_organization_id', $orgId)
             ->where('fiscal_year', $accessCode->fiscal_year)
@@ -873,6 +857,21 @@ class ExternalEvaluatorController extends Controller
                 $q->where('id', $externalSession->id);
             })
             ->count();
+
+        if ($remaining === 0) {
+            $externalSession->update(['completed_at' => now()]);
+        }
+
+        Log::channel('stack')->info('External evaluation submitted', [
+            'session_id' => $externalSession->id,
+            'code_id' => $accessCode->id,
+            'evaluator_id' => $evaluatorId,
+            'evaluatee_id' => $evaluateeId,
+            'evaluation_id' => $evaluationId,
+            'answer_count' => count($data['answers']),
+            'remaining' => $remaining,
+            'ip' => $request->ip(),
+        ]);
 
         return redirect()->route('external.dashboard')->with('success',
             'บันทึกผลประเมินเรียบร้อยแล้ว' . ($remaining > 0 ? ' — สามารถประเมินคนถัดไปได้' : ' — ประเมินครบทุกคนแล้ว'));
