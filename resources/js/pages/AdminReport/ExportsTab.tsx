@@ -52,7 +52,10 @@ const ANALYSIS_REPORTS: ExportItem[] = [
 ];
 
 const STATUS_REPORTS: ExportItem[] = [
-    { id: "pending-evaluators", title: "ผู้ประเมินที่ยังไม่เสร็จสิ้น", description: "รายชื่อผู้ประเมินที่ยังไม่ส่ง พร้อมรายชื่อผู้ที่เค้าต้องประเมิน + กอง/ฝ่าย/สายงาน", icon: ClipboardList, accent: "amber" },
+    { id: "completed-evaluators-internal", title: "ผู้ประเมินสำเร็จแล้ว (ภายใน)", description: "รายชื่อผู้ประเมินภายในที่ส่งแบบประเมินครบทุกข้อแล้ว พร้อมเวลาที่ส่ง", icon: UserCheck, accent: "emerald" },
+    { id: "completed-evaluators-external", title: "ผู้ประเมินสำเร็จแล้ว (ภายนอก)", description: "รายชื่อผู้ประเมินภายนอก (แยกตามองค์กร) ที่ส่งแบบประเมินเสร็จแล้ว", icon: UserCheck, accent: "teal" },
+    { id: "pending-evaluators", title: "ผู้ประเมินที่ยังไม่เสร็จสิ้น (ภายใน)", description: "รายชื่อผู้ประเมินภายในที่ยังไม่ส่ง พร้อมรายชื่อผู้ที่เค้าต้องประเมิน + กอง/ฝ่าย/สายงาน", icon: ClipboardList, accent: "amber" },
+    { id: "pending-evaluators-external", title: "ผู้ประเมินที่ยังไม่เสร็จสิ้น (ภายนอก)", description: "รายชื่อผู้ประเมินภายนอก (แยกตามองค์กร) ที่ยังไม่ได้ส่ง พร้อมข้อมูลผู้ติดต่อขององค์กร", icon: ClipboardList, accent: "rose" },
 ];
 
 const ANGLE_OPTIONS = [

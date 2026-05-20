@@ -4199,4 +4199,287 @@ class AdminEvaluationReportController extends Controller
             return response()->json(['error' => 'การส่งออกรายงานล้มเหลว: ' . $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Export Excel — ผู้ประเมิน "ภายใน" ที่ส่งครบแล้ว (สำเร็จ)
+     * predicate: submitted_at IS NOT NULL AND answer_count >= total_questions
+     */
+    public function exportCompletedEvaluatorsInternal(Request $request)
+    {
+        try {
+            $this->boostLimits();
+
+            $fiscalYear   = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
+            $divisionId   = $request->input('division_id');
+            $departmentId = $request->input('department_id');
+            $positionId   = $request->input('position_id');
+            $grade        = $request->input('grade');
+            $angle        = $request->input('angle');
+            $userId       = $request->input('user_id');
+
+            $answerCounts = DB::table('answers')
+                ->select('evaluation_id', 'user_id as evaluator_id', 'evaluatee_id',
+                         DB::raw('COUNT(*) as answer_count'))
+                ->where('fiscal_year', $fiscalYear)
+                ->groupBy('evaluation_id', 'user_id', 'evaluatee_id');
+
+            $questionCounts = DB::table('questions')
+                ->join('aspects', 'questions.aspect_id', '=', 'aspects.id')
+                ->join('parts', 'aspects.part_id', '=', 'parts.id')
+                ->select('parts.evaluation_id', DB::raw('COUNT(*) as total_questions'))
+                ->groupBy('parts.evaluation_id');
+
+            $rowsQuery = DB::table('evaluation_assignments as ea')
+                ->join('users as ev', 'ev.id', '=', 'ea.evaluator_id')
+                ->leftJoin('users as ee', 'ee.id', '=', 'ea.evaluatee_id')
+                ->leftJoin('evaluations as e', 'e.id', '=', 'ea.evaluation_id')
+                ->leftJoin('positions as p', 'p.id', '=', 'ev.position_id')
+                ->leftJoin('departments as dep', 'dep.id', '=', 'ev.department_id')
+                ->leftJoin('factions as f', 'f.id', '=', 'ev.faction_id')
+                ->leftJoin('divisions as d', 'd.id', '=', 'ev.division_id')
+                ->leftJoinSub($answerCounts, 'ans', function ($j) {
+                    $j->on('ea.evaluation_id', '=', 'ans.evaluation_id')
+                      ->on('ea.evaluator_id', '=', 'ans.evaluator_id')
+                      ->on('ea.evaluatee_id', '=', 'ans.evaluatee_id');
+                })
+                ->leftJoinSub($questionCounts, 'qc', function ($j) {
+                    $j->on('ea.evaluation_id', '=', 'qc.evaluation_id');
+                })
+                ->where('ev.user_type', 'internal')
+                ->where('ea.fiscal_year', $fiscalYear)
+                ->whereNotNull('ea.submitted_at')
+                ->whereRaw('COALESCE(ans.answer_count, 0) >= COALESCE(qc.total_questions, 0)')
+                ->whereRaw('COALESCE(qc.total_questions, 0) > 0')
+                ->when($divisionId,   fn($q) => $q->where('ev.division_id', $divisionId))
+                ->when($departmentId, fn($q) => $q->where('ev.department_id', $departmentId))
+                ->when($positionId,   fn($q) => $q->where('ev.position_id', $positionId))
+                ->when($grade,        fn($q) => $q->where('ev.grade', $grade))
+                ->when($angle,        fn($q) => $q->where('ea.angle', $angle))
+                ->when($userId,       fn($q) => $q->where('ev.id', $userId))
+                ->orderBy('ev.emid')->orderBy('ee.fname')
+                ->select(
+                    'ev.emid', 'ev.prename', 'ev.fname', 'ev.lname', 'ev.grade',
+                    'p.title as position',
+                    'dep.name as department', 'f.name as faction', 'd.name as division',
+                    'ee.prename as ee_prename', 'ee.fname as ee_fname', 'ee.lname as ee_lname',
+                    'ee.grade as evaluatee_grade',
+                    'ea.angle', 'ea.submitted_at', 'e.title as evaluation_title'
+                );
+
+            $rows = $rowsQuery->get();
+            $totalCount = $rows->count();
+
+            $angleLabels = [
+                'top'    => 'ผู้บังคับบัญชา (บน)',
+                'bottom' => 'ผู้ใต้บังคับบัญชา (ล่าง)',
+                'left'   => 'เพื่อนร่วมงาน (ซ้าย)',
+                'right'  => 'องค์กรภายนอก (ขวา)',
+                'self'   => 'ตนเอง',
+            ];
+
+            $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('Completed Internal');
+
+            $sheet->setCellValue('A1', 'รายชื่อผู้ประเมินภายในที่ประเมินสำเร็จแล้ว — ปีงบประมาณ พ.ศ. ' . ($fiscalYear + 543));
+            $sheet->mergeCells('A1:N1');
+            $sheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+
+            $sheet->setCellValue('A2', 'สร้างเมื่อ: ' . now()->format('d/m/Y H:i') . ' | จำนวน: ' . $totalCount . ' รายการ');
+            $sheet->mergeCells('A2:N2');
+
+            $headers = [
+                'A4' => 'รหัสพนักงาน', 'B4' => 'คำนำหน้า', 'C4' => 'ชื่อ', 'D4' => 'นามสกุล',
+                'E4' => 'ตำแหน่ง', 'F4' => 'ระดับ', 'G4' => 'กอง', 'H4' => 'ฝ่าย', 'I4' => 'สายงาน',
+                'J4' => 'ผู้ถูกประเมิน', 'K4' => 'ระดับผู้ถูกประเมิน', 'L4' => 'มุม', 'M4' => 'แบบประเมิน', 'N4' => 'ส่งเมื่อ',
+            ];
+            foreach ($headers as $cell => $h) {
+                $sheet->setCellValue($cell, $h);
+            }
+            $sheet->getStyle('A4:N4')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle('A4:N4')->getFill()
+                ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                ->getStartColor()->setRGB('059669');
+            $sheet->getStyle('A4:N4')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+
+            $colWidths = ['A'=>12,'B'=>10,'C'=>14,'D'=>16,'E'=>22,'F'=>8,'G'=>22,'H'=>22,'I'=>22,'J'=>22,'K'=>10,'L'=>18,'M'=>28,'N'=>18];
+            foreach ($colWidths as $col => $w) {
+                $sheet->getColumnDimension($col)->setWidth($w);
+            }
+
+            $row = 5;
+            if ($totalCount === 0) {
+                $sheet->setCellValue('A' . $row, 'ไม่มีข้อมูลผู้ประเมินที่ส่งครบแล้ว');
+                $sheet->mergeCells("A{$row}:N{$row}");
+                $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("A{$row}")->getFont()->setItalic(true)->getColor()->setRGB('9CA3AF');
+            } else {
+                foreach ($rows as $r) {
+                    $sheet->setCellValue('A' . $row, $r->emid);
+                    $sheet->setCellValue('B' . $row, $r->prename ?? '');
+                    $sheet->setCellValue('C' . $row, $r->fname ?? '');
+                    $sheet->setCellValue('D' . $row, $r->lname ?? '');
+                    $sheet->setCellValue('E' . $row, $r->position ?? '-');
+                    $sheet->setCellValue('F' . $row, $r->grade ?? '-');
+                    $sheet->setCellValue('G' . $row, $r->department ?? '-');
+                    $sheet->setCellValue('H' . $row, $r->faction ?? '-');
+                    $sheet->setCellValue('I' . $row, $r->division ?? '-');
+                    $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
+                    $sheet->setCellValue('J' . $row, $eeName ?: '-');
+                    $sheet->setCellValue('K' . $row, $r->evaluatee_grade ?? '-');
+                    $sheet->setCellValue('L' . $row, $angleLabels[$r->angle] ?? $r->angle);
+                    $sheet->setCellValue('M' . $row, $r->evaluation_title ?? '-');
+                    $sheet->setCellValue('N' . $row, $r->submitted_at ? \Carbon\Carbon::parse($r->submitted_at)->format('d/m/Y H:i') : '-');
+                    $row++;
+                }
+            }
+
+            $filename = 'completed-evaluators-internal-FY' . ($fiscalYear + 543) . '-' . now()->format('YmdHis') . '.xlsx';
+            $filePath = storage_path('app/exports/' . $filename);
+            if (!file_exists(dirname($filePath))) {
+                mkdir(dirname($filePath), 0755, true);
+            }
+            (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($filePath);
+
+            return response()->download($filePath, $filename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            Log::error('Export completed evaluators internal error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกรายงานล้มเหลว: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Export Excel — ผู้ประเมิน "ภายนอก" ที่ส่งครบแล้ว (สำเร็จ)
+     * predicate: external_evaluation_sessions.completed_at IS NOT NULL
+     */
+    public function exportCompletedEvaluatorsExternal(Request $request)
+    {
+        return $this->exportExternalEvaluatorsByStatus($request, completed: true);
+    }
+
+    /**
+     * Export Excel — ผู้ประเมิน "ภายนอก" ที่ยังไม่เสร็จสิ้น
+     * predicate: ยังไม่มี session หรือ session.completed_at IS NULL
+     */
+    public function exportPendingEvaluatorsExternal(Request $request)
+    {
+        return $this->exportExternalEvaluatorsByStatus($request, completed: false);
+    }
+
+    /**
+     * shared external evaluators export — split by status
+     * row = 1 access code (1 external evaluator slot)
+     */
+    protected function exportExternalEvaluatorsByStatus(Request $request, bool $completed)
+    {
+        try {
+            $this->boostLimits();
+
+            $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
+
+            $q = DB::table('external_access_codes as ac')
+                ->leftJoin('external_organizations as org', 'org.id', '=', 'ac.external_organization_id')
+                ->leftJoin('external_evaluation_sessions as s', 's.external_access_code_id', '=', 'ac.id')
+                ->leftJoin('users as ee', 'ee.id', '=', 'ac.evaluatee_id')
+                ->leftJoin('evaluations as e', 'e.id', '=', 'ac.evaluation_id')
+                ->where('ac.fiscal_year', $fiscalYear);
+
+            if ($completed) {
+                $q->whereNotNull('s.completed_at');
+            } else {
+                // pending = ยังไม่มี session หรือ session ยัง active
+                $q->where(function ($w) {
+                    $w->whereNull('s.id')->orWhereNull('s.completed_at');
+                });
+            }
+
+            $rows = $q->orderBy('org.name')->orderBy('ee.fname')
+                ->select(
+                    'org.name as org_name', 'org.org_code', 'org.contact_person',
+                    'org.contact_email', 'org.contact_phone',
+                    'ac.code as access_code', 'ac.is_used', 'ac.expires_at',
+                    's.started_at', 's.completed_at',
+                    'ee.prename as ee_prename', 'ee.fname as ee_fname', 'ee.lname as ee_lname',
+                    'ee.grade as evaluatee_grade',
+                    'e.title as evaluation_title'
+                )->get();
+
+            $totalCount = $rows->count();
+            $label = $completed ? 'ที่ประเมินสำเร็จแล้ว' : 'ที่ยังไม่เสร็จสิ้น';
+            $titleColor = $completed ? '059669' : '7C3AED';
+
+            $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle($completed ? 'Completed External' : 'Pending External');
+
+            $sheet->setCellValue('A1', 'รายชื่อผู้ประเมินภายนอก' . $label . ' — ปีงบประมาณ พ.ศ. ' . ($fiscalYear + 543));
+            $sheet->mergeCells('A1:L1');
+            $sheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+
+            $sheet->setCellValue('A2', 'สร้างเมื่อ: ' . now()->format('d/m/Y H:i') . ' | จำนวน: ' . $totalCount . ' รายการ');
+            $sheet->mergeCells('A2:L2');
+
+            $headers = [
+                'A4' => 'องค์กรภายนอก', 'B4' => 'รหัสองค์กร', 'C4' => 'ผู้ติดต่อ',
+                'D4' => 'อีเมล', 'E4' => 'โทรศัพท์', 'F4' => 'รหัสเข้าใช้งาน',
+                'G4' => 'ผู้ถูกประเมิน', 'H4' => 'ระดับผู้ถูกประเมิน',
+                'I4' => 'แบบประเมิน',
+                'J4' => 'เริ่มเมื่อ', 'K4' => 'ส่งเมื่อ', 'L4' => 'สถานะ',
+            ];
+            foreach ($headers as $cell => $h) {
+                $sheet->setCellValue($cell, $h);
+            }
+            $sheet->getStyle('A4:L4')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle('A4:L4')->getFill()
+                ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                ->getStartColor()->setRGB($titleColor);
+            $sheet->getStyle('A4:L4')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+
+            $colWidths = ['A'=>28,'B'=>12,'C'=>20,'D'=>24,'E'=>14,'F'=>16,'G'=>26,'H'=>10,'I'=>30,'J'=>18,'K'=>18,'L'=>14];
+            foreach ($colWidths as $col => $w) {
+                $sheet->getColumnDimension($col)->setWidth($w);
+            }
+
+            $row = 5;
+            if ($totalCount === 0) {
+                $sheet->setCellValue('A' . $row, $completed ? 'ไม่มีข้อมูลผู้ประเมินภายนอกที่ส่งครบแล้ว' : 'ไม่มีข้อมูลผู้ประเมินภายนอกที่ค้างอยู่');
+                $sheet->mergeCells("A{$row}:L{$row}");
+                $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("A{$row}")->getFont()->setItalic(true)->getColor()->setRGB('9CA3AF');
+            } else {
+                foreach ($rows as $r) {
+                    $sheet->setCellValue('A' . $row, $r->org_name ?? '-');
+                    $sheet->setCellValue('B' . $row, $r->org_code ?? '-');
+                    $sheet->setCellValue('C' . $row, $r->contact_person ?? '-');
+                    $sheet->setCellValue('D' . $row, $r->contact_email ?? '-');
+                    $sheet->setCellValue('E' . $row, $r->contact_phone ?? '-');
+                    $sheet->setCellValue('F' . $row, $r->access_code ?? '-');
+                    $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
+                    $sheet->setCellValue('G' . $row, $eeName ?: '-');
+                    $sheet->setCellValue('H' . $row, $r->evaluatee_grade ?? '-');
+                    $sheet->setCellValue('I' . $row, $r->evaluation_title ?? '-');
+                    $sheet->setCellValue('J' . $row, $r->started_at ? \Carbon\Carbon::parse($r->started_at)->format('d/m/Y H:i') : '-');
+                    $sheet->setCellValue('K' . $row, $r->completed_at ? \Carbon\Carbon::parse($r->completed_at)->format('d/m/Y H:i') : '-');
+                    $status = $r->completed_at ? 'สำเร็จ' : ($r->started_at ? 'กำลังทำ' : 'ยังไม่เริ่ม');
+                    $sheet->setCellValue('L' . $row, $status);
+                    $row++;
+                }
+            }
+
+            $base = $completed ? 'completed-evaluators-external' : 'pending-evaluators-external';
+            $filename = $base . '-FY' . ($fiscalYear + 543) . '-' . now()->format('YmdHis') . '.xlsx';
+            $filePath = storage_path('app/exports/' . $filename);
+            if (!file_exists(dirname($filePath))) {
+                mkdir(dirname($filePath), 0755, true);
+            }
+            (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($filePath);
+
+            return response()->download($filePath, $filename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            Log::error('Export external evaluators error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกรายงานล้มเหลว: ' . $e->getMessage()], 500);
+        }
+    }
 }
