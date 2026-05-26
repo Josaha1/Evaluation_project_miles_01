@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { X, Clock, Info, Calendar } from 'lucide-react';
+import { usePage } from '@inertiajs/react';
 
 interface AnnouncementData {
     title?: string;
@@ -21,10 +22,9 @@ export default function AnnouncementModal({
    
     announcement
 }: AnnouncementModalProps) {
-  
-  
-
-   
+    const { system } = usePage<{ system?: { fiscal_year_be?: number } }>().props;
+    const fiscalYearBE = system?.fiscal_year_be || (new Date().getFullYear() + 543);
+    const prevYearBE = fiscalYearBE - 1;
 
     const handleManualClose = () => {
       
@@ -44,7 +44,7 @@ export default function AnnouncementModal({
             {/* Modal - Responsive */}
             <div className="relative w-full max-w-sm sm:max-w-lg md:max-w-2xl lg:max-w-3xl max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in fade-in duration-300 scale-in-95">
                 {/* Header - Responsive */}
-                <div className="relative p-4 sm:p-6 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-t-xl sm:rounded-t-2xl text-white">
+                <div className="relative p-4 sm:p-6 bg-gradient-to-r from-violet-600 to-purple-700 rounded-t-xl sm:rounded-t-2xl text-white">
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0">
                             <div className="p-1.5 sm:p-2 bg-white/20 rounded-lg flex-shrink-0">
@@ -55,8 +55,8 @@ export default function AnnouncementModal({
                                 <h2 className="text-lg sm:text-xl font-bold leading-tight">
                                     {announcement?.title || 'ประกาศการประเมิน 360 องศา'}
                                 </h2>
-                                <p className="text-blue-100 text-xs sm:text-sm mt-1">
-                                    กนอ. ประจำปี {announcement?.year || '2567-2568'}
+                                <p className="text-violet-100 text-xs sm:text-sm mt-1">
+                                    กนอ. ประจำปี {announcement?.year || `${prevYearBE}-${fiscalYearBE}`}
                                 </p>
                             </div>
                         </div>
@@ -78,9 +78,9 @@ export default function AnnouncementModal({
                 <div className="p-4 sm:p-6">
                     <div className="space-y-3 sm:space-y-4">
                         {/* Main announcement */}
-                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg sm:rounded-xl p-3 sm:p-4">
+                        <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-lg sm:rounded-xl p-3 sm:p-4">
                             <div className="flex items-start gap-2 sm:gap-3">
-                                <div className="p-1 bg-blue-500 rounded-full mt-0.5 sm:mt-1 flex-shrink-0">
+                                <div className="p-1 bg-violet-500 rounded-full mt-0.5 sm:mt-1 flex-shrink-0">
                                     <Calendar size={14} className="text-white sm:hidden" />
                                     <Calendar size={16} className="text-white hidden sm:block" />
                                 </div>
@@ -90,8 +90,8 @@ export default function AnnouncementModal({
                                     </h3>
                                     <div className="text-gray-700 dark:text-gray-300 leading-relaxed">
                                         <ul className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 space-y-1 sm:space-y-2">
-                                        <li className="pl-1">• ในการประเมิน 360 องศา ของ กนอ. ในครั้งนี้ จะเป็นการประเมินตามตำแหน่งงาน/ระดับพนักงานของบุคลากรในปี 2568 จนถึงวันที่ 31 มีนาคม 2568</li>
-                                        <li className="pl-1">• พนักงานตามคำสั่งมอบหมายให้ไปช่วยปฏิบัติงาน (เฉพาะกรณีช่วยปฏิบัติงาน) หรือพนักงานที่โยกย้ายไป ดำรงสังกัดใหม่ หากอายุงานในสังกัดนั้นไม่ครบ 8 เดือน ให้ผู้บังคับบัญชาสังกัดเดิมเป็นผู้ประเมิน หากเกินกว่า 8 เดือน ให้ผู้บังคับบัญชาสังกัดปัจจุบันเป็นผู้ประเมิน</li>
+                                        <li className="pl-1">• ในการประเมิน 360 องศา ของ กนอ. ในครั้งนี้ จะเป็นการประเมินตามตำแหน่งงาน/ระดับพนักงานของบุคลากรในปี {fiscalYearBE} จนถึงวันที่ 31 มีนาคม {fiscalYearBE}</li>
+                                        <li className="pl-1">• พนักงานตามคำสั่งมอบหมายให้ไปช่วยปฏิบัติงาน (เฉพาะกรณีช่วยปฏิบัติงาน) หรือพนักงานที่โยกย้ายไป ดำรงสังกัดใหม่ หากอายุงานในสังกัดนั้นไม่ครบ 3 เดือน ให้ผู้บังคับบัญชาสังกัดเดิมเป็นผู้ประเมิน หากเกินกว่า 3 เดือน ให้ผู้บังคับบัญชาสังกัดปัจจุบันเป็นผู้ประเมิน</li>
                                     </ul>
                                     </div>
                                 </div>
@@ -128,7 +128,7 @@ export default function AnnouncementModal({
                         <div className="flex gap-3">
                             <button
                                 onClick={handleManualClose}
-                                className="px-4 sm:px-6 py-2 sm:py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium text-sm sm:text-base min-w-[80px] sm:min-w-[100px]"
+                                className="px-4 sm:px-6 py-2 sm:py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors font-medium text-sm sm:text-base min-w-[80px] sm:min-w-[100px]"
                             >
                                 รับทราบ
                             </button>

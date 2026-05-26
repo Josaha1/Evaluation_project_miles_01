@@ -23,12 +23,19 @@ class ScoreCalculationService
      * ระบบน้ำหนักที่ปรับปรุงแล้ว - สามารถกำหนดค่าได้
      */
     private array $defaultWeights = [
-        '5-8' => [
+        '4-8' => [
             'self' => 0.50,
             'top' => 0.20,
             'left' => 0.30
         ],
         '9-12' => [
+            'self' => 0.10,
+            'top' => 0.25,
+            'bottom' => 0.25,
+            'left' => 0.20,
+            'right' => 0.20
+        ],
+        '13' => [
             'self' => 0.10,
             'top' => 0.25,
             'bottom' => 0.25,
@@ -265,9 +272,9 @@ class ScoreCalculationService
             // คะแนนแต่ละมุมมอง
             'self' => $scoreByAngle['self'] ?? 0,
             'top' => $scoreByAngle['top'] ?? 0,
-            'bottom' => $grade >= 9 ? ($scoreByAngle['bottom'] ?? 0) : null,
+            'bottom' => EvaluationLookupService::supportsAngle($grade, 'bottom') ? ($scoreByAngle['bottom'] ?? 0) : null,
             'left' => $scoreByAngle['left'] ?? 0,
-            'right' => $grade >= 9 ? ($scoreByAngle['right'] ?? 0) : null,
+            'right' => EvaluationLookupService::supportsAngle($grade, 'right') ? ($scoreByAngle['right'] ?? 0) : null,
             
             // คะแนนสรุป
             'average' => round($weightedAverage, 2),
@@ -315,9 +322,9 @@ class ScoreCalculationService
             // คะแนนแต่ละมุมมอง - ทั้งหมดเป็น 0
             'self' => 0,
             'top' => 0,
-            'bottom' => $grade >= 9 ? 0 : null,
+            'bottom' => EvaluationLookupService::supportsAngle($grade, 'bottom') ? 0 : null,
             'left' => 0,
-            'right' => $grade >= 9 ? 0 : null,
+            'right' => EvaluationLookupService::supportsAngle($grade, 'right') ? 0 : null,
             
             // คะแนนสรุป
             'average' => 0,
@@ -349,7 +356,7 @@ class ScoreCalculationService
      */
     private function getWeightsForLevel(string $level, ?int $fiscalYear = null): array
     {
-        return $this->defaultWeights[$level] ?? $this->defaultWeights['5-8'];
+        return $this->defaultWeights[$level] ?? $this->defaultWeights['4-8'];
     }
     
     /**
@@ -357,7 +364,9 @@ class ScoreCalculationService
      */
     private function determineLevel(int $grade): string
     {
-        return $grade >= 9 ? '9-12' : '5-8'; // '5-8' key covers grades 4-8
+        if ($grade >= 13) return '13';
+        if ($grade >= 9) return '9-12';
+        return '4-8';
     }
     
     /**

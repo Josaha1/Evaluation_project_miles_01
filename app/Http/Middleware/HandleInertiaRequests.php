@@ -3,10 +3,28 @@
 namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
+    /**
+     * Handle the incoming request — add no-cache headers to prevent
+     * browser back button showing raw JSON.
+     */
+    public function handle(Request $request, \Closure $next): Response
+    {
+        $response = parent::handle($request, $next);
+
+        // Prevent browser from caching Inertia JSON responses
+        if ($request->header('X-Inertia')) {
+            $response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+            $response->headers->set('Pragma', 'no-cache');
+        }
+
+        return $response;
+    }
+
     /**
      * The root template that is loaded on the first page visit.
      *
@@ -19,6 +37,10 @@ class HandleInertiaRequests extends Middleware
      */
     public function version(Request $request): string|null
     {
+        if (file_exists($manifest = public_path('build/manifest.json'))) {
+            return md5_file($manifest);
+        }
+
         return parent::version($request);
     }
 
@@ -105,12 +127,18 @@ class HandleInertiaRequests extends Middleware
 
             // ✨ System Status
             'system' => function () {
+                // Thai fiscal year: Oct-Sep (month >= 10 → next CE year)
+                $fiscalYearCE = \App\Services\EvaluationLookupService::currentFiscalYear();
+                $fiscalYearBE = $fiscalYearCE + 543;
+
                 return [
                     'maintenance_mode' => app()->isDownForMaintenance(),
                     'version' => config('app.version', '1.0.0'),
                     'last_updated' => cache()->remember('last_updated', 3600, function () {
                         return now()->toDateTimeString();
                     }),
+                    'fiscal_year_ce' => $fiscalYearCE,
+                    'fiscal_year_be' => $fiscalYearBE,
                 ];
             },
 

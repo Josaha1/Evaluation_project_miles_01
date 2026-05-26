@@ -648,15 +648,19 @@ class ExternalEvaluatorController extends Controller
     }
 
     /**
-     * Show evaluation form for the external evaluator.
+     * Show evaluation form. Multi-evaluatee mode: list ALL evaluatees that share
+     * the current evaluation form within the picked org's related codes — like the
+     * internal `assigned-evaluations` flow where the evaluator answers each question
+     * once per evaluatee on a single page (one form, many people).
      */
     public function showEvaluation(Request $request)
     {
         $externalSession = $request->attributes->get('external_session');
-
         $evaluation = $externalSession->evaluation;
-        $evaluatee = $externalSession->evaluatee;
         $organization = $externalSession->organization;
+        $relatedCodeIds = $request->session()->get('related_code_ids', [$externalSession->external_access_code_id]);
+        $pickedOrg = $request->session()->get('picked_org_name');
+        $currentEvaluationId = (int) $externalSession->evaluation_id;
 
         // Load evaluation structure
         $parts = $evaluation->parts()->with([
@@ -665,45 +669,95 @@ class ExternalEvaluatorController extends Controller
             'questions.options',
         ])->orderBy('order')->get();
 
-        // Get existing answers if any (for resume capability)
-        $evaluatorId = $externalSession->accessCode?->evaluationAssignment?->evaluator_id;
+        // Multi-evaluatee scope: all evaluatees from related codes that share THIS form
+        $pivotQuery = \DB::table('external_code_evaluatees as p')
+            ->join('users as u', 'u.id', '=', 'p.evaluatee_id')
+            ->leftJoin('positions as pos', 'pos.id', '=', 'u.position_id')
+            ->leftJoin('departments as dept', 'dept.id', '=', 'u.department_id')
+            ->leftJoin('divisions as divi', 'divi.id', '=', 'u.division_id')
+            ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'p.external_access_code_id')
+            ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
+            ->whereIn('p.external_access_code_id', $relatedCodeIds)
+            ->where('p.evaluation_id', $currentEvaluationId);
 
-        $existingAnswers = [];
-        if ($evaluatorId) {
-            $externalFiscalYear = $externalSession->accessCode->fiscal_year ?? EvaluationLookupService::currentFiscalYear();
-            $existingAnswers = Answer::where('evaluation_id', $evaluation->id)
-                ->where('user_id', $evaluatorId)
-                ->where('evaluatee_id', $evaluatee->id)
-                ->where('fiscal_year', $externalFiscalYear)
-                ->get()
-                ->keyBy('question_id')
-                ->map(fn($a) => [
-                    'value' => $a->value,
-                    'other_text' => $a->other_text,
-                ])
-                ->toArray();
+        if ($pickedOrg) {
+            $pickedNorm = \App\Models\ExternalStakeholder::normalizeName($pickedOrg);
+            $pivotQuery->whereExists(function ($q) use ($pickedNorm) {
+                $q->select(\DB::raw(1))
+                    ->from('external_stakeholders as es')
+                    ->whereColumn('es.external_access_code_id', 'p.external_access_code_id')
+                    ->whereColumn('es.evaluatee_id', 'p.evaluatee_id')
+                    ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(es.organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$pickedNorm]);
+            });
         }
 
+        $pivotRows = $pivotQuery->select(
+            'u.id as user_id', 'u.prename', 'u.fname', 'u.lname', 'u.grade',
+            'pos.title as position', 'dept.name as department', 'divi.name as division',
+            'p.external_access_code_id as access_code_id',
+            'eo.name as source_group'
+        )->orderByDesc('u.grade')->orderBy('u.fname')->get();
+
+        // Dedup by user_id, collect access_code_ids per evaluatee (may span codes)
+        $byEvaluatee = $pivotRows->groupBy('user_id')->map(function ($rows) {
+            $r = $rows->first();
+            return [
+                'id'             => $r->user_id,
+                'name'           => trim(($r->prename ?? '') . ($r->fname ?? '') . ' ' . ($r->lname ?? '')),
+                'position'       => $r->position,
+                'department'     => $r->department,
+                'division'       => $r->division,
+                'grade'          => $r->grade,
+                'access_code_id' => (int) $r->access_code_id,
+                'source_groups'  => $rows->pluck('source_group')->filter()->unique()->values()->all(),
+            ];
+        })->values();
+
+        // Existing answers (resume): keyed "{evaluatee_id}_{question_id}" so frontend
+        // can match. Scope to sessions linked to the picked org for this evaluator
+        // (across related codes), so previously answered evaluatees stay filled in.
+        $sessionsForOrg = $pickedOrg
+            ? \App\Models\ExternalStakeholder::query()
+                ->whereIn('external_access_code_id', $relatedCodeIds)
+                ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [\App\Models\ExternalStakeholder::normalizeName($pickedOrg)])
+                ->whereNotNull('external_session_id')
+                ->pluck('external_session_id')->unique()->toArray()
+            : [$externalSession->id];
+
+        $existingAnswers = Answer::where('evaluation_id', $currentEvaluationId)
+            ->whereIn('external_session_id', $sessionsForOrg)
+            ->whereIn('evaluatee_id', $byEvaluatee->pluck('id'))
+            ->get()
+            ->mapWithKeys(fn ($a) => [
+                $a->evaluatee_id . '_' . $a->question_id => [
+                    'value' => $a->value,
+                    'other_text' => $a->other_text,
+                ],
+            ])
+            ->toArray();
+
         return Inertia::render('ExternalEvaluation', [
-            'evaluation' => $evaluation,
-            'evaluatee' => [
-                'id' => $evaluatee->id,
-                'name' => $evaluatee->fname . ' ' . $evaluatee->lname,
-                'position' => $evaluatee->position ? $evaluatee->position->name : null,
-                'department' => $evaluatee->department ? $evaluatee->department->name : null,
-            ],
-            'organization' => [
-                'id' => $organization->id,
+            'evaluation'      => $evaluation,
+            'evaluatees'      => $byEvaluatee,                                  // PLURAL — list of all sharing this form
+            'evaluatee'       => $byEvaluatee->firstWhere('id', $externalSession->evaluatee_id) ?? $byEvaluatee->first(),  // back-compat for old UI
+            'organization'    => [
+                'id'   => $organization->id,
                 'name' => $organization->name,
             ],
-            'parts' => $parts,
+            'pickedOrg'       => $pickedOrg,
+            'parts'           => $parts,
             'existingAnswers' => $existingAnswers,
-            'sessionId' => $externalSession->id,
+            'sessionId'       => $externalSession->id,
         ]);
     }
 
     /**
-     * Save external evaluation answers.
+     * Save external evaluation answers. Accepts both:
+     *  - Multi-evaluatee envelope: each item has {question_id, evaluatee_id, value, other_text?}
+     *  - Legacy single-evaluatee: each item has {question_id, value, other_text?} (uses session.evaluatee_id)
+     *
+     * In multi mode the access_code_id is resolved per evaluatee from the pivot
+     * (since evaluatees from related codes may live under different codes).
      */
     public function submitEvaluation(Request $request)
     {
@@ -712,36 +766,57 @@ class ExternalEvaluatorController extends Controller
         $data = $request->validate([
             'answers' => 'required|array',
             'answers.*.question_id' => 'required|integer',
+            'answers.*.evaluatee_id' => 'nullable|integer',
             'answers.*.value' => 'nullable',
             'answers.*.other_text' => 'nullable|string',
         ]);
 
-        $accessCode = $externalSession->accessCode;
-        $assignment = $accessCode->evaluationAssignment;
+        $sessionAccessCode = $externalSession->accessCode;
+        $relatedCodeIds = $request->session()->get('related_code_ids', [$externalSession->external_access_code_id]);
+        $evaluationId = (int) $externalSession->evaluation_id;
+        $sessionEvaluateeId = $externalSession->evaluatee_id;
 
-        // Use assignment data if available, otherwise fallback to session/accessCode data
-        $evaluateeId = $externalSession->evaluatee_id ?? $accessCode->evaluatee_id;
-        $evaluationId = $externalSession->evaluation_id ?? $accessCode->evaluation_id;
-
-        if (!$evaluateeId || !$evaluationId) {
-            return back()->withErrors(['error' => 'ไม่พบข้อมูลผู้ถูกประเมินหรือแบบประเมิน']);
+        if (!$evaluationId) {
+            return back()->withErrors(['error' => 'ไม่พบแบบประเมิน']);
         }
 
-        // For external evaluators: use evaluator_id from assignment if available,
-        // otherwise use evaluatee_id as user_id (distinguished by external_access_code_id)
-        $evaluatorId = $assignment?->evaluator_id ?? $evaluateeId;
+        // Pre-resolve pivot rows so we can map evaluatee_id → (access_code_id, fiscal_year)
+        $evaluateeIds = collect($data['answers'])->pluck('evaluatee_id')->filter()->unique()->values();
+        if ($evaluateeIds->isEmpty() && $sessionEvaluateeId) {
+            $evaluateeIds = collect([$sessionEvaluateeId]);
+        }
 
-        // Save answers — DELETE+INSERT keyed by external_session_id (no stale columns leak)
+        $pivotMap = \DB::table('external_code_evaluatees as p')
+            ->join('external_access_codes as ac', 'ac.id', '=', 'p.external_access_code_id')
+            ->whereIn('p.external_access_code_id', $relatedCodeIds)
+            ->whereIn('p.evaluatee_id', $evaluateeIds)
+            ->where('p.evaluation_id', $evaluationId)
+            ->select('p.evaluatee_id', 'p.external_access_code_id', 'ac.fiscal_year')
+            ->get()
+            ->keyBy('evaluatee_id');
+
+        $evaluatorId = $sessionAccessCode->evaluationAssignment?->evaluator_id ?? $sessionEvaluateeId ?? $evaluateeIds->first();
+
+        // Save each answer to its correct (evaluatee, access_code) pair
+        $touchedAccessCodes = [];
         foreach ($data['answers'] as $answerData) {
-            ['value' => $finalValue, 'other_text' => $otherText] = \App\Support\AnswerNormalizer::normalize($answerData['value']);
-            // Frontend may also pass other_text alongside value; honor it as override
+            $rowEvaluateeId = $answerData['evaluatee_id'] ?? $sessionEvaluateeId;
+            if (!$rowEvaluateeId) continue;
+
+            $pivot = $pivotMap->get($rowEvaluateeId);
+            if (!$pivot) continue;  // evaluatee not part of this form scope — skip
+            $accessCodeId = (int) $pivot->external_access_code_id;
+            $fiscalYear = (int) ($pivot->fiscal_year ?? EvaluationLookupService::currentFiscalYear());
+            $touchedAccessCodes[$accessCodeId] = true;
+
+            ['value' => $finalValue, 'other_text' => $otherText] = \App\Support\AnswerNormalizer::normalize($answerData['value'] ?? null);
             if (!empty($answerData['other_text'])) {
                 $otherText = $answerData['other_text'];
             }
 
             Answer::where('evaluation_id', $evaluationId)
                 ->where('user_id', $evaluatorId)
-                ->where('evaluatee_id', $evaluateeId)
+                ->where('evaluatee_id', $rowEvaluateeId)
                 ->where('question_id', $answerData['question_id'])
                 ->where('external_session_id', $externalSession->id)
                 ->delete();
@@ -754,24 +829,26 @@ class ExternalEvaluatorController extends Controller
             Answer::create([
                 'evaluation_id'           => $evaluationId,
                 'user_id'                 => $evaluatorId,
-                'evaluatee_id'            => $evaluateeId,
+                'evaluatee_id'            => $rowEvaluateeId,
                 'question_id'             => $answerData['question_id'],
                 'external_session_id'     => $externalSession->id,
                 'value'                   => is_array($finalValue) ? json_encode($finalValue) : $finalValue,
                 'other_text'              => $otherText,
-                'external_access_code_id' => $accessCode->id,
-                'fiscal_year'             => $accessCode->fiscal_year ?? EvaluationLookupService::currentFiscalYear(),
+                'external_access_code_id' => $accessCodeId,
+                'fiscal_year'             => $fiscalYear,
             ]);
         }
 
-        // Mark session as completed
+        // Mark touched access codes as used (any code that received an answer)
+        foreach (array_keys($touchedAccessCodes) as $codeId) {
+            ExternalAccessCode::where('id', $codeId)->increment('use_count');
+            ExternalAccessCode::where('id', $codeId)->update(['used_at' => now()]);
+        }
+        $accessCode = $sessionAccessCode;  // for logging compat
+        $evaluateeId = $sessionEvaluateeId;
+
+        // Mark session as completed (touch + then clear so user can submit additional batches)
         $externalSession->update(['completed_at' => now()]);
-
-        // Increment use count (don't auto-mark is_used — code stays valid for next person)
-        $accessCode->increment('use_count');
-        $accessCode->update(['used_at' => now()]);
-
-        // Refresh session.completed_at so it doesn't lock — user may evaluate more people
         $externalSession->update(['completed_at' => null]);
 
         Log::channel('stack')->info('External evaluation submitted', [

@@ -18,6 +18,8 @@ class ExternalEvaluationSession extends Model
         'session_token',
         'ip_address',
         'user_agent',
+        'evaluator_name',
+        'evaluator_position',
         'started_at',
         'completed_at',
     ];

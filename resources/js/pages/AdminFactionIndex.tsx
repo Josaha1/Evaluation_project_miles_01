@@ -1,8 +1,10 @@
 import MainLayout from "@/Layouts/MainLayout";
 import { usePage, router } from "@inertiajs/react";
-import { Pencil, Trash2, PlusCircle } from "lucide-react";
+import { Pencil, Trash2, PlusCircle, Layers, Search } from "lucide-react";
 import { useState, useEffect } from "react";
 import Breadcrumb from "@/Components/ui/breadcrumb";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 import { toast } from "sonner";
 
 interface Faction {
@@ -21,6 +23,19 @@ interface Paginated<T> {
         active: boolean;
     }[];
 }
+
+const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+        opacity: 1,
+        transition: { staggerChildren: 0.07 },
+    },
+};
+
+const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+};
 
 export default function AdminFactionIndex() {
     const { factions, filters } = usePage<{
@@ -67,102 +82,141 @@ export default function AdminFactionIndex() {
                 />
             }
         >
-            <div className="max-w-7xl mx-auto px-6 py-10">
-                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
-                    <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                        จัดการฝ่าย (Faction)
-                    </h1>
-                    <div className="flex gap-3 flex-wrap">
-                        <input
-                            type="text"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="ค้นหาฝ่าย..."
-                            className="border rounded px-4 py-2 dark:bg-gray-900 dark:text-white"
-                        />
-                        <a
-                            href={route("admin.factions.create")}
-                            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow"
-                        >
-                            <PlusCircle className="w-5 h-5 mr-2" />
-                            เพิ่มฝ่ายใหม่
-                        </a>
-                    </div>
-                </div>
+            <div className="gradient-primary-soft min-h-screen -my-6 px-4 sm:px-6 lg:px-8 py-6">
+                <motion.div
+                    className="max-w-7xl mx-auto px-2 sm:px-6 py-10 space-y-6"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                >
+                    {/* Header */}
+                    <motion.div
+                        variants={itemVariants}
+                        className="flex flex-col md:flex-row md:justify-between md:items-center gap-4"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="p-2.5 gradient-primary rounded-xl text-white shadow-lg shadow-violet-500/25">
+                                <Layers className="w-6 h-6" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-gradient-primary">
+                                จัดการฝ่าย (Faction)
+                            </h1>
+                        </div>
+                        <div className="flex gap-3 flex-wrap">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    placeholder="ค้นหาฝ่าย..."
+                                    className="pl-10 pr-4 py-2 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-900 dark:text-white dark:border-gray-700 transition-all"
+                                />
+                            </div>
+                            <a
+                                href={route("admin.factions.create")}
+                                className="inline-flex items-center px-5 py-2 gradient-primary text-white rounded-xl hover:shadow-lg hover:shadow-violet-500/25 transition-all duration-200"
+                            >
+                                <PlusCircle className="w-5 h-5 mr-2" />
+                                เพิ่มฝ่ายใหม่
+                            </a>
+                        </div>
+                    </motion.div>
 
-                {factions.data.length === 0 ? (
-                    <div className="text-center text-gray-500 dark:text-gray-400 py-20 border rounded bg-white dark:bg-gray-800 shadow">
-                        ไม่พบข้อมูลฝ่าย
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded shadow">
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                                <tr>
-                                    <th className="p-4 text-left">ชื่อฝ่าย</th>
-                                    <th className="p-4 text-center">จำนวนสมาชิก</th>
-                                    <th className="p-4 text-center">การจัดการ</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {factions.data.map((faction) => (
-                                    <tr key={faction.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                        <td className="p-4 font-medium text-gray-800 dark:text-white">
-                                            {faction.name}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
-                                                {faction.users_count} คน
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            <div className="flex items-center justify-center gap-2">
-                                                <a
-                                                    href={route("admin.factions.edit", { faction: faction.id })}
-                                                    className="text-indigo-600 hover:text-indigo-800"
+                    {/* Table or empty state */}
+                    <motion.div variants={itemVariants}>
+                        {factions.data.length === 0 ? (
+                            <div className="glass-card rounded-2xl p-6 text-center text-gray-500 dark:text-gray-400 py-20">
+                                ไม่พบข้อมูลฝ่าย
+                            </div>
+                        ) : (
+                            <div className="glass-card rounded-2xl overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200/50 dark:divide-gray-700/50">
+                                        <thead className="bg-violet-50 dark:bg-violet-900/20">
+                                            <tr>
+                                                <th className="p-4 text-left text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    ชื่อฝ่าย
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    จำนวนสมาชิก
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    การจัดการ
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-200/50 dark:divide-gray-700/50">
+                                            {factions.data.map((faction, index) => (
+                                                <motion.tr
+                                                    key={faction.id}
+                                                    initial={{ opacity: 0, y: 10 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ delay: index * 0.04 }}
+                                                    className="hover:bg-violet-50/50 dark:hover:bg-violet-900/10 transition-colors"
                                                 >
-                                                    <Pencil className="w-5 h-5" />
-                                                </a>
-                                                <button
-                                                    onClick={() => handleDelete(faction.id)}
-                                                    className="text-red-600 hover:text-red-800"
-                                                    title={faction.users_count > 0 ? "ไม่สามารถลบได้ มีสมาชิกอยู่" : "ลบ"}
-                                                >
-                                                    <Trash2 className="w-5 h-5" />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+                                                    <td className="p-4 font-medium text-gray-800 dark:text-white">
+                                                        {faction.name}
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                                            {faction.users_count} คน
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <a
+                                                                href={route("admin.factions.edit", { faction: faction.id })}
+                                                                className="p-1.5 rounded-lg text-violet-600 hover:bg-violet-100 dark:text-violet-400 dark:hover:bg-violet-900/30 transition-colors"
+                                                                title="แก้ไข"
+                                                            >
+                                                                <Pencil className="w-4 h-4" />
+                                                            </a>
+                                                            <button
+                                                                onClick={() => handleDelete(faction.id)}
+                                                                className="p-1.5 rounded-lg text-red-500 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/30 transition-colors"
+                                                                title={faction.users_count > 0 ? "ไม่สามารถลบได้ มีสมาชิกอยู่" : "ลบ"}
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </motion.tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </motion.div>
 
-                {factions.links.length > 1 && (
-                    <div className="flex justify-end mt-6 space-x-1">
-                        {factions.links.map((link, index) => (
-                            <button
-                                key={index}
-                                disabled={!link.url}
-                                onClick={() =>
-                                    link.url &&
-                                    router.visit(link.url, {
-                                        preserveScroll: true,
-                                        preserveState: true,
-                                        data: { page: new URL(link.url).searchParams.get("page"), search },
-                                    })
-                                }
-                                className={`px-3 py-1 border rounded text-sm ${
-                                    link.active
-                                        ? "bg-indigo-600 text-white"
-                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-white"
-                                }`}
-                                dangerouslySetInnerHTML={{ __html: link.label }}
-                            />
-                        ))}
-                    </div>
-                )}
+                    {/* Pagination */}
+                    {factions.links.length > 1 && (
+                        <motion.div variants={itemVariants} className="flex justify-end space-x-1">
+                            {factions.links.map((link, index) => (
+                                <button
+                                    key={index}
+                                    disabled={!link.url}
+                                    onClick={() =>
+                                        link.url &&
+                                        router.visit(link.url, {
+                                            preserveScroll: true,
+                                            preserveState: true,
+                                            data: { page: new URL(link.url).searchParams.get("page"), search },
+                                        })
+                                    }
+                                    className={cn(
+                                        "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+                                        link.active
+                                            ? "gradient-primary text-white shadow-md shadow-violet-500/25"
+                                            : "bg-white/80 border border-gray-200 text-gray-700 hover:bg-violet-50 hover:border-violet-300 dark:bg-gray-800 dark:text-white dark:border-gray-700 dark:hover:bg-violet-900/20"
+                                    )}
+                                    dangerouslySetInnerHTML={{ __html: link.label }}
+                                />
+                            ))}
+                        </motion.div>
+                    )}
+                </motion.div>
             </div>
         </MainLayout>
     );

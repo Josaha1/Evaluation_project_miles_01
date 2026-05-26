@@ -19,7 +19,7 @@ export default function Pagination({ links }: Props) {
                             href={link.url}
                             dangerouslySetInnerHTML={{ __html: link.label }}
                             className={`px-3 py-2 mx-1 rounded border text-sm ${
-                                link.active ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                link.active ? 'bg-violet-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                             }`}
                         />
                     ) : (

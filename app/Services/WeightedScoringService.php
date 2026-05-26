@@ -14,7 +14,7 @@ class WeightedScoringService
      * 3. ด้านเก่งงาน (Adversity Quotient: AQ และ Technology Quotient: TQ) - 30%
      * 4. ด้านการปฏิบัติงานบนฐานความยั่งยืน (Sustainability) - 20%
      */
-    private const GRADE_5_8_CRITERIA_WEIGHTS = [
+    private const GRADE_4_8_CRITERIA_WEIGHTS = [
         'iq' => 0.25,      // ด้านเก่งคิด
         'eq' => 0.25,      // ด้านเก่งคน
         'aq_tq' => 0.30,   // ด้านเก่งงาน
@@ -29,7 +29,7 @@ class WeightedScoringService
      * - เพื่อนร่วมงาน (left)  : 30%
      * ไม่มี bottom (ผู้ใต้บังคับบัญชา) และ right (ภายนอก) สำหรับพนักงาน 4-8
      */
-    private const GRADE_5_8_STAKEHOLDER_WEIGHTS = [
+    private const GRADE_4_8_STAKEHOLDER_WEIGHTS = [
         'self'   => 0.50,  // ประเมินตนเอง
         'top'    => 0.20,  // ผู้บังคับบัญชา
         'left'   => 0.30,  // เพื่อนร่วมงาน
@@ -58,16 +58,16 @@ class WeightedScoringService
     /**
      * Grade 11-12 Executive Evaluation Criteria Weights
      * 1. ด้านความเป็นผู้นำ/ความสามารถในการบริหารจัดการ - 25%
-     * 2. ด้านวิสัยทัศนและกลยุทธ - 25%
-     * 3. ด้านความสามารถในการสื่อสาร - 20%
+     * 2. ด้านวิสัยทัศนและกลยุทธ - 20%
+     * 3. ด้านความสามารถในการสื่อสาร - 15%
      * 4. ด้านกรอบความคิด ความคิด สร้างสรรค์และนวัตกรรม - 15%
      * 5. ด้านจริยธรรมในการปฏิบัติงาน - 10%
      * 6. ด้านความสัมพันธ์และการทำงานร่วมกับผูอื่น - 15%
      */
     private const GRADE_11_12_CRITERIA_WEIGHTS = [
         'leadership_management' => 0.25,    // ความเป็นผู้นำ/ความสามารถในการบริหารจัดการ
-        'vision_strategy' => 0.25,          // วิสัยทัศนและกลยุทธ
-        'communication' => 0.20,            // ความสามารถในการสื่อสาร
+        'vision_strategy' => 0.20,          // วิสัยทัศนและกลยุทธ
+        'communication' => 0.15,            // ความสามารถในการสื่อสาร
         'creativity_innovation' => 0.15,    // กรอบความคิด ความคิด สร้างสรรค์และนวัตกรรม
         'ethics' => 0.10,                   // จริยธรรมในการปฏิบัติงาน
         'relationships_teamwork' => 0.15,   // ความสัมพันธ์และการทำงานร่วมกับผูอื่น
@@ -226,11 +226,11 @@ class WeightedScoringService
     private function determineEvaluationLevel(int $grade): string
     {
         return match (true) {
-            $grade >= 4 && $grade <= 8 => '5-8',
-            $grade >= 9 && $grade <= 10 => '9-10',
-            $grade >= 11 && $grade <= 12 => '11-12',
             $grade >= 13 => 'governor',
-            default => 'other',
+            $grade >= 11 && $grade <= 12 => '11-12',
+            $grade >= 9 && $grade <= 10 => '9-10',
+            $grade >= 4 && $grade <= 8 => '4-8',
+            default => '4-8',
         };
     }
 
@@ -240,11 +240,11 @@ class WeightedScoringService
     private function getCriteriaWeights(string $level, int $grade): array
     {
         return match ($level) {
-            '5-8' => self::GRADE_5_8_CRITERIA_WEIGHTS,
+            '4-8' => self::GRADE_4_8_CRITERIA_WEIGHTS,
             '9-10' => self::GRADE_9_10_CRITERIA_WEIGHTS,
             '11-12' => self::GRADE_11_12_CRITERIA_WEIGHTS,
             'governor' => self::GOVERNOR_CRITERIA_WEIGHTS,
-            default => self::GRADE_5_8_CRITERIA_WEIGHTS, // fallback
+            default => self::GRADE_4_8_CRITERIA_WEIGHTS, // fallback
         };
     }
 
@@ -254,10 +254,10 @@ class WeightedScoringService
     private function getStakeholderWeights(string $level): array
     {
         return match ($level) {
-            '5-8' => self::GRADE_5_8_STAKEHOLDER_WEIGHTS,
+            '4-8' => self::GRADE_4_8_STAKEHOLDER_WEIGHTS,
             '9-10', '11-12' => self::MANAGEMENT_STAKEHOLDER_WEIGHTS,
             'governor' => self::GOVERNOR_STAKEHOLDER_WEIGHTS,
-            default => self::GRADE_5_8_STAKEHOLDER_WEIGHTS, // fallback
+            default => self::GRADE_4_8_STAKEHOLDER_WEIGHTS, // fallback
         };
     }
 
@@ -464,12 +464,15 @@ class WeightedScoringService
      */
     private function analyzeStakeholderScores(Collection $results): array
     {
+        $avgSelf = $results->avg('self') ?? 0;
+        $avgTop = $results->avg('top') ?? 0;
+
         return [
-            'avg_self_score' => round($results->avg('self'), 2),
-            'avg_superior_score' => round($results->avg('top'), 2),
-            'avg_peer_score' => round($results->avg('left'), 2),
-            'avg_subordinate_score' => round($results->avg('bottom'), 2),
-            'self_vs_others_gap' => round($results->avg('self') - $results->avg('top'), 2),
+            'avg_self_score' => round($avgSelf, 2),
+            'avg_superior_score' => round($avgTop, 2),
+            'avg_peer_score' => round($results->avg('left') ?? 0, 2),
+            'avg_subordinate_score' => round($results->avg('bottom') ?? 0, 2),
+            'self_vs_others_gap' => round($avgSelf - $avgTop, 2),
         ];
     }
 
@@ -566,15 +569,23 @@ class WeightedScoringService
                 })
                 ->get();
             
+            // Batch load all assignment angles for this evaluatee in 1 query (avoid N+1 in loop)
+            $evaluatorIds = $answers->pluck('user_id')->unique();
+            $angleMap = \App\Models\EvaluationAssignment::where('evaluatee_id', $userId)
+                ->where('fiscal_year', $fiscalYear)
+                ->whereIn('evaluator_id', $evaluatorIds)
+                ->pluck('angle', 'evaluator_id')
+                ->toArray();
+
             // Group answers by aspect and angle
             $aspectData = [];
             $angleData = ['top' => [], 'bottom' => [], 'self' => [], 'left' => [], 'right' => []];
-            
+
             foreach ($answers as $answer) {
                 $aspectName = $answer->question->aspect->name ?? 'Unknown';
-                
-                // Determine angle based on evaluator and evaluatee relationship
-                $angle = $this->determineAngle($answer->user_id, $answer->evaluatee_id, $fiscalYear);
+
+                // Determine angle from pre-loaded map (no DB query)
+                $angle = ($answer->user_id == $answer->evaluatee_id) ? 'self' : ($angleMap[$answer->user_id] ?? 'unknown');
                 $score = $answer->value ?? 0;
                 
                 if (!isset($aspectData[$aspectName])) {

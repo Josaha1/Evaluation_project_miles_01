@@ -1,164 +1,320 @@
-import { Head, router, usePage } from '@inertiajs/react'
-import { Building2, User, CheckCircle, Clock, ArrowRight, LogOut } from 'lucide-react'
+import { Head, router, usePage } from "@inertiajs/react";
+import { motion } from "framer-motion";
+import { Building2, User as UserIcon, CheckCircle, ArrowRight, LogOut, ClipboardList, Sparkles, AlertTriangle, Trophy, Clock } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { useEffect } from "react";
 
 interface Evaluatee {
-    id: number
-    name: string
-    position: string | null
-    evaluation_title: string | null
-    is_completed: boolean
-    access_code_id: number
+    id: number;
+    name: string;
+    position: string | null;
+    grade: number;
+    evaluation_title: string | null;
+    evaluation_id: number;
+    access_code_id: number;
+    source_groups?: string[];
+    is_completed: boolean;
+    org_total_uses: number;
+}
+
+interface StakeholderIdentity {
+    name: string;
+    sub_group: string | null;
+    contact_person: string | null;
 }
 
 interface PageProps {
-    organization: {
-        id: number
-        name: string
-    }
-    evaluatees: Evaluatee[]
-    currentEvaluateeId: number
+    organization: { id: number; name: string };
+    picked_org?: string | null;
+    evaluator: { name: string; position: string | null };
+    evaluatees: Evaluatee[];
+    currentEvaluateeId: number;
+    fiscalYear: number | string;
+    totalCount: number;
+    completedCount: number;
+    mode?: "stakeholder" | "access_code";
+    stakeholder_identity?: StakeholderIdentity;
+    flash?: { success?: string; error?: string };
 }
 
 export default function ExternalDashboard() {
-    const { organization, evaluatees, currentEvaluateeId } = usePage<PageProps>().props
+    const { organization, picked_org, evaluator, evaluatees, fiscalYear, totalCount, completedCount, mode, stakeholder_identity, flash } =
+        usePage<PageProps>().props;
 
-    const completedCount = evaluatees.filter(e => e.is_completed).length
-    const totalCount = evaluatees.length
+    useEffect(() => {
+        if (flash?.success) toast.success(flash.success);
+        if (flash?.error) toast.error(flash.error);
+    }, [flash]);
 
-    const handleEvaluate = (evaluateeId: number) => {
-        router.visit(route('external.evaluate'))
-    }
+    const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+
+    const handleSelect = (evaluateeId: number) => {
+        router.post(route("external.select-evaluatee", { evaluateeId }));
+    };
+
+    const remaining = totalCount - completedCount;
+    const isAllDone = totalCount > 0 && remaining === 0;
+    const nextPending = evaluatees.find((e) => !e.is_completed);
 
     const handleLogout = () => {
-        router.post(route('external.logout'))
-    }
+        const msg = isAllDone
+            ? "ออกจากระบบ?"
+            : `ยังประเมินไม่ครบ — เหลืออีก ${remaining} คน\n\nถ้าออกตอนนี้สามารถกลับมาทำต่อได้ภายหลัง (ใช้รหัสเดิม)\n\nแน่ใจที่จะออกมั้ย?`;
+        if (confirm(msg)) router.post(route("external.logout"));
+    };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+        <div className="min-h-screen gradient-primary-soft">
             <Head title="หน้าหลัก - ระบบประเมินภายนอก" />
 
-            {/* Header */}
-            <header className="bg-white border-b border-gray-200 shadow-sm">
-                <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-indigo-100 rounded-lg">
-                            <Building2 className="w-5 h-5 text-indigo-600" />
+            {/* Header — show TWO context layers: picked org (primary) + group (umbrella) */}
+            <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-violet-200/50 sticky top-0 z-30 shadow-sm">
+                <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2 gradient-primary rounded-xl text-white shadow-md flex-shrink-0">
+                            <Building2 className="w-5 h-5" />
                         </div>
-                        <div>
-                            <h1 className="text-lg font-bold text-gray-900">{organization.name}</h1>
-                            <p className="text-xs text-gray-500">ระบบประเมิน 360 องศา</p>
+                        <div className="min-w-0">
+                            <div className="font-bold text-gray-900 dark:text-white truncate text-base">
+                                {picked_org || organization.name}
+                            </div>
+                            <div className="text-xs text-gray-500 flex items-center gap-1.5 truncate">
+                                {picked_org && (
+                                    <>
+                                        <span className="px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px]">
+                                            กลุ่ม: {organization.name.length > 25 ? organization.name.slice(0, 25) + "…" : organization.name}
+                                        </span>
+                                        <span>·</span>
+                                    </>
+                                )}
+                                <span>ปีงบ พ.ศ. {Number(fiscalYear) + 543}</span>
+                            </div>
                         </div>
                     </div>
-                    <button
-                        onClick={handleLogout}
-                        className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    >
+                    <button onClick={handleLogout}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm border border-gray-200 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors">
                         <LogOut className="w-4 h-4" />
                         <span className="hidden sm:inline">ออกจากระบบ</span>
                     </button>
                 </div>
             </header>
 
-            {/* Content */}
-            <div className="max-w-4xl mx-auto px-4 py-8">
-                {/* Progress Overview */}
-                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-8">
-                    <h2 className="text-lg font-bold text-gray-900 mb-4">ภาพรวมการประเมิน</h2>
-                    <div className="flex items-center gap-4">
-                        <div className="flex-1">
-                            <div className="flex justify-between text-sm mb-2">
-                                <span className="text-gray-600">ความคืบหน้า</span>
-                                <span className="font-semibold text-gray-900">
-                                    {completedCount}/{totalCount} รายการ
-                                </span>
+            <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+                {/* Identity card — who you are + which group's QR */}
+                {picked_org && (
+                    <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
+                        className="glass-card rounded-2xl p-4 bg-gradient-to-br from-violet-50 to-blue-50 border border-violet-200">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <div className="text-[11px] font-semibold text-violet-700 uppercase tracking-wide mb-0.5">ฉันคือ (หน่วยงาน/บริษัท)</div>
+                                <div className="text-base font-bold text-gray-900">{picked_org}</div>
                             </div>
-                            <div className="w-full bg-gray-200 rounded-full h-3">
-                                <div
-                                    className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-3 rounded-full transition-all duration-500"
-                                    style={{ width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` }}
-                                />
+                            <div>
+                                <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide mb-0.5">เข้าใช้งานในกลุ่ม Stakeholder</div>
+                                <div className="text-base font-bold text-gray-900">{organization.name}</div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+
+                {/* Greeting + progress (bigger, more prominent) */}
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="glass-card rounded-2xl p-5 border border-violet-200/50">
+                    <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-violet-100 flex items-center justify-center">
+                                <UserIcon className="w-6 h-6 text-violet-600" />
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500 uppercase tracking-wide">สวัสดี</div>
+                                <div className="text-lg font-bold text-gray-900 dark:text-white">{evaluator.name}</div>
+                                {evaluator.position && (
+                                    <div className="text-xs text-gray-500">{evaluator.position}</div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <div className="text-[11px] text-gray-500 uppercase tracking-wide">ความคืบหน้า</div>
+                            <div className={cn("text-3xl font-bold", isAllDone ? "text-emerald-600" : "text-gradient-primary")}>
+                                {completedCount}/{totalCount}
                             </div>
                         </div>
                     </div>
-                </div>
+                    <div className="h-3 rounded-full bg-gray-200 overflow-hidden">
+                        <motion.div
+                            className={cn("h-full", isAllDone ? "bg-emerald-500" : "gradient-primary")}
+                            initial={{ width: 0 }} animate={{ width: `${progress}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                        />
+                    </div>
+                    <div className={cn("text-sm mt-2 font-medium", isAllDone ? "text-emerald-700" : "text-gray-600")}>
+                        {isAllDone
+                            ? "✨ ประเมินครบทุกคนแล้ว ขอบคุณครับ"
+                            : `เหลืออีก ${remaining} คน — กรุณากดปุ่มด้านล่างเพื่อทำต่อ`}
+                    </div>
+                </motion.div>
 
-                {/* Evaluatee List */}
-                <h3 className="text-lg font-bold text-gray-900 mb-4">รายชื่อผู้ถูกประเมิน</h3>
-                <div className="space-y-3">
-                    {evaluatees.map((evaluatee) => {
-                        const isCurrent = evaluatee.id === currentEvaluateeId;
-
-                        return (
-                            <div
-                                key={evaluatee.access_code_id}
-                                className={`bg-white rounded-xl border p-4 transition-all duration-200 ${
-                                    evaluatee.is_completed
-                                        ? 'border-green-200 bg-green-50/50'
-                                        : isCurrent
-                                        ? 'border-indigo-200 hover:border-indigo-300 hover:shadow-md cursor-pointer'
-                                        : 'border-gray-200 opacity-70'
-                                }`}
-                                onClick={() => {
-                                    if (!evaluatee.is_completed && isCurrent) {
-                                        handleEvaluate(evaluatee.id)
-                                    }
-                                }}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                                            evaluatee.is_completed
-                                                ? 'bg-green-100'
-                                                : 'bg-indigo-100'
-                                        }`}>
-                                            {evaluatee.is_completed ? (
-                                                <CheckCircle className="w-5 h-5 text-green-600" />
-                                            ) : (
-                                                <User className="w-5 h-5 text-indigo-600" />
-                                            )}
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold text-gray-900">{evaluatee.name}</p>
-                                            {evaluatee.position && (
-                                                <p className="text-xs text-gray-500">{evaluatee.position}</p>
-                                            )}
-                                            {evaluatee.evaluation_title && (
-                                                <p className="text-xs text-gray-400 mt-0.5">{evaluatee.evaluation_title}</p>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                        {evaluatee.is_completed ? (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                                                <CheckCircle className="w-3.5 h-3.5" />
-                                                เสร็จสิ้น
-                                            </span>
-                                        ) : isCurrent ? (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium">
-                                                <ArrowRight className="w-3.5 h-3.5" />
-                                                เริ่มประเมิน
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-500 rounded-full text-xs font-medium">
-                                                <Clock className="w-3.5 h-3.5" />
-                                                รอดำเนินการ
-                                            </span>
-                                        )}
+                {/* HERO CTA — drives completion */}
+                {isAllDone ? (
+                    <motion.div
+                        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                        className="rounded-2xl bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100 border-2 border-emerald-300 p-6 text-center shadow-md"
+                    >
+                        <Trophy className="w-12 h-12 text-emerald-600 mx-auto mb-3" />
+                        <div className="text-xl font-bold text-emerald-800 mb-1">เสร็จสิ้นครบทุกคน 🎉</div>
+                        <div className="text-sm text-emerald-700 mb-4">
+                            ขอบคุณที่สละเวลาประเมิน · คะแนนถูกบันทึกแล้ว
+                        </div>
+                        <button
+                            onClick={handleLogout}
+                            className="px-6 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 shadow"
+                        >
+                            ออกจากระบบ
+                        </button>
+                    </motion.div>
+                ) : nextPending ? (
+                    <motion.div
+                        initial={{ y: 5, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+                        className="rounded-2xl gradient-primary p-5 text-white shadow-lg shadow-violet-500/25"
+                    >
+                        <div className="flex items-center justify-between flex-wrap gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0">
+                                    <span className="text-xl font-bold">{nextPending.name?.charAt(0) || "?"}</span>
+                                </div>
+                                <div className="min-w-0">
+                                    <div className="text-[11px] uppercase tracking-wide text-white/80">ลำดับถัดไป ({completedCount + 1}/{totalCount})</div>
+                                    <div className="text-lg font-bold truncate">{nextPending.name}</div>
+                                    <div className="text-xs text-white/80 truncate">
+                                        {nextPending.position || "—"}
+                                        {nextPending.grade && ` · เกรด C${nextPending.grade}`}
                                     </div>
                                 </div>
                             </div>
-                        )
-                    })}
-                </div>
+                            <button
+                                onClick={() => handleSelect(nextPending.id)}
+                                className="px-6 py-3 rounded-xl bg-white text-violet-700 font-bold hover:bg-violet-50 shadow-md flex items-center gap-2 whitespace-nowrap"
+                            >
+                                เริ่มประเมินเลย <ArrowRight className="w-5 h-5" />
+                            </button>
+                        </div>
+                    </motion.div>
+                ) : null}
 
-                {evaluatees.length === 0 && (
-                    <div className="text-center py-12 text-gray-500">
-                        <User className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                        <p>ไม่พบรายชื่อผู้ถูกประเมิน</p>
+                {/* Commitment notice — only when there's still work */}
+                {!isAllDone && totalCount > 0 && (
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        <div>
+                            <b>กรุณาประเมินให้ครบทุกคน</b> · ใช้เวลาประมาณ
+                            <Clock className="w-3.5 h-3.5 inline mx-1" />
+                            5–10 นาที/คน · ระบบบันทึกอัตโนมัติทุกคำตอบ — ออกแล้วกลับมาทำต่อได้ด้วยรหัสเดิม
+                        </div>
                     </div>
                 )}
+
+                {/* Stakeholder identity banner */}
+                {mode === "stakeholder" && stakeholder_identity && (
+                    <div className="rounded-xl bg-violet-50 border border-violet-200 p-3 text-sm text-violet-900 flex items-start gap-2">
+                        <Building2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        <div>
+                            <div><b>คุณเข้าใช้งานในนาม:</b> {stakeholder_identity.name}</div>
+                            {stakeholder_identity.sub_group && (
+                                <div className="text-xs text-violet-700 mt-0.5">[{stakeholder_identity.sub_group}]</div>
+                            )}
+                            {stakeholder_identity.contact_person && (
+                                <div className="text-xs text-gray-600 mt-0.5">ผู้ติดต่อ: {stakeholder_identity.contact_person}</div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Evaluatees list — pending first, completed below */}
+                <div>
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                        <ClipboardList className="w-5 h-5 text-violet-600" />
+                        รายชื่อทั้งหมด ({totalCount})
+                        <span className="text-xs font-normal text-gray-500 ml-auto">
+                            ⏳ {remaining} ค้าง · ✓ {completedCount} เสร็จ
+                        </span>
+                    </h2>
+
+                    {evaluatees.length === 0 ? (
+                        <div className="glass-card rounded-2xl p-8 text-center text-gray-500">
+                            ไม่พบรายชื่อผู้ที่ต้องประเมิน
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {[...evaluatees].sort((a, b) => Number(a.is_completed) - Number(b.is_completed)).map((e, i) => (
+                                <motion.div key={e.id}
+                                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: i * 0.04 }}
+                                    className={cn(
+                                        "glass-card rounded-2xl p-4 transition-all",
+                                        e.is_completed
+                                            ? "ring-2 ring-emerald-300 bg-emerald-50/50"
+                                            : "hover:ring-2 hover:ring-violet-300 hover:shadow-lg cursor-pointer"
+                                    )}
+                                    onClick={() => !e.is_completed && handleSelect(e.id)}
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <div className={cn(
+                                            "w-12 h-12 rounded-2xl flex items-center justify-center text-white text-lg font-bold flex-shrink-0",
+                                            e.is_completed ? "bg-emerald-500" : "gradient-primary"
+                                        )}>
+                                            {e.name?.charAt(0) || "?"}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold text-gray-900 dark:text-white truncate">{e.name}</div>
+                                            <div className="text-xs text-gray-500 truncate">{e.position || "-"}</div>
+                                            {e.grade && <div className="text-xs text-gray-400">เกรด C{e.grade}</div>}
+                                            {e.source_groups && e.source_groups.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                                    {e.source_groups.map((g, gi) => (
+                                                        <span key={gi} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 font-medium whitespace-normal">
+                                                            {g}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {e.evaluation_title && (
+                                                <div className="text-[11px] text-violet-600 mt-1 truncate">
+                                                    📋 {e.evaluation_title}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 flex items-center justify-between">
+                                        {e.is_completed ? (
+                                            <div className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                                                <CheckCircle className="w-3.5 h-3.5" />
+                                                ประเมินแล้ว
+                                            </div>
+                                        ) : (
+                                            <button onClick={(ev) => { ev.stopPropagation(); handleSelect(e.id); }}
+                                                className="inline-flex items-center gap-1 px-4 py-2 rounded-xl gradient-primary text-white text-sm font-semibold hover:shadow-lg transition-all">
+                                                ประเมินเลย <ArrowRight className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                        {e.org_total_uses > 0 && (
+                                            <span className="text-[10px] text-gray-400">
+                                                องค์กรใช้รหัสนี้แล้ว {e.org_total_uses} ครั้ง
+                                            </span>
+                                        )}
+                                    </div>
+                                </motion.div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="text-center text-xs text-gray-400 pt-4">
+                    💡 หากองค์กรของคุณมีหลายคนที่จะร่วมประเมิน — ส่ง URL/รหัสนี้ให้คนอื่นใช้ได้
+                    แต่ละคนกรอกชื่อตัวเอง คะแนนจะไม่ปะปนกัน
+                </div>
             </div>
         </div>
-    )
+    );
 }

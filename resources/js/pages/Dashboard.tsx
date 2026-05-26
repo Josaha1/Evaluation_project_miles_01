@@ -42,6 +42,7 @@ interface EvaluationCard {
     step_to_resume?: number;
     progress?: number;
     angle?: "top" | "bottom" | "left" | "right" | "self" | "unknown";
+    is_submitted?: boolean;
 }
 
 interface EvaluationGroup {
@@ -313,16 +314,16 @@ const ANGLE_DISPLAY: Record<
 > = {
     top: {
         icon: <ArrowDown size={13} />,
-        label: "บนลงล่าง",
-        sublabel: "ผู้บังคับบัญชา",
+        label: "ผู้ใต้บังคับบัญชา",
+        sublabel: "ประเมินจากบนลงล่าง",
         bgColor: "bg-violet-100/80 dark:bg-violet-900/30",
         textColor: "text-violet-700 dark:text-violet-300",
         dotColor: "bg-violet-500",
     },
     bottom: {
         icon: <ArrowUp size={13} />,
-        label: "ล่างขึ้นบน",
-        sublabel: "ผู้ใต้บังคับบัญชา",
+        label: "ผู้บังคับบัญชา",
+        sublabel: "ประเมินจากล่างขึ้นบน",
         bgColor: "bg-emerald-100/80 dark:bg-emerald-900/30",
         textColor: "text-emerald-700 dark:text-emerald-300",
         dotColor: "bg-emerald-500",
@@ -435,11 +436,22 @@ export default function Dashboard() {
             });
         }
 
-        // 2. Governor evaluation (grade 13+)
-        const governorEvaluations = (evaluations.target || []).filter((item) => {
-            const grade = typeof item.grade === "string" ? parseInt(item.grade) : item.grade;
-            return grade >= 13;
-        });
+        // Categorization helper: prefer the form's grade range (so users with grade
+        // overrides — e.g. grade 9 user assigned to a 4-8 form — group by the form,
+        // not by their personal grade). Fall back to evaluatee.grade if form metadata absent.
+        const formMaxGrade = (item: any): number => {
+            const fmax = (item as any).evaluation_grade_max;
+            if (typeof fmax === 'number' && fmax > 0) return fmax;
+            return typeof item.grade === 'string' ? parseInt(item.grade) : (item.grade ?? 0);
+        };
+        const formMinGrade = (item: any): number => {
+            const fmin = (item as any).evaluation_grade_min;
+            if (typeof fmin === 'number' && fmin > 0) return fmin;
+            return typeof item.grade === 'string' ? parseInt(item.grade) : (item.grade ?? 0);
+        };
+
+        // 2. Governor evaluation (form covers grade 13+)
+        const governorEvaluations = (evaluations.target || []).filter((item) => formMaxGrade(item) >= 13);
         if (governorEvaluations.length > 0) {
             const avgProgress =
                 governorEvaluations.reduce((sum, item) => sum + (item.progress || 0), 0) /
@@ -463,10 +475,11 @@ export default function Dashboard() {
             });
         }
 
-        // 3. Executive evaluation (grade 9-12)
+        // 3. Executive evaluation (form for grade 9-12)
         const executiveEvaluations = (evaluations.target || []).filter((item) => {
-            const grade = typeof item.grade === "string" ? parseInt(item.grade) : item.grade;
-            return grade >= 9 && grade <= 12;
+            const min = formMinGrade(item);
+            const max = formMaxGrade(item);
+            return min >= 9 && max <= 12;
         });
         if (executiveEvaluations.length > 0) {
             const avgProgress =
@@ -491,10 +504,11 @@ export default function Dashboard() {
             });
         }
 
-        // 4. Staff evaluation (grade 4-8)
+        // 4. Staff evaluation (form for grade 4-8)
         const staffEvaluations = (evaluations.target || []).filter((item) => {
-            const grade = typeof item.grade === "string" ? parseInt(item.grade) : item.grade;
-            return grade >= 4 && grade <= 8;
+            const min = formMinGrade(item);
+            const max = formMaxGrade(item);
+            return min >= 4 && max <= 8;
         });
         if (staffEvaluations.length > 0) {
             const avgProgress =
@@ -591,14 +605,12 @@ export default function Dashboard() {
 
     const handleCategoryClick = useCallback(
         (category: EvaluationCategory) => {
-            if (category.evaluationType !== "self" && !selfCompleted) {
-                toast.info("กรุณาทำแบบประเมินตนเองให้เสร็จก่อน");
-                return;
-            }
             if (category.evaluationType === "self") {
                 const selfEval = category.evaluatees[0];
                 if (selfEval) {
-                    const routeName = selfEval.progress === 0
+                    // Lock only when explicitly submitted (not just 100%)
+                    if (selfEval.is_submitted) return;
+                    const routeName = (selfEval.progress ?? 0) === 0
                         ? "evaluationsself.index"
                         : "evaluationsself.resume";
                     router.visit(
@@ -606,20 +618,19 @@ export default function Dashboard() {
                     );
                 }
             } else {
-                const sortedEvaluatees = [...category.evaluatees].sort((a, b) => {
-                    const aProgress = a.progress ?? 0;
-                    const bProgress = b.progress ?? 0;
-                    const aIncomplete = aProgress > 0 && aProgress < 100;
-                    const bIncomplete = bProgress > 0 && bProgress < 100;
-                    if (aIncomplete && !bIncomplete) return -1;
-                    if (!aIncomplete && bIncomplete) return 1;
-                    if (aIncomplete && bIncomplete) return bProgress - aProgress;
-                    const aNotStarted = aProgress === 0;
-                    const bNotStarted = bProgress === 0;
-                    if (aNotStarted && !bNotStarted) return -1;
-                    if (!aNotStarted && bNotStarted) return 1;
-                    return (a.step_to_resume ?? 1) - (b.step_to_resume ?? 1);
-                });
+                // Pick first non-submitted evaluatee
+                const sortedEvaluatees = [...category.evaluatees]
+                    .filter(e => !e.is_submitted)
+                    .sort((a, b) => {
+                        const aProgress = a.progress ?? 0;
+                        const bProgress = b.progress ?? 0;
+                        const aIncomplete = aProgress > 0 && aProgress < 100;
+                        const bIncomplete = bProgress > 0 && bProgress < 100;
+                        if (aIncomplete && !bIncomplete) return -1;
+                        if (!aIncomplete && bIncomplete) return 1;
+                        if (aIncomplete && bIncomplete) return bProgress - aProgress;
+                        return (a.step_to_resume ?? 1) - (b.step_to_resume ?? 1);
+                    });
                 const evaluateeToResume = sortedEvaluatees[0];
                 if (evaluateeToResume && evaluateeToResume.evaluatee_id) {
                     router.visit(
@@ -635,12 +646,10 @@ export default function Dashboard() {
 
     const handleEvaluateeClick = useCallback(
         (evaluatee: EvaluationCard, evaluationType: string) => {
-            if (evaluationType !== "self" && !selfCompleted) {
-                toast.info("กรุณาทำแบบประเมินตนเองให้เสร็จก่อน");
-                return;
-            }
+            // Lock only when explicitly submitted
+            if (evaluatee.is_submitted) return;
             if (evaluationType === "self") {
-                const routeName = evaluatee.progress === 0
+                const routeName = (evaluatee.progress ?? 0) === 0
                     ? "evaluationsself.index"
                     : "evaluationsself.resume";
                 router.visit(
@@ -756,7 +765,7 @@ export default function Dashboard() {
                                             <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden ring-4 ring-white/20 shadow-xl backdrop-blur-sm">
                                                 {auth.user?.photo ? (
                                                     <img
-                                                        src={auth.user.photo}
+                                                        src={auth.user.photo.startsWith("http") || auth.user.photo.startsWith("/") ? auth.user.photo : `/storage/${auth.user.photo}`}
                                                         alt="Profile"
                                                         className="w-full h-full object-cover"
                                                         onError={(e) => {
@@ -1305,10 +1314,7 @@ export default function Dashboard() {
                         {step2Categories.length > 0 && (
                             <motion.div
                                 variants={itemVariants}
-                                className={cn(
-                                    "space-y-4 transition-opacity duration-500",
-                                    !selfCompleted && step1Categories.length > 0 ? "opacity-50 pointer-events-none select-none" : ""
-                                )}
+                                className="space-y-4 transition-opacity duration-500"
                             >
                                 {/* Step 2 Header */}
                                 <div className="flex items-center gap-3 sm:gap-4">
@@ -1321,7 +1327,7 @@ export default function Dashboard() {
                                         )}
                                         whileHover={selfCompleted ? { rotate: [0, -5, 5, 0] } : {}}
                                     >
-                                        2
+                                        {step1Categories.length > 0 ? 2 : 1}
                                     </motion.div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
@@ -1362,7 +1368,8 @@ export default function Dashboard() {
                                         animate="visible"
                                     >
                                         {step2Categories.map((category) => {
-                                            const isLocked = category.evaluationType !== "self" && !selfCompleted;
+                                            // Allow clicking even if self is not completed — user can view evaluatee list
+                                            const isLocked = false;
                                             const isAllComplete = category.progress >= 100;
                                             const isExpanded = expandedCategories.has(category.id);
                                             const accent = getCategoryAccent(category.evaluationType);
@@ -1565,7 +1572,14 @@ export default function Dashboard() {
                                                                         </div>
 
                                                                         <div className="space-y-4 max-h-[420px] overflow-y-auto pr-1">
-                                                                            {Object.entries(angleGroups).map(([angle, evaluateesInAngle]) => {
+                                                                            {(() => {
+                                                                                const ANGLE_ORDER: Record<string, number> = {
+                                                                                    self: 0, top: 1, bottom: 2, left: 3, right: 4, unknown: 5,
+                                                                                };
+                                                                                const sortedEntries = Object.entries(angleGroups)
+                                                                                    .sort(([a], [b]) => (ANGLE_ORDER[a] ?? 99) - (ANGLE_ORDER[b] ?? 99));
+                                                                                return sortedEntries;
+                                                                            })().map(([angle, evaluateesInAngle]) => {
                                                                                 const ad = getAngleDisplay(angle);
                                                                                 const angleCompleted = evaluateesInAngle.filter(
                                                                                     (e) => (e.progress ?? 0) >= 100

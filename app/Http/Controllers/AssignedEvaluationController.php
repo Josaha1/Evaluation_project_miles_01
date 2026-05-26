@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\User;
 use App\Services\EvaluationLookupService;
+use App\Support\AnswerNormalizer;
 class AssignedEvaluationController extends Controller
 {
     public function show($evaluateeId, Request $request)
@@ -47,6 +48,16 @@ class AssignedEvaluationController extends Controller
             return redirect()->route('dashboard')->with('error', 'ไม่พบแบบประเมินสำหรับระดับตำแหน่งนี้');
         }
 
+        // Lock once user has explicitly submitted (any angle row for this evaluator-evaluatee-fy)
+        $isSubmitted = EvaluationAssignment::where('evaluator_id', $user->id)
+            ->where('evaluatee_id', $evaluateeId)
+            ->where('fiscal_year', $assignment->fiscal_year)
+            ->whereNotNull('submitted_at')
+            ->exists();
+        if ($isSubmitted) {
+            return redirect()->route('dashboard')->with('error', 'คุณได้ส่งแบบประเมินนี้แล้ว ไม่สามารถแก้ไขได้');
+        }
+
         $parts = $evaluation->parts()->with([
             'aspects.questions',
             'aspects.subaspects.questions',
@@ -81,16 +92,26 @@ class AssignedEvaluationController extends Controller
         // ⛔ ถ้ายังไม่ครบ หาหัวข้อล่าสุดที่ประเมินแล้วจริงๆ (รองรับการประเมินหลายคน)
         
         // Get all assignments for this evaluator in the same fiscal year
+        // Exclude self-eval rows — those go through /evaluations/self, not assigned-eval
         $allAssignments = EvaluationAssignment::with('evaluatee')
             ->where('evaluator_id', $user->id)
             ->where('fiscal_year', $assignment->fiscal_year)
+            ->whereColumn('evaluator_id', '!=', 'evaluatee_id')
             ->get();
 
         $targetGrade = $evaluatee->grade;
+        $targetEvalId = (int) $evaluation->id;
 
-        // Filter evaluatees by same grade group using centralized logic
-        $filteredEvaluatees = $allAssignments->filter(function ($assignment) use ($targetGrade) {
-            return EvaluationLookupService::isSameGradeGroup($targetGrade, (int) $assignment->evaluatee->grade);
+        // Group evaluatees by which FORM they're assigned to (not by personal grade) —
+        // ensures grade-overrides (e.g. user grade 9 assigned to a 4-8 form) batch with
+        // the form's group, not their natural grade group. Falls back to grade-group when
+        // assignment->evaluation_id is missing (legacy rows).
+        $filteredEvaluatees = $allAssignments->filter(function ($a) use ($targetEvalId, $targetGrade) {
+            $aEvalId = (int) ($a->evaluation_id ?? 0);
+            if ($aEvalId > 0 && $targetEvalId > 0) {
+                return $aEvalId === $targetEvalId;
+            }
+            return EvaluationLookupService::isSameGradeGroup($targetGrade, (int) $a->evaluatee->grade);
         });
 
         // Get IDs of evaluatees in the same grade range
@@ -219,110 +240,48 @@ class AssignedEvaluationController extends Controller
         foreach ($data['answers'] as $key => $value) {
             try {
                 // Check if this is a multi-evaluatee answer (format: questionId_evaluateeId)
-                if (is_array($value) && isset($value['question_id']) && isset($value['evaluatee_id']) && isset($value['value'])) {
-                // Multi-evaluatee format
-                $questionId = $value['question_id'];
-                $targetEvaluateeId = $value['evaluatee_id'];
-                $answerValue = $value['value'];
-                $otherText = isset($value['other_text']) ? $value['other_text'] : null;
-                
-                // จัดการข้อมูลตามประเภทคำถาม
-                $finalValue = $answerValue;
-                
-                if (is_array($answerValue)) {
-                    $finalValue = json_encode($answerValue);
-                } else if (is_string($answerValue)) {
-                    // สำหรับ open_text หรือค่าอื่นๆ ที่เป็น string
-                    $finalValue = $answerValue;
+                // Use array_key_exists (not isset) so null values still hit this branch — null means "uncheck"
+                if (is_array($value) && isset($value['question_id']) && isset($value['evaluatee_id']) && array_key_exists('value', $value)) {
+                    // Multi-evaluatee envelope: {question_id, evaluatee_id, value, other_text?}
+                    $rowEvaluateeId = $value['evaluatee_id'];
+                    $rowQuestionId = $value['question_id'];
+                    ['value' => $answerValue, 'other_text' => $otherText] = AnswerNormalizer::normalize($value['value']);
+                    if (!empty($value['other_text']) && $otherText === null) {
+                        $otherText = $value['other_text'];
+                    }
                 } else {
-                    // สำหรับ rating, choice ที่เป็นตัวเลข
-                    $finalValue = $answerValue;
-                }
-                
-                Answer::updateOrCreate(
-                    [
-                        'evaluation_id' => $data['evaluation_id'],
-                        'user_id'       => $user->id,
-                        'evaluatee_id'  => $targetEvaluateeId,
-                        'question_id'   => $questionId,
-                    ],
-                    [
-                        'value'      => $finalValue,
-                        'other_text' => $otherText,
-                        'fiscal_year' => $fiscalYear,
-                    ]
-                );
-            } else {
-                // Traditional single evaluatee format
-                $question_id = $key;
-                
-                // จัดการกับข้อมูลที่เป็น object (สำหรับ other option)
-                $finalValue = $value;
-                $otherText  = null;
-
-                if (is_array($value)) {
-                    // รูปแบบใหม่: { value: ..., other_text: ... } - รองรับทั้ง choice และ multiple_choice
-                    if (isset($value['value'])) {
-                        $finalValue = $value['value'];
-                        $otherText = isset($value['other_text']) ? $value['other_text'] : null;
-                        
-                        if (is_array($finalValue)) {
-                            $finalValue = json_encode($finalValue);
-                        }
-                    }
-                    // รูปแบบเก่า: { option_id: ..., other_text: ... }
-                    elseif (isset($value['option_id'])) {
-                        $finalValue = $value['option_id'];
-                        $otherText  = isset($value['other_text']) ? $value['other_text'] : null;
-                        
-                    }
-                    // รูปแบบสำหรับ multiple choice ธรรมดา (array ของ option IDs)
-                    else {
-                        // ตรวจสอบว่าเป็น array ของ numbers หรือไม่
-                        $isSimpleArray = true;
-                        foreach ($value as $item) {
-                            if (!is_numeric($item)) {
-                                $isSimpleArray = false;
-                                break;
-                            }
-                        }
-                        
-                        if ($isSimpleArray) {
-                            $finalValue = json_encode($value);
-                        } else {
-                            // Complex array with objects
-                            $processedArray = [];
-                            foreach ($value as $item) {
-                                if (is_array($item) && isset($item['option_id'])) {
-                                    $processedArray[] = $item['option_id'];
-                                    if (isset($item['other_text'])) {
-                                        $otherText = $item['other_text'];
-                                    }
-                                } else {
-                                    $processedArray[] = $item;
-                                }
-                            }
-                            $finalValue = json_encode($processedArray);
-                        }
-                    }
+                    // Traditional single-evaluatee format
+                    $rowEvaluateeId = $evaluateeId;
+                    $rowQuestionId = $key;
+                    ['value' => $answerValue, 'other_text' => $otherText] = AnswerNormalizer::normalize($value);
                 }
 
-                Answer::updateOrCreate(
-                    [
-                        'evaluation_id' => $data['evaluation_id'],
-                        'user_id'       => $user->id,
-                        'evaluatee_id'  => $evaluateeId,
-                        'question_id'   => $question_id,
-                        'fiscal_year'   => $fiscalYear,
-                    ],
-                    [
-                        'value'      => $finalValue,
-                        'other_text' => $otherText,
-                    ]
-                );
-                
+                // DELETE+INSERT: always wipe stale row first so no stale columns leak
+                Answer::where('evaluation_id', $data['evaluation_id'])
+                    ->where('user_id', $user->id)
+                    ->where('evaluatee_id', $rowEvaluateeId)
+                    ->where('question_id', $rowQuestionId)
+                    ->delete();
+
+                // Skip insert if uncheck (empty value)
+                if ($answerValue === null || $answerValue === '' || (is_array($answerValue) && count($answerValue) === 0)) {
+                    $savedAnswersCount++;
+                    continue;
+                }
+
+                $finalValue = is_array($answerValue) ? json_encode($answerValue) : $answerValue;
+
+                Answer::create([
+                    'evaluation_id' => $data['evaluation_id'],
+                    'user_id'       => $user->id,
+                    'evaluatee_id'  => $rowEvaluateeId,
+                    'question_id'   => $rowQuestionId,
+                    'value'         => $finalValue,
+                    'other_text'    => $otherText,
+                    'fiscal_year'   => $fiscalYear,
+                ]);
+
                 $savedAnswersCount++;
-                }
                 
             } catch (\Exception $e) {
                 $errors[] = [
@@ -355,30 +314,33 @@ class AssignedEvaluationController extends Controller
 
         $questionIds = $questionIds->unique()->filter();
 
+        // Use distinct question_id to avoid double-counting (multi-row per question)
         $answeredCount = Answer::where('evaluation_id', $evaluation->id)
             ->where('user_id', $user->id)
             ->where('evaluatee_id', $evaluateeId)
             ->where('fiscal_year', $fiscalYear)
             ->whereIn('question_id', $questionIds)
-            ->count();
+            ->distinct('question_id')
+            ->count('question_id');
 
         $totalQuestions = $questionIds->count();
-        $progress       = $totalQuestions > 0 ? round(($answeredCount / $totalQuestions) * 100, 2) : 0;
+        $progress       = $totalQuestions > 0 ? min(100, round(($answeredCount / $totalQuestions) * 100, 2)) : 0;
 
         // Check if evaluation is completed for all evaluatees in the same angle
         $sameAngleEvaluateeIds = $this->getEvaluateeIdsInSameAngle($user->id, $evaluateeId, $data['evaluation_id']);
 
-        // Calculate overall completion for all evaluatees
+        // Calculate overall completion — count distinct (evaluatee, question) pairs
         $totalExpectedAnswers = $totalQuestions * count($sameAngleEvaluateeIds);
         $totalActualAnswers = Answer::where('evaluation_id', $data['evaluation_id'])
             ->where('user_id', $user->id)
             ->where('fiscal_year', $fiscalYear)
             ->whereIn('evaluatee_id', $sameAngleEvaluateeIds)
             ->whereIn('question_id', $questionIds)
-            ->count();
-        
-        $overallProgress = $totalExpectedAnswers > 0 ? round(($totalActualAnswers / $totalExpectedAnswers) * 100, 2) : 0;
-        $isCompleted = $totalActualAnswers === $totalExpectedAnswers;
+            ->select('evaluatee_id', 'question_id')->distinct()
+            ->get()->count();
+
+        $overallProgress = $totalExpectedAnswers > 0 ? min(100, round(($totalActualAnswers / $totalExpectedAnswers) * 100, 2)) : 0;
+        $isCompleted = $totalActualAnswers >= $totalExpectedAnswers;
         
         return response()->json([
             'success' => true,
@@ -401,6 +363,26 @@ class AssignedEvaluationController extends Controller
             ]
         ]);
     }
+    /**
+     * Mark assignment(s) as submitted for the given evaluatee+fiscal_year.
+     * Locks the form against further edits.
+     */
+    public function submit($evaluateeId, Request $request)
+    {
+        $user = auth()->user();
+        $fiscalYear = $request->has('fiscal_year') && $request->fiscal_year
+            ? (int) $request->fiscal_year
+            : EvaluationLookupService::currentFiscalYear();
+
+        EvaluationAssignment::where('evaluator_id', $user->id)
+            ->where('evaluatee_id', $evaluateeId)
+            ->where('fiscal_year', $fiscalYear)
+            ->whereNull('submitted_at')
+            ->update(['submitted_at' => now()]);
+
+        return response()->json(['success' => true]);
+    }
+
     public function getExistingAnswers($evaluateeId, $evaluationId)
     {
         $user = auth()->user();
@@ -682,6 +664,7 @@ class AssignedEvaluationController extends Controller
 
         $assignments = EvaluationAssignment::with(['evaluatee.position', 'evaluatee.department', 'evaluatee.division'])
             ->where('evaluator_id', $user->id)
+            ->whereColumn('evaluator_id', '!=', 'evaluatee_id')  // exclude self
             ->get()
             ->groupBy('evaluatee_id')
             ->map(function ($group) {
@@ -726,6 +709,7 @@ class AssignedEvaluationController extends Controller
         $sameAngleAssignments = EvaluationAssignment::with(['evaluatee.position', 'evaluatee.department', 'evaluatee.division'])
             ->where('evaluator_id', $user->id)
             ->where('angle', $currentAngle)
+            ->whereColumn('evaluator_id', '!=', 'evaluatee_id')  // exclude self
             ->get()
             ->groupBy('evaluatee_id')
             ->map(function ($group) use ($user) {
@@ -818,15 +802,23 @@ class AssignedEvaluationController extends Controller
         $sameAngleEvaluateeIds = collect($sameAngleEvaluatees)->pluck('id')->toArray();
         
         // Get all assignments for this evaluator in the same fiscal year as current assignment
+        // Exclude self-eval rows — those go through /evaluations/self
         $allAssignments = EvaluationAssignment::with('evaluatee')
             ->where('evaluator_id', $user->id)
             ->where('fiscal_year', $assignment->fiscal_year)
+            ->whereColumn('evaluator_id', '!=', 'evaluatee_id')
             ->get();
 
         $targetGrade = $evaluatee->grade;
+        $targetEvalId = (int) $evaluation->id;
 
-        $filteredEvaluatees = $allAssignments->filter(function ($assignment) use ($targetGrade) {
-            return EvaluationLookupService::isSameGradeGroup((int) $targetGrade, (int) $assignment->evaluatee->grade);
+        // Group by form (not personal grade) — see show() for rationale
+        $filteredEvaluatees = $allAssignments->filter(function ($a) use ($targetEvalId, $targetGrade) {
+            $aEvalId = (int) ($a->evaluation_id ?? 0);
+            if ($aEvalId > 0 && $targetEvalId > 0) {
+                return $aEvalId === $targetEvalId;
+            }
+            return EvaluationLookupService::isSameGradeGroup((int) $targetGrade, (int) $a->evaluatee->grade);
         });
 
         // Get IDs of evaluatees in the same grade range
@@ -1055,10 +1047,11 @@ class AssignedEvaluationController extends Controller
             ]];
         }
 
-        // โหลด evaluatees ทั้งหมดในองศาเดียวกัน
+        // โหลด evaluatees ทั้งหมดในองศาเดียวกัน (exclude self)
         $allSameAngleAssignments = EvaluationAssignment::with(['evaluatee.position', 'evaluatee.department', 'evaluatee.division'])
             ->where('evaluator_id', $evaluatorId)
             ->where('angle', $currentAssignment->angle)
+            ->whereColumn('evaluator_id', '!=', 'evaluatee_id')
             ->get();
 
         // Filter ด้วย evaluation_id
@@ -1135,9 +1128,10 @@ class AssignedEvaluationController extends Controller
             return [$evaluateeId];
         }
 
-        // ดึง IDs ทั้งหมดในองศาเดียวกัน
+        // ดึง IDs ทั้งหมดในองศาเดียวกัน (exclude self)
         $allSameAngleIds = EvaluationAssignment::where('evaluator_id', $evaluatorId)
             ->where('angle', $currentAssignment->angle)
+            ->whereColumn('evaluator_id', '!=', 'evaluatee_id')
             ->pluck('evaluatee_id')
             ->toArray();
 
@@ -1145,6 +1139,7 @@ class AssignedEvaluationController extends Controller
         $exactMatchIds = EvaluationAssignment::where('evaluator_id', $evaluatorId)
             ->where('angle', $currentAssignment->angle)
             ->where('evaluation_id', $evaluationId)
+            ->whereColumn('evaluator_id', '!=', 'evaluatee_id')
             ->pluck('evaluatee_id')
             ->toArray();
 

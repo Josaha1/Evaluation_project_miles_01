@@ -1,9 +1,10 @@
 import MainLayout from "@/Layouts/MainLayout";
 import { usePage, router } from "@inertiajs/react";
-import { Pencil, Trash2, PlusCircle } from "lucide-react";
+import { Pencil, Trash2, PlusCircle, Users, Search, Upload, RefreshCw } from "lucide-react";
 import { useState, useEffect } from "react";
 import Breadcrumb from "@/Components/ui/breadcrumb";
-
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 import { toast } from "sonner";
 
 interface User {
@@ -39,6 +40,19 @@ interface Paginated<T> {
     }[];
 }
 
+const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+        opacity: 1,
+        transition: { staggerChildren: 0.07 },
+    },
+};
+
+const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+};
+
 export default function AdminUserManager() {
     const { users, filters } = usePage<{
         users: Paginated<User>;
@@ -73,6 +87,7 @@ export default function AdminUserManager() {
         if (flash?.success) toast.success(flash.success);
         if (flash?.error) toast.error(flash.error);
     }, [flash]);
+
     return (
         <MainLayout
             title="จัดการสมาชิก"
@@ -88,176 +103,236 @@ export default function AdminUserManager() {
                 />
             }
         >
-            <div className="max-w-7xl mx-auto px-6 py-10">
-                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
-                    <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                        รายชื่อสมาชิก
-                    </h1>
-                    <div className="flex gap-3 flex-wrap">
-                        <input
-                            type="text"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="ค้นหาชื่อหรือ EMID..."
-                            className="border rounded px-4 py-2 dark:bg-gray-900 dark:text-white"
-                        />
+            <div className="gradient-primary-soft min-h-screen -my-6 px-4 sm:px-6 lg:px-8 py-6">
+                <motion.div
+                    className="max-w-7xl mx-auto px-2 sm:px-6 py-10 space-y-6"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                >
+                    {/* Header */}
+                    <motion.div
+                        variants={itemVariants}
+                        className="flex flex-col md:flex-row md:justify-between md:items-center gap-4"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="p-2.5 gradient-primary rounded-xl text-white shadow-lg shadow-violet-500/25">
+                                <Users className="w-6 h-6" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-gradient-primary">
+                                รายชื่อสมาชิก
+                            </h1>
+                        </div>
+                        <div className="flex gap-3 flex-wrap">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    placeholder="ค้นหาชื่อหรือ EMID..."
+                                    className="pl-10 pr-4 py-2 rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-900 dark:text-white dark:border-gray-700 transition-all"
+                                />
+                            </div>
+                            <a
+                                href={route("admin.users.import")}
+                                className="inline-flex items-center px-5 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:shadow-lg transition-all duration-200"
+                            >
+                                <Upload className="w-5 h-5 mr-2" />
+                                นำเข้าจาก Excel
+                            </a>
+                            <a
+                                href={route("admin.users.reconcile")}
+                                className="inline-flex items-center px-5 py-2 bg-amber-500 text-white rounded-xl hover:bg-amber-600 hover:shadow-lg transition-all duration-200"
+                                title="ปรับปรุงข้อมูลผู้ใช้ปี 2569 — เปรียบเทียบ Excel กับฐานข้อมูล"
+                            >
+                                <RefreshCw className="w-5 h-5 mr-2" />
+                                ปรับปรุงข้อมูล
+                            </a>
+                            <a
+                                href={route("admin.users.create")}
+                                className="inline-flex items-center px-5 py-2 gradient-primary text-white rounded-xl hover:shadow-lg hover:shadow-violet-500/25 transition-all duration-200"
+                            >
+                                <PlusCircle className="w-5 h-5 mr-2" />
+                                เพิ่มสมาชิกใหม่
+                            </a>
+                        </div>
+                    </motion.div>
 
-                        <a
-                            href={route("admin.users.create")}
-                            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow"
-                        >
-                            <PlusCircle className="w-5 h-5 mr-2" />{" "}
-                            เพิ่มสมาชิกใหม่
-                        </a>
-                    </div>
-                </div>
+                    {/* Table or empty state */}
+                    <motion.div variants={itemVariants}>
+                        {users.data.length === 0 ? (
+                            <div className="glass-card rounded-2xl p-6 text-center text-gray-500 dark:text-gray-400 py-20">
+                                ไม่พบข้อมูลสมาชิก
+                            </div>
+                        ) : (
+                            <div className="glass-card rounded-2xl overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200/50 dark:divide-gray-700/50">
+                                        <thead className="bg-violet-50 dark:bg-violet-900/20">
+                                            <tr>
+                                                <th className="p-4 text-left text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    ชื่อ - สกุล
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    EMID
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    ตำแหน่ง
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    ระดับ
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    หน่วยงาน
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    สายงาน
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    ประเภท
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    บทบาท
+                                                </th>
+                                                <th className="p-4 text-center text-sm font-semibold text-violet-700 dark:text-violet-300">
+                                                    การจัดการ
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-200/50 dark:divide-gray-700/50">
+                                            {users.data.map((user, index) => (
+                                                <motion.tr
+                                                    key={user.id}
+                                                    initial={{ opacity: 0, y: 10 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ delay: index * 0.03 }}
+                                                    className="hover:bg-violet-50/50 dark:hover:bg-violet-900/10 transition-colors"
+                                                >
+                                                    <td className="p-4 flex items-center gap-3">
+                                                        <img
+                                                            src={
+                                                                user.photo
+                                                                    ? `/storage/${user.photo}`
+                                                                    : user.fname || user.lname
+                                                                    ? `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fname + " " + user.lname)}&background=7c3aed&color=fff`
+                                                                    : "/images/default.png"
+                                                            }
+                                                            alt={user.fname}
+                                                            className="w-10 h-10 rounded-full border-2 border-violet-200 dark:border-violet-800 object-cover"
+                                                        />
+                                                        <div>
+                                                            <div className="font-medium text-gray-800 dark:text-white">
+                                                                {user.prename} {user.fname}{" "}
+                                                                {user.lname}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 text-center text-gray-600 dark:text-gray-300">
+                                                        {user.emid}
+                                                    </td>
+                                                    <td className="p-4 text-center text-gray-600 dark:text-gray-300">
+                                                        {user.position?.title ?? "-"}
+                                                    </td>
+                                                    <td className="p-4 text-center text-gray-600 dark:text-gray-300">
+                                                        {user.grade}
+                                                    </td>
+                                                    <td className="p-4 text-center text-gray-600 dark:text-gray-300">
+                                                        {user.department?.name ?? "-"}
+                                                    </td>
+                                                    <td className="p-4 text-center text-gray-600 dark:text-gray-300">
+                                                        {user.division?.name ?? "-"}
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span
+                                                            className={cn(
+                                                                "px-2.5 py-1 rounded-full text-xs font-semibold",
+                                                                user.user_type === "internal"
+                                                                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                                                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                                                            )}
+                                                        >
+                                                            {user.user_type === "internal"
+                                                                ? "ภายใน"
+                                                                : "ภายนอก"}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span
+                                                            className={cn(
+                                                                "px-2.5 py-1 rounded-full text-xs font-semibold",
+                                                                user.role === "admin"
+                                                                    ? "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300"
+                                                                    : "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300"
+                                                            )}
+                                                        >
+                                                            {user.role.toUpperCase()}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <a
+                                                                href={route(
+                                                                    "admin.users.edit",
+                                                                    { user: user.emid }
+                                                                )}
+                                                                className="p-1.5 rounded-lg text-violet-600 hover:bg-violet-100 dark:text-violet-400 dark:hover:bg-violet-900/30 transition-colors"
+                                                                title="แก้ไข"
+                                                            >
+                                                                <Pencil className="w-4 h-4" />
+                                                            </a>
+                                                            <button
+                                                                onClick={() =>
+                                                                    handleDelete(user.emid)
+                                                                }
+                                                                className="p-1.5 rounded-lg text-red-500 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/30 transition-colors"
+                                                                title="ลบ"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </motion.tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </motion.div>
 
-                {users.data.length === 0 ? (
-                    <div className="text-center text-gray-500 dark:text-gray-400 py-20 border rounded bg-white dark:bg-gray-800 shadow">
-                        ไม่พบข้อมูลสมาชิก 🙁
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded shadow">
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                                <tr>
-                                    <th className="p-4 text-left">
-                                        ชื่อ - สกุล
-                                    </th>
-                                    <th className="p-4 text-center">EMID</th>
-                                    <th className="p-4 text-center">ตำแหน่ง</th>
-                                    <th className="p-4 text-center">ระดับ</th>
-                                    <th className="p-4 text-center">
-                                        หน่วยงาน
-                                    </th>
-                                    <th className="p-4 text-center">สายงาน</th>
-                                    <th className="p-4 text-center">ประเภท</th>
-                                    <th className="p-4 text-center">บทบาท</th>
-                                    <th className="p-4 text-center">
-                                        การจัดการ
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {users.data.map((user) => (
-                                    <tr
-                                        key={user.id}
-                                        className="hover:bg-gray-50 dark:hover:bg-gray-700"
-                                    >
-                                        <td className="p-4 flex items-center gap-3">
-                                            <img
-                                                src={
-                                                    user.photo
-                                                    ? `/storage/${user.photo}`
-                                                    : user.fname || user.lname
-                                                    ? `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fname + " " + user.lname)}`
-                                                    : "/images/default.png"
-                                                }
-                                                alt={user.fname}
-                                                className="w-10 h-10 rounded-full border object-cover"
-                                            />
-                                            <div>
-                                                <div className="font-medium text-gray-800 dark:text-white">
-                                                    {user.prename} {user.fname}{" "}
-                                                    {user.lname}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            {user.emid}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            {user.position?.title ?? "-"}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            {user.grade}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            {user.department?.name ?? "-"}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            {user.division?.name ?? "-"}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            <span
-                                                className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                                    user.user_type ===
-                                                    "internal"
-                                                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                                                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
-                                                }`}
-                                            >
-                                                {user.user_type === "internal"
-                                                    ? "ภายใน"
-                                                    : "ภายนอก"}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            <span
-                                                className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                                    user.role === "admin"
-                                                        ? "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300"
-                                                        : "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
-                                                }`}
-                                            >
-                                                {user.role.toUpperCase()}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-center flex items-center justify-center gap-2">
-                                            <a
-                                                href={route(
-                                                    "admin.users.edit",
-                                                    { user: user.emid }
-                                                )}
-                                                className="text-indigo-600 hover:text-indigo-800"
-                                            >
-                                                <Pencil className="w-5 h-5" />
-                                            </a>
-                                            <button
-                                                onClick={() =>
-                                                    handleDelete(user.emid)
-                                                }
-                                                className="text-red-600 hover:text-red-800"
-                                            >
-                                                <Trash2 className="w-5 h-5" />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-
-                {users.links.length > 1 && (
-                    <div className="flex justify-end mt-6 space-x-1">
-                        {users.links.map((link, index) => (
-                            <button
-                                key={index}
-                                disabled={!link.url}
-                                onClick={() =>
-                                    link.url &&
-                                    router.visit(link.url, {
-                                        preserveScroll: true,
-                                        preserveState: true,
-                                        data: {
-                                            page: new URL(
-                                                link.url
-                                            ).searchParams.get("page"),
-                                            search,
-                                        },
-                                    })
-                                }
-                                className={`px-3 py-1 border rounded text-sm ${
-                                    link.active
-                                        ? "bg-indigo-600 text-white"
-                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200 hover:text-gray-700 dark:bg-gray-800 dark:text-white"
-                                }`}
-                                dangerouslySetInnerHTML={{ __html: link.label }}
-                            />
-                        ))}
-                    </div>
-                )}
+                    {/* Pagination */}
+                    {users.links.length > 1 && (
+                        <motion.div variants={itemVariants} className="flex justify-end space-x-1">
+                            {users.links.map((link, index) => (
+                                <button
+                                    key={index}
+                                    disabled={!link.url}
+                                    onClick={() =>
+                                        link.url &&
+                                        router.visit(link.url, {
+                                            preserveScroll: true,
+                                            preserveState: true,
+                                            data: {
+                                                page: new URL(
+                                                    link.url
+                                                ).searchParams.get("page"),
+                                                search,
+                                            },
+                                        })
+                                    }
+                                    className={cn(
+                                        "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+                                        link.active
+                                            ? "gradient-primary text-white shadow-md shadow-violet-500/25"
+                                            : "bg-white/80 border border-gray-200 text-gray-700 hover:bg-violet-50 hover:border-violet-300 dark:bg-gray-800 dark:text-white dark:border-gray-700 dark:hover:bg-violet-900/20"
+                                    )}
+                                    dangerouslySetInnerHTML={{ __html: link.label }}
+                                />
+                            ))}
+                        </motion.div>
+                    )}
+                </motion.div>
             </div>
         </MainLayout>
     );

@@ -1216,22 +1216,28 @@ class AdminEvaluationReportController extends Controller
                     ])
                     ->toArray();
 
-                // Add external evaluators
-                if ($rightScore > 0) {
-                    $extOrgs = DB::table('external_access_codes as eac')
-                        ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
-                        ->where('eac.evaluatee_id', $userId)
-                        ->where('eac.fiscal_year', $fiscalYear)
-                        ->where('eac.is_used', true)
-                        ->select('eo.name')
-                        ->get();
-                    foreach ($extOrgs as $org) {
-                        $evaluators[] = [
-                            'id' => 0, 'name' => $org->name . ' (ภายนอก)', 'angle' => 'right',
-                            'completed' => true, 'score' => $rightScore,
-                            'division' => 'องค์กรภายนอก', 'completed_at' => null,
-                        ];
-                    }
+                // Add external evaluators — list each session as a separate evaluator
+                $extSessions = DB::table('external_evaluation_sessions as ses')
+                    ->join('external_organizations as eo', 'ses.external_organization_id', '=', 'eo.id')
+                    ->where('ses.evaluatee_id', $userId)
+                    ->whereNotNull('ses.completed_at')
+                    ->whereExists(function ($q) use ($fiscalYear) {
+                        $q->select(DB::raw(1))->from('answers')
+                          ->whereColumn('answers.external_session_id', 'ses.id')
+                          ->where('answers.fiscal_year', $fiscalYear);
+                    })
+                    ->select('ses.id', 'ses.evaluator_name', 'ses.evaluator_position', 'ses.completed_at', 'eo.name as org_name')
+                    ->get();
+                foreach ($extSessions as $s) {
+                    $evaluators[] = [
+                        'id' => 0,
+                        'name' => ($s->evaluator_name ?: '(ไม่ระบุชื่อ)') . ' [' . $s->org_name . ']',
+                        'angle' => 'right',
+                        'completed' => true,
+                        'score' => $rightScore,
+                        'division' => 'องค์กรภายนอก' . ($s->evaluator_position ? ' · ' . $s->evaluator_position : ''),
+                        'completed_at' => $s->completed_at,
+                    ];
                 }
 
                 // Single query: aspect scores
@@ -1339,7 +1345,7 @@ class AdminEvaluationReportController extends Controller
                         ];
                     })(),
                 ];
-            });
+            })();
 
             return response()->json($data);
         } catch (\Exception $e) {
@@ -1529,10 +1535,10 @@ class AdminEvaluationReportController extends Controller
         $scores = $data['scores'];
         $angles = [
             'self' => 'ประเมินตนเอง',
-            'top' => 'ผู้บังคับบัญชา',
-            'bottom' => 'ผู้ใต้บังคับบัญชา',
-            'left' => 'องศาซ้าย',
-            'right' => 'องศาขวา'
+            'top' => 'ประเมินโดยผู้บังคับบัญชา',
+            'bottom' => 'ประเมินโดยผู้ใต้บังคับบัญชา',
+            'left' => 'ประเมินโดยเพื่อนร่วมงาน',
+            'right' => 'ประเมินโดยผู้ประเมินภายนอก'
         ];
         
         foreach ($angles as $key => $label) {
@@ -1604,6 +1610,7 @@ class AdminEvaluationReportController extends Controller
                     'd.name as evaluatee_division',
                     'ea.fiscal_year',
                     'ea.angle',
+                    'ea.submitted_at',
                     DB::raw('COALESCE(ans.answer_count, 0) as answer_count'),
                     DB::raw('COALESCE(qc.total_questions, 0) as total_questions'),
                     DB::raw('ROUND(COALESCE(ans.answer_count, 0) / GREATEST(COALESCE(qc.total_questions, 1), 1) * 100, 1) as completion_pct'),
@@ -1618,6 +1625,20 @@ class AdminEvaluationReportController extends Controller
             return response()->json(['error' => 'ไม่สามารถโหลดข้อมูลได้', 'data' => []], 500);
         }
     }
+    /**
+     * รายการแบบประเมิน published ในปีงบที่กำหนด — สำหรับ dropdown เปลี่ยนแบบประเมิน
+     */
+    public function getAvailableEvaluations(Request $request): JsonResponse
+    {
+        $fiscalYear = (int) $request->input("fiscal_year", $this->getCurrentFiscalYear());
+        $rows = \App\Models\Evaluation::where("status", "published")
+            ->where("fiscal_year", $fiscalYear)
+            ->orderBy("user_type")
+            ->orderBy("grade_min")
+            ->get(["id", "title", "user_type", "grade_min", "grade_max", "fiscal_year"]);
+        return response()->json(["data" => $rows]);
+    }
+
 
     /**
      * Clear cache
@@ -1974,14 +1995,14 @@ class AdminEvaluationReportController extends Controller
             $divisionId = $request->input('division_id');
             $userId = $request->input('user_id');
 
-            // Dynamic lookup by grade if no evaluation_id provided
+            // Dynamic lookup by grade if no evaluation_id provided — respect fiscal_year
             if (!$evaluationId && $request->input('grade_lookup')) {
                 $gradeLookup = (int) $request->input('grade_lookup');
-                $evaluation = Evaluation::where('user_type', 'internal')
-                    ->where('grade_min', '<=', $gradeLookup)
-                    ->where('grade_max', '>=', $gradeLookup)
-                    ->where('status', 'published')
-                    ->first();
+                $evaluation = \App\Services\EvaluationLookupService::findByGrade(
+                    $gradeLookup,
+                    'internal',
+                    $fiscalYear ? (int) $fiscalYear : null
+                );
                 $evaluationId = $evaluation?->id;
             }
 
@@ -2357,10 +2378,10 @@ class AdminEvaluationReportController extends Controller
     {
         $translations = [
             'self' => 'ประเมินตนเอง',
-            'top' => 'ผู้บังคับบัญชา',
-            'bottom' => 'ผู้ใต้บังคับบัญชา',
-            'left' => 'เพื่อนร่วมงาน (ซ้าย)',
-            'right' => 'เพื่อนร่วมงาน (ขวา)'
+            'top' => 'ประเมินโดยผู้บังคับบัญชา',
+            'bottom' => 'ประเมินโดยผู้ใต้บังคับบัญชา',
+            'left' => 'ประเมินโดยเพื่อนร่วมงาน',
+            'right' => 'ประเมินโดยผู้ประเมินภายนอก'
         ];
         
         return $translations[$angle] ?? $angle;
@@ -3302,10 +3323,10 @@ class AdminEvaluationReportController extends Controller
     {
         switch ($angle) {
             case 'self': return 'ตนเอง';
-            case 'top': return 'ผู้บังคับบัญชา';
-            case 'bottom': return 'ผู้ใต้บังคับบัญชา';
-            case 'left': return 'องศาซ้าย';
-            case 'right': return 'องศาขวา';
+            case 'top': return 'ประเมินโดยผู้บังคับบัญชา';
+            case 'bottom': return 'ประเมินโดยผู้ใต้บังคับบัญชา';
+            case 'left': return 'ประเมินโดยเพื่อนร่วมงาน';
+            case 'right': return 'ประเมินโดยผู้ประเมินภายนอก';
             default: return $angle;
         }
     }
@@ -3997,15 +4018,7 @@ class AdminEvaluationReportController extends Controller
             Log::error('Export detailed evaluation report error: ' . $e->getMessage());
             return response()->json(['error' => 'การส่งออกรายงานรายละเอียดล้มเหลว'], 500);
         }
-    }
-
-    /**
-     * Export Excel — รายชื่อผู้ประเมินที่ยังไม่ได้ส่งแบบประเมิน (ค้างประเมิน)
-     * 1 row = 1 pending assignment (evaluator info ซ้ำ)
-     * pending = submitted_at IS NULL หรือ answer_count < total_questions
-     * scope = internal users เท่านั้น
-     */
-    public function exportPendingEvaluators(Request $request)
+}    public function exportPendingEvaluators(Request $request)
     {
         try {
             $this->boostLimits();
@@ -4200,6 +4213,7 @@ class AdminEvaluationReportController extends Controller
         }
     }
 
+
     /**
      * Export Excel — ผู้ประเมิน "ภายใน" ที่ส่งครบแล้ว (สำเร็จ)
      * predicate: submitted_at IS NOT NULL AND answer_count >= total_questions
@@ -4369,7 +4383,8 @@ class AdminEvaluationReportController extends Controller
 
     /**
      * shared external evaluators export — split by status
-     * row = 1 access code (1 external evaluator slot)
+     * row = 1 external_stakeholders entry (1 stakeholder × 1 evaluatee)
+     * v3 schema: base = external_stakeholders (ชื่อ/contact จริง); evaluation_id ดึงจาก pivot
      */
     protected function exportExternalEvaluatorsByStatus(Request $request, bool $completed)
     {
@@ -4378,31 +4393,44 @@ class AdminEvaluationReportController extends Controller
 
             $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
 
-            $q = DB::table('external_access_codes as ac')
-                ->leftJoin('external_organizations as org', 'org.id', '=', 'ac.external_organization_id')
-                ->leftJoin('external_evaluation_sessions as s', 's.external_access_code_id', '=', 'ac.id')
-                ->leftJoin('users as ee', 'ee.id', '=', 'ac.evaluatee_id')
-                ->leftJoin('evaluations as e', 'e.id', '=', 'ac.evaluation_id')
-                ->where('ac.fiscal_year', $fiscalYear);
+            $q = DB::table('external_stakeholders as st')
+                ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'st.external_access_code_id')
+                ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
+                ->leftJoin('external_code_evaluatees as ece', function ($j) {
+                    $j->on('ece.external_access_code_id', '=', 'ac.id')
+                      ->on('ece.evaluatee_id', '=', 'st.evaluatee_id');
+                })
+                ->leftJoin('evaluations as ev', 'ev.id', '=', 'ece.evaluation_id')
+                ->leftJoin('users as ee', 'ee.id', '=', 'st.evaluatee_id')
+                ->leftJoin('external_evaluation_sessions as s', 's.id', '=', 'st.external_session_id')
+                ->where('st.fiscal_year', $fiscalYear);
 
             if ($completed) {
-                $q->whereNotNull('s.completed_at');
+                // สำเร็จ = stakeholder slot ผูก session + session completed
+                $q->whereNotNull('st.external_session_id')->whereNotNull('s.completed_at');
             } else {
-                // pending = ยังไม่มี session หรือ session ยัง active
+                // pending = ยังไม่ผูก session หรือ session ยังไม่ completed
                 $q->where(function ($w) {
-                    $w->whereNull('s.id')->orWhereNull('s.completed_at');
+                    $w->whereNull('st.external_session_id')->orWhereNull('s.completed_at');
                 });
             }
 
-            $rows = $q->orderBy('org.name')->orderBy('ee.fname')
+            // filter ตาม evaluatee (ผู้ถูกประเมิน)
+            if ($v = $request->input('user_id'))       $q->where('ee.id', $v);
+            if ($v = $request->input('grade'))         $q->where('ee.grade', (string) $v);
+            if ($v = $request->input('division_id'))   $q->where('ee.division_id', $v);
+            if ($v = $request->input('department_id')) $q->where('ee.department_id', $v);
+            if ($v = $request->input('position_id'))   $q->where('ee.position_id', $v);
+
+            $rows = $q->orderBy('eo.name')->orderBy('st.organization_name')->orderBy('ee.fname')
                 ->select(
-                    'org.name as org_name', 'org.org_code', 'org.contact_person',
-                    'org.contact_email', 'org.contact_phone',
-                    'ac.code as access_code', 'ac.is_used', 'ac.expires_at',
-                    's.started_at', 's.completed_at',
+                    'eo.name as group_label',
+                    'st.organization_name', 'st.contact_person', 'st.contact_info', 'st.coordinator',
+                    'st.code as stakeholder_code',
                     'ee.prename as ee_prename', 'ee.fname as ee_fname', 'ee.lname as ee_lname',
                     'ee.grade as evaluatee_grade',
-                    'e.title as evaluation_title'
+                    'ev.title as evaluation_title',
+                    's.started_at', 's.completed_at', 's.evaluator_name'
                 )->get();
 
             $totalCount = $rows->count();
@@ -4414,30 +4442,32 @@ class AdminEvaluationReportController extends Controller
             $sheet->setTitle($completed ? 'Completed External' : 'Pending External');
 
             $sheet->setCellValue('A1', 'รายชื่อผู้ประเมินภายนอก' . $label . ' — ปีงบประมาณ พ.ศ. ' . ($fiscalYear + 543));
-            $sheet->mergeCells('A1:L1');
+            $sheet->mergeCells('A1:M1');
             $sheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
             $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
             $sheet->setCellValue('A2', 'สร้างเมื่อ: ' . now()->format('d/m/Y H:i') . ' | จำนวน: ' . $totalCount . ' รายการ');
-            $sheet->mergeCells('A2:L2');
+            $sheet->mergeCells('A2:M2');
 
             $headers = [
-                'A4' => 'องค์กรภายนอก', 'B4' => 'รหัสองค์กร', 'C4' => 'ผู้ติดต่อ',
-                'D4' => 'อีเมล', 'E4' => 'โทรศัพท์', 'F4' => 'รหัสเข้าใช้งาน',
-                'G4' => 'ผู้ถูกประเมิน', 'H4' => 'ระดับผู้ถูกประเมิน',
-                'I4' => 'แบบประเมิน',
-                'J4' => 'เริ่มเมื่อ', 'K4' => 'ส่งเมื่อ', 'L4' => 'สถานะ',
+                'A4' => 'หมวดองค์กร',       'B4' => 'ชื่อหน่วยงานองค์กร',
+                'C4' => 'ผู้ติดต่อ',        'D4' => 'ติดต่อ (โทร/อีเมล)',
+                'E4' => 'ผู้ประสานงาน',     'F4' => 'รหัสเข้าใช้งาน',
+                'G4' => 'ผู้ถูกประเมิน',    'H4' => 'ระดับผู้ถูกประเมิน',
+                'I4' => 'แบบประเมิน',       'J4' => 'เริ่มเมื่อ',
+                'K4' => 'ส่งเมื่อ',         'L4' => 'สถานะ',
+                'M4' => 'ผู้กรอกข้อมูล',
             ];
             foreach ($headers as $cell => $h) {
                 $sheet->setCellValue($cell, $h);
             }
-            $sheet->getStyle('A4:L4')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
-            $sheet->getStyle('A4:L4')->getFill()
+            $sheet->getStyle('A4:M4')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle('A4:M4')->getFill()
                 ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
                 ->getStartColor()->setRGB($titleColor);
-            $sheet->getStyle('A4:L4')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+            $sheet->getStyle('A4:M4')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
-            $colWidths = ['A'=>28,'B'=>12,'C'=>20,'D'=>24,'E'=>14,'F'=>16,'G'=>26,'H'=>10,'I'=>30,'J'=>18,'K'=>18,'L'=>14];
+            $colWidths = ['A'=>22,'B'=>34,'C'=>22,'D'=>24,'E'=>20,'F'=>18,'G'=>26,'H'=>10,'I'=>28,'J'=>16,'K'=>16,'L'=>12,'M'=>22];
             foreach ($colWidths as $col => $w) {
                 $sheet->getColumnDimension($col)->setWidth($w);
             }
@@ -4445,27 +4475,83 @@ class AdminEvaluationReportController extends Controller
             $row = 5;
             if ($totalCount === 0) {
                 $sheet->setCellValue('A' . $row, $completed ? 'ไม่มีข้อมูลผู้ประเมินภายนอกที่ส่งครบแล้ว' : 'ไม่มีข้อมูลผู้ประเมินภายนอกที่ค้างอยู่');
-                $sheet->mergeCells("A{$row}:L{$row}");
+                $sheet->mergeCells("A{$row}:M{$row}");
                 $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 $sheet->getStyle("A{$row}")->getFont()->setItalic(true)->getColor()->setRGB('9CA3AF');
             } else {
+                // 2 ชั้น merge: A = หมวด (group_label); B-E = stakeholder ภายในหมวด
+                $prevGroup  = null;
+                $prevOrg    = null;
+                $groupStart = 5;
+                $orgStart   = 5;
+                $orgIdx     = 0;
+
+                $flushOrg = function (int $orgEnd) use ($sheet, &$orgIdx, &$orgStart) {
+                    if ($orgEnd < $orgStart) return;
+                    if ($orgEnd > $orgStart) {
+                        foreach (range('B', 'E') as $col) {
+                            $sheet->mergeCells("{$col}{$orgStart}:{$col}{$orgEnd}");
+                        }
+                    }
+                    $sheet->getStyle("B{$orgStart}:E{$orgEnd}")->getAlignment()
+                        ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+                    if ($orgIdx % 2 === 1) {
+                        $sheet->getStyle("A{$orgStart}:M{$orgEnd}")->getFill()
+                            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                            ->getStartColor()->setRGB('F9FAFB');
+                    }
+                    $orgIdx++;
+                };
+                $flushGroup = function (int $groupEnd) use ($sheet, &$groupStart) {
+                    if ($groupEnd <= $groupStart) return;
+                    $sheet->mergeCells("A{$groupStart}:A{$groupEnd}");
+                    $sheet->getStyle("A{$groupStart}:A{$groupEnd}")->getAlignment()
+                        ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+                };
+
                 foreach ($rows as $r) {
-                    $sheet->setCellValue('A' . $row, $r->org_name ?? '-');
-                    $sheet->setCellValue('B' . $row, $r->org_code ?? '-');
-                    $sheet->setCellValue('C' . $row, $r->contact_person ?? '-');
-                    $sheet->setCellValue('D' . $row, $r->contact_email ?? '-');
-                    $sheet->setCellValue('E' . $row, $r->contact_phone ?? '-');
-                    $sheet->setCellValue('F' . $row, $r->access_code ?? '-');
+                    $groupKey = (string) ($r->group_label ?? '');
+                    $orgKey   = (string) ($r->organization_name ?? '') . '|' . $groupKey;
+
+                    if ($prevGroup !== null && $groupKey !== $prevGroup) {
+                        $flushOrg($row - 1);
+                        $flushGroup($row - 1);
+                        $groupStart = $row;
+                        $orgStart   = $row;
+                    } elseif ($prevOrg !== null && $orgKey !== $prevOrg) {
+                        $flushOrg($row - 1);
+                        $orgStart = $row;
+                    }
+
+                    if ($groupKey !== $prevGroup) {
+                        $sheet->setCellValue('A' . $row, $groupKey !== '' ? $groupKey : '-');
+                    }
+                    if ($orgKey !== $prevOrg) {
+                        $sheet->setCellValue('B' . $row, $r->organization_name ?? '-');
+                        $sheet->setCellValue('C' . $row, $r->contact_person ?? '-');
+                        $sheet->setCellValue('D' . $row, $r->contact_info ?? '-');
+                        $sheet->setCellValue('E' . $row, $r->coordinator ?? '-');
+                    }
+
+                    $sheet->setCellValue('F' . $row, $r->stakeholder_code ?? '-');
                     $eeName = trim(($r->ee_prename ?? '') . ($r->ee_fname ?? '') . ' ' . ($r->ee_lname ?? ''));
-                    $sheet->setCellValue('G' . $row, $eeName ?: '-');
+                    $sheet->setCellValue('G' . $row, $eeName !== '' ? $eeName : '-');
                     $sheet->setCellValue('H' . $row, $r->evaluatee_grade ?? '-');
                     $sheet->setCellValue('I' . $row, $r->evaluation_title ?? '-');
                     $sheet->setCellValue('J' . $row, $r->started_at ? \Carbon\Carbon::parse($r->started_at)->format('d/m/Y H:i') : '-');
                     $sheet->setCellValue('K' . $row, $r->completed_at ? \Carbon\Carbon::parse($r->completed_at)->format('d/m/Y H:i') : '-');
                     $status = $r->completed_at ? 'สำเร็จ' : ($r->started_at ? 'กำลังทำ' : 'ยังไม่เริ่ม');
                     $sheet->setCellValue('L' . $row, $status);
+                    $sheet->setCellValue('M' . $row, $r->evaluator_name ?? '-');
+
+                    $prevGroup = $groupKey;
+                    $prevOrg   = $orgKey;
                     $row++;
                 }
+                $flushOrg($row - 1);
+                $flushGroup($row - 1);
+                $sheet->getStyle("H5:H" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("L5:L" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
             }
 
             $base = $completed ? 'completed-evaluators-external' : 'pending-evaluators-external';

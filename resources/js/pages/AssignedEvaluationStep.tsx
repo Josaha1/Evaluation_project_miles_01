@@ -135,6 +135,9 @@ export default function AssignedEvaluationStep() {
     const [showCompletionModal, setShowCompletionModal] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Always reflects latest answers — used by autoSave so it never reads stale closure
+    const answersRef = React.useRef(answers);
+    React.useEffect(() => { answersRef.current = answers; }, [answers]);
 
     // Load existing answers
     useEffect(() => {
@@ -215,90 +218,56 @@ export default function AssignedEvaluationStep() {
         }
     }, [groupedQuestions.length]);
 
+    // Unwrap {value, other_text} envelope and check if real answer is present
+    const hasAnswerValue = (ans: any, qType: string): boolean => {
+        if (qType === "open_text") return true;
+        if (typeof ans === 'object' && ans !== null && !Array.isArray(ans) && 'value' in ans) {
+            ans = (ans as any).value;
+        }
+        if (ans === undefined || ans === null || ans === "") return false;
+        if (Array.isArray(ans) && ans.length === 0) return false;
+        return true;
+    };
+
     // Check if all questions are answered for all evaluatees in the angle
     const isGroupComplete = currentGroup.questions.every((q) => {
         const questionAnswers = answers[q.id] || {};
-
         if (evaluateesForRating && evaluateesForRating.length > 1) {
-            return evaluateesForRating.every(evaluatee => {
-                const ans = questionAnswers[evaluatee.id];
-
-                switch (q.type) {
-                    case "rating":
-                        return ans !== undefined && ans !== "" && ans !== null;
-                    case "choice":
-                        if (typeof ans === 'object' && ans !== null) {
-                            return ans.value !== undefined && ans.value !== "" && ans.value !== null;
-                        } else {
-                            return ans !== undefined && ans !== "" && ans !== null;
-                        }
-                    case "multiple_choice":
-                        if (typeof ans === 'object' && ans !== null && !Array.isArray(ans)) {
-                            return Array.isArray(ans.value) && ans.value.length > 0;
-                        } else {
-                            return Array.isArray(ans) && ans.length > 0;
-                        }
-                    case "open_text":
-                        return typeof ans === "string" && ans.trim() !== "";
-                    default:
-                        return ans !== undefined && ans !== "" && ans !== null;
-                }
-            });
+            return evaluateesForRating.every(evaluatee => hasAnswerValue(questionAnswers[evaluatee.id], q.type));
         }
-
-        const ans = questionAnswers[evaluatee_id];
-        switch (q.type) {
-            case "rating":
-                return ans !== undefined && ans !== "" && ans !== null;
-            case "choice":
-                if (typeof ans === 'object' && ans !== null) {
-                    return ans.value !== undefined && ans.value !== "" && ans.value !== null;
-                } else {
-                    return ans !== undefined && ans !== "" && ans !== null;
-                }
-            case "multiple_choice":
-                if (typeof ans === 'object' && ans !== null && !Array.isArray(ans)) {
-                    return Array.isArray(ans.value) && ans.value.length > 0;
-                } else {
-                    return Array.isArray(ans) && ans.length > 0;
-                }
-            case "open_text":
-                return typeof ans === "string" && ans.trim() !== "";
-            default:
-                return ans !== undefined && ans !== "" && ans !== null;
-        }
+        return hasAnswerValue(questionAnswers[evaluatee_id], q.type);
     });
 
     const autoSave = React.useCallback(async () => {
         if (!currentGroup) return;
+        const latest = answersRef.current;
 
         const currentAnswers: Record<string, any> = {};
         currentGroup.questions.forEach((q) => {
-            const questionAnswers = answers[q.id];
-            if (questionAnswers) {
-                if (evaluateesForRating && evaluateesForRating.length > 1) {
-                    evaluateesForRating.forEach(evaluatee => {
-                        const val = questionAnswers[evaluatee.id];
-                        if (val !== undefined && val !== "" && val !== null) {
-                            const key = `${q.id}_${evaluatee.id}`;
-                            const answerData: any = {
-                                question_id: q.id,
-                                evaluatee_id: evaluatee.id,
-                                value: val
-                            };
-                            if (typeof val === 'object' && val !== null && val.other_text) {
-                                answerData.other_text = val.other_text;
-                                answerData.value = val.value;
-                            }
-                            currentAnswers[key] = answerData;
-                        }
-                    });
-                } else {
-                    const val = questionAnswers[evaluatee_id];
-                    if (val !== undefined && val !== "" && val !== null) {
-                        currentAnswers[q.id] = val;
+            const questionAnswers = latest[q.id];
+            if (questionAnswers === undefined) return;
+
+            if (evaluateesForRating && evaluateesForRating.length > 1) {
+                evaluateesForRating.forEach(evaluatee => {
+                    if (!Object.prototype.hasOwnProperty.call(questionAnswers, evaluatee.id)) return;
+                    const val = questionAnswers[evaluatee.id];
+
+                    const key = `${q.id}_${evaluatee.id}`;
+                    const answerData: any = {
+                        question_id: q.id,
+                        evaluatee_id: evaluatee.id,
+                        value: val,
+                    };
+                    if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+                        answerData.value = val.value ?? null;
+                        answerData.other_text = val.other_text ?? null;
                     }
-                }
+                    currentAnswers[key] = answerData;
+                });
+            } else {
+                if (!Object.prototype.hasOwnProperty.call(questionAnswers, evaluatee_id)) return;
+                const val = questionAnswers[evaluatee_id];
+                currentAnswers[q.id] = val;
             }
         });
 
@@ -325,7 +294,7 @@ export default function AssignedEvaluationStep() {
             setSaveStatus('error');
             setTimeout(() => setSaveStatus('idle'), 5000);
         }
-    }, [answers, currentGroup, step, evaluation.id, current_part.id, evaluatee_id, evaluateesForRating, fiscal_year]);
+    }, [currentGroup, step, evaluation.id, current_part.id, evaluatee_id, evaluateesForRating, fiscal_year]);
 
     useEffect(() => {
         return () => {
@@ -405,77 +374,30 @@ export default function AssignedEvaluationStep() {
 
         currentGroup.questions.forEach((q) => {
             const questionAnswers = answers[q.id];
-            if (questionAnswers) {
-                if (evaluateesForRating && evaluateesForRating.length > 1) {
-                    evaluateesForRating.forEach(evaluatee => {
-                        const val = questionAnswers[evaluatee.id];
+            if (questionAnswers === undefined) return;
 
-                        let isValidAnswer = false;
-                        switch (q.type) {
-                            case "rating":
-                                isValidAnswer = val !== undefined && val !== "" && val !== null;
-                                break;
-                            case "choice":
-                                if (typeof val === 'object' && val !== null) {
-                                    isValidAnswer = val.value !== undefined && val.value !== "" && val.value !== null;
-                                } else {
-                                    isValidAnswer = val !== undefined && val !== "" && val !== null;
-                                }
-                                break;
-                            case "multiple_choice":
-                                if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
-                                    isValidAnswer = Array.isArray(val.value) && val.value.length > 0;
-                                } else {
-                                    isValidAnswer = Array.isArray(val) && val.length > 0;
-                                }
-                                break;
-                            case "open_text":
-                                isValidAnswer = typeof val === "string" && val.trim() !== "";
-                                break;
-                            default:
-                                isValidAnswer = val !== undefined && val !== "" && val !== null;
-                        }
+            if (evaluateesForRating && evaluateesForRating.length > 1) {
+                evaluateesForRating.forEach(evaluatee => {
+                    if (!Object.prototype.hasOwnProperty.call(questionAnswers, evaluatee.id)) return;
+                    const val = questionAnswers[evaluatee.id];
 
-                        if (isValidAnswer) {
-                            const key = `${q.id}_${evaluatee.id}`;
-
-                            const answerData: any = {
-                                question_id: q.id,
-                                evaluatee_id: evaluatee.id,
-                                value: val
-                            };
-
-                            if (typeof val === 'object' && val !== null && val.other_text) {
-                                answerData.other_text = val.other_text;
-                                answerData.value = val.value;
-                            }
-
-                            currentAnswers[key] = answerData;
-                        }
-                    });
-                } else {
-                    const val = questionAnswers[evaluatee_id];
-
-                    let isValidAnswer = false;
-                    switch (q.type) {
-                        case "rating":
-                        case "choice":
-                            isValidAnswer = val !== undefined && val !== "" && val !== null;
-                            break;
-                        case "multiple_choice":
-                            isValidAnswer = Array.isArray(val) && val.length > 0;
-                            break;
-                        case "open_text":
-                            isValidAnswer = typeof val === "string" && val.trim() !== "";
-                            break;
-                        default:
-                            isValidAnswer = val !== undefined && val !== "" && val !== null;
+                    // INCLUDE null/empty values so backend can delete row (uncheck flow)
+                    const key = `${q.id}_${evaluatee.id}`;
+                    const answerData: any = {
+                        question_id: q.id,
+                        evaluatee_id: evaluatee.id,
+                        value: val,
+                    };
+                    if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+                        answerData.value = val.value ?? null;
+                        answerData.other_text = val.other_text ?? null;
                     }
-
-                    if (isValidAnswer) {
-                        currentAnswers[q.id] = val;
-                    }
-                }
+                    currentAnswers[key] = answerData;
+                });
+            } else {
+                if (!Object.prototype.hasOwnProperty.call(questionAnswers, evaluatee_id)) return;
+                const val = questionAnswers[evaluatee_id];
+                currentAnswers[q.id] = val;
             }
         });
 
@@ -633,12 +555,12 @@ export default function AssignedEvaluationStep() {
 
                                     const angleConfig = {
                                         top: {
-                                            label: 'ผู้บังคับบัญชา',
+                                            label: 'ผู้ใต้บังคับบัญชา',
                                             color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
                                             bgColor: 'bg-violet-50 dark:bg-violet-900/10'
                                         },
                                         bottom: {
-                                            label: 'ผู้ใต้บังคับบัญชา',
+                                            label: 'ผู้บังคับบัญชา',
                                             color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
                                             bgColor: 'bg-emerald-50 dark:bg-emerald-900/10'
                                         },
@@ -756,6 +678,7 @@ export default function AssignedEvaluationStep() {
                                                     updateSingleAnswer(question.id, value)
                                                 }
                                                 questionNumber={index + 1}
+                                                hideScoreDescription
                                             />
                                         );
                                     }
@@ -809,7 +732,7 @@ export default function AssignedEvaluationStep() {
                                                                             return Array.isArray(ans) && ans.length > 0;
                                                                         }
                                                                     case "open_text":
-                                                                        return typeof ans === "string" && ans.trim() !== "";
+                                                                        return true;  // optional
                                                                     default:
                                                                         return ans !== undefined && ans !== "" && ans !== null;
                                                                 }
@@ -833,7 +756,7 @@ export default function AssignedEvaluationStep() {
                                                                     return Array.isArray(ans) && ans.length > 0;
                                                                 }
                                                             case "open_text":
-                                                                return typeof ans === "string" && ans.trim() !== "";
+                                                                return true;  // optional
                                                             default:
                                                                 return ans !== undefined && ans !== "" && ans !== null;
                                                         }
@@ -937,15 +860,15 @@ export default function AssignedEvaluationStep() {
                     </motion.div>
                 </div>
             </div>
-            {/* Completion Modal */}
+            {/* Completion Modal — explicit submit confirmation */}
             <Dialog open={showCompletionModal} onOpenChange={setShowCompletionModal}>
                 <DialogContent className="sm:max-w-md glass-card rounded-2xl">
                     <DialogHeader>
                         <DialogTitle className="text-center text-xl text-gray-900 dark:text-white">
-                            การประเมินเสร็จสมบูรณ์แล้ว!
+                            ยืนยันส่งแบบประเมิน?
                         </DialogTitle>
                         <DialogDescription className="text-center space-y-2">
-                            <p>คุณได้ทำแบบประเมินสำหรับ <strong>{current_evaluatee?.name}</strong> เรียบร้อยแล้ว</p>
+                            <p>หลังส่งแล้วจะไม่สามารถกลับมาแก้ไขได้อีก</p>
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex justify-center py-4">
@@ -953,19 +876,37 @@ export default function AssignedEvaluationStep() {
                             <CheckCircle className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
                         </div>
                     </div>
-                    <DialogFooter className="sm:justify-center">
+                    <DialogFooter className="sm:justify-center gap-2">
                         <button
-                            onClick={() => {
-                                setShowCompletionModal(false);
-                                router.visit(route("dashboard"), {
-                                    method: "get",
-                                    preserveScroll: false,
-                                    preserveState: false,
-                                });
+                            onClick={() => setShowCompletionModal(false)}
+                            disabled={isLoading}
+                            className="px-6 py-2.5 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 font-medium"
+                        >
+                            กลับไปแก้ไข
+                        </button>
+                        <button
+                            onClick={async () => {
+                                setIsLoading(true);
+                                try {
+                                    await axios.post(
+                                        route("assigned-evaluations.submit", { evaluatee: evaluatee_id }),
+                                        { fiscal_year: fiscal_year }
+                                    );
+                                    setShowCompletionModal(false);
+                                    router.visit(route("dashboard"), {
+                                        method: "get",
+                                        preserveScroll: false,
+                                        preserveState: false,
+                                    });
+                                } catch {
+                                    toast.error("ส่งไม่สำเร็จ กรุณาลองอีกครั้ง");
+                                    setIsLoading(false);
+                                }
                             }}
+                            disabled={isLoading}
                             className="px-6 py-2.5 gradient-primary text-white rounded-xl hover:opacity-90 transition-opacity font-medium shadow-lg"
                         >
-                            กลับหน้าหลัก
+                            {isLoading ? "กำลังส่ง..." : "ยืนยันส่ง"}
                         </button>
                     </DialogFooter>
                 </DialogContent>

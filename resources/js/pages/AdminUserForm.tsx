@@ -8,10 +8,11 @@ import CreatableSelect from "react-select/creatable";
 import { Label } from "@/Components/ui/label";
 import { Input } from "@/Components/ui/input";
 import { Button } from "@/Components/ui/button";
-import { Card } from "@/Components/ui/card";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Lock, Eye, EyeOff, AlertCircle, UserPlus, Save } from "lucide-react";
 
 interface Division {
     id: number;
@@ -47,7 +48,21 @@ interface OptionType {
     label: string;
 }
 
+const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+        opacity: 1,
+        transition: { staggerChildren: 0.05 },
+    },
+};
+
+const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+};
+
 const isDarkMode = () => document.documentElement.classList.contains("dark");
+
 export default function AdminUserForm() {
     const { divisions, departments, factions, position, mode, user } =
         usePage<PageProps>().props;
@@ -86,13 +101,13 @@ export default function AdminUserForm() {
             onSuccess: () => {
                 toast.success(
                     mode === "edit"
-                        ? "✅ แก้ไขข้อมูลแล้ว"
-                        : "✅ เพิ่มผู้ใช้งานแล้ว"
+                        ? "แก้ไขข้อมูลแล้ว"
+                        : "เพิ่มผู้ใช้งานแล้ว"
                 );
                 reset("password");
                 setChangePassword(false);
             },
-            onError: () => toast.error("❌ ไม่สามารถบันทึกได้"),
+            onError: () => toast.error("ไม่สามารถบันทึกได้"),
         });
     };
 
@@ -102,10 +117,10 @@ export default function AdminUserForm() {
             { name: inputValue, division_id: data.division_id },
             {
                 onSuccess: () => {
-                    toast.success("✅ เพิ่มหน่วยงานใหม่แล้ว");
+                    toast.success("เพิ่มหน่วยงานใหม่แล้ว");
                     router.reload({ only: ["departments"] });
                 },
-                onError: () => toast.error("❌ ไม่สามารถเพิ่มหน่วยงานได้"),
+                onError: () => toast.error("ไม่สามารถเพิ่มหน่วยงานได้"),
             }
         );
     };
@@ -115,10 +130,10 @@ export default function AdminUserForm() {
             { name: inputValue },
             {
                 onSuccess: () => {
-                    toast.success("✅ เพิ่มฝ่ายใหม่แล้ว");
+                    toast.success("เพิ่มฝ่ายใหม่แล้ว");
                     router.reload({ only: ["factions"] });
                 },
-                onError: () => toast.error("❌ ไม่สามารถเพิ่มฝ่ายได้"),
+                onError: () => toast.error("ไม่สามารถเพิ่มฝ่ายได้"),
             }
         );
     };
@@ -128,10 +143,10 @@ export default function AdminUserForm() {
             { title: inputValue },
             {
                 onSuccess: () => {
-                    toast.success("✅ เพิ่มตำแหน่งใหม่แล้ว");
+                    toast.success("เพิ่มตำแหน่งใหม่แล้ว");
                     router.reload({ only: ["position"] });
                 },
-                onError: () => toast.error("❌ ไม่สามารถเพิ่มตำแหน่งได้"),
+                onError: () => toast.error("ไม่สามารถเพิ่มตำแหน่งได้"),
             }
         );
     };
@@ -158,54 +173,66 @@ export default function AdminUserForm() {
 
     const selectTheme = (theme: any) => ({
         ...theme,
+        borderRadius: 12,
         colors: {
             ...theme.colors,
-            primary: "#6366f1",
-            primary25: "#e0e7ff",
-            neutral0: "#fff",
-            neutral5: "#f3f4f6",
-            neutral10: "#e5e7eb",
-            neutral20: "#d1d5db",
-            neutral30: "#9ca3af",
-            neutral80: "#111827",
+            primary: "#7c3aed",
+            primary25: "#ede9fe",
+            neutral0: darkMode ? "#1f2937" : "#fff",
+            neutral5: darkMode ? "#374151" : "#f3f4f6",
+            neutral10: darkMode ? "#4b5563" : "#e5e7eb",
+            neutral20: darkMode ? "#6b7280" : "#e5e7eb",
+            neutral30: darkMode ? "#9ca3af" : "#9ca3af",
+            neutral80: darkMode ? "#f9fafb" : "#111827",
         },
     });
 
     const selectStyles = {
-        control: (base: any) => ({
+        control: (base: any, state: any) => ({
             ...base,
-            backgroundColor: "#fff",
-            borderColor: "#d1d5db",
-            borderRadius: "0.5rem",
+            backgroundColor: darkMode ? "#1f2937" : "#fff",
+            borderColor: state.isFocused ? "#7c3aed" : darkMode ? "#4b5563" : "#e5e7eb",
+            borderWidth: "2px",
+            borderRadius: "0.75rem",
             paddingLeft: "0.25rem",
             paddingRight: "0.25rem",
             fontSize: "0.875rem",
+            boxShadow: state.isFocused ? "0 0 0 2px rgba(124, 58, 237, 0.2)" : "none",
+            "&:hover": {
+                borderColor: "#7c3aed",
+            },
         }),
         menu: (base: any) => ({
             ...base,
-            backgroundColor: "#fff",
-            borderRadius: "0.5rem",
+            backgroundColor: darkMode ? "#1f2937" : "#fff",
+            borderRadius: "0.75rem",
             marginTop: 4,
+            border: darkMode ? "1px solid #374151" : "1px solid #e5e7eb",
+            boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)",
         }),
         input: (base: any) => ({
             ...base,
-            color: "#111827",
+            color: darkMode ? "#f9fafb" : "#111827",
         }),
         singleValue: (base: any) => ({
             ...base,
-            color: "#111827",
+            color: darkMode ? "#f9fafb" : "#111827",
         }),
         option: (base: any, state: any) => ({
             ...base,
             backgroundColor: state.isSelected
-                ? "#6366f1"
+                ? "#7c3aed"
                 : state.isFocused
-                ? "#f3f4f6"
-                : "#fff",
-            color: state.isSelected ? "#fff" : "#111827",
+                ? darkMode ? "#374151" : "#f5f3ff"
+                : "transparent",
+            color: state.isSelected ? "#fff" : darkMode ? "#f9fafb" : "#111827",
             cursor: "pointer",
+            borderRadius: "0.5rem",
+            margin: "2px 4px",
+            width: "calc(100% - 8px)",
         }),
     };
+
     const [birthDay, setBirthDay] = useState("");
     const [birthMonth, setBirthMonth] = useState("");
     const [birthYear, setBirthYear] = useState("");
@@ -291,6 +318,8 @@ export default function AdminUserForm() {
         }
     }, [birthDay, birthMonth, birthYear]);
 
+    const inputClassName = "rounded-xl border-2 border-gray-200 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-800 dark:text-white dark:border-gray-700 transition-all";
+
     return (
         <MainLayout
             title={mode === "edit" ? "แก้ไขผู้ใช้งาน" : "เพิ่มผู้ใช้งาน"}
@@ -314,359 +343,379 @@ export default function AdminUserForm() {
                 />
             }
         >
-            <div className="max-w-5xl mx-auto px-6 py-10">
-                <Card className="p-8 space-y-8">
-                    <h1 className="text-3xl font-bold text-indigo-600">
-                        {mode === "edit"
-                            ? "✏️ แก้ไขผู้ใช้งาน"
-                            : "➕ เพิ่มผู้ใช้งาน"}
-                    </h1>
-
-                    <form
-                        onSubmit={handleSubmit}
-                        className="grid grid-cols-1 md:grid-cols-2 gap-6"
-                    >
-                        <div>
-                            <Label>รหัสพนักงาน (EMID)</Label>
-                            <Input
-                                value={data.emid}
-                                onChange={(e) =>
-                                    setData("emid", e.target.value)
-                                }
-                                readOnly={data.user_type === "external"}
-                                className={
-                                    data.user_type === "external"
-                                        ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white cursor-not-allowed"
-                                        : "dark:bg-gray-800 dark:text-white"
-                                }
-                            />
-                            <p className="text-xs text-gray-500 mt-1">
-                                *{" "}
-                                {data.user_type === "external"
-                                    ? "สร้างอัตโนมัติจากสายงาน"
-                                    : "กรอกเลข 6 หลักเองได้"}
-                            </p>
-                        </div>
-                        <div>
-                            <Label>คำนำหน้าชื่อ</Label>
-                            <Select
-                                options={prenameOptions}
-                                value={
-                                    prenameOptions.find(
-                                        (o) => o.value === data.prename
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("prename", opt?.value || "")
-                                }
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-                        <div>
-                            <Label>ชื่อ</Label>
-                            <Input
-                                value={data.fname}
-                                onChange={(e) =>
-                                    setData("fname", e.target.value)
-                                }
-                                className="dark:bg-gray-800 dark:text-white"
-                            />
-                        </div>
-
-                        <div>
-                            <Label>นามสกุล</Label>
-                            <Input
-                                value={data.lname}
-                                onChange={(e) =>
-                                    setData("lname", e.target.value)
-                                }
-                                className="dark:bg-gray-800 dark:text-white"
-                            />
-                        </div>
-                        <div>
-                            <Label>เพศ</Label>
-                            <CreatableSelect
-                                options={sexOptions}
-                                value={
-                                    sexOptions.find(
-                                        (o) => o.value === data.sex
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("sex", opt?.value || "")
-                                }
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-
-                        <div>
-                            <Label>ตำแหน่งงาน</Label>
-                            <CreatableSelect
-                                options={positionOptions}
-                                value={
-                                    positionOptions.find(
-                                        (o) => o.value === data.position_id
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("position_id", opt?.value || "")
-                                }
-                                onCreateOption={handleCreatePosition}
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-                        <div>
-                            <Label>ระดับ</Label>
-                            <Input
-                                value={data.grade}
-                                onChange={(e) =>
-                                    setData("grade", e.target.value)
-                                }
-                                className="dark:bg-gray-800 dark:text-white"
-                            />
-                        </div>
-                        <div>
-                            <Label>กอง</Label>
-                            <CreatableSelect
-                                options={departmentOptions}
-                                value={
-                                    departmentOptions.find(
-                                        (o) => o.value === data.department_id
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("department_id", opt?.value || "")
-                                }
-                                onCreateOption={handleCreateDepartment}
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-                        <div>
-                            <Label>ฝ่าย</Label>
-                            <CreatableSelect
-                                options={factionOptions}
-                                value={
-                                    factionOptions.find(
-                                        (o) => o.value === data.faction_id
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("faction_id", opt?.value || "")
-                                }
-                                onCreateOption={handleCreateFaction}
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-                        <div>
-                            <Label>สายปฏิบัติงาน</Label>
-                            <CreatableSelect
-                                options={divisionOptions}
-                                value={
-                                    divisionOptions.find(
-                                        (o) => o.value === data.division_id
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("division_id", opt?.value || "")
-                                }
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-                        {mode === "create" && (
-                            <div>
-                                <Label>วันเกิด</Label>
-                                <div className="flex gap-2">
-                                    <Select
-                                        options={dayOptions}
-                                        value={dayOptions.find(
-                                            (d) => d.value === birthDay
-                                        )}
-                                        onChange={(opt) =>
-                                            setBirthDay(opt?.value || "")
-                                        }
-                                        isClearable
-                                        placeholder="วัน"
-                                        theme={selectTheme}
-                                        styles={selectTheme}
-                                        className="w-1/3"
-                                    />
-                                    <Select
-                                        options={monthOptions}
-                                        value={monthOptions.find(
-                                            (m) => m.value === birthMonth
-                                        )}
-                                        onChange={(opt) =>
-                                            setBirthMonth(opt?.value || "")
-                                        }
-                                        isClearable
-                                        placeholder="เดือน"
-                                        theme={selectTheme}
-                                        styles={selectStyles}
-                                        className="w-1/3"
-                                    />
-                                    <Select
-                                        options={yearOptions}
-                                        value={yearOptions.find(
-                                            (y) => y.value === birthYear
-                                        )}
-                                        onChange={(opt) =>
-                                            setBirthYear(opt?.value || "")
-                                        }
-                                        isClearable
-                                        placeholder="ปี"
-                                        theme={selectTheme}
-                                        styles={selectStyles}
-                                        className="w-1/3"
-                                    />
-                                </div>
+            <div className="gradient-primary-soft min-h-screen -my-6 px-4 sm:px-6 lg:px-8 py-6">
+                <motion.div
+                    className="max-w-5xl mx-auto px-2 sm:px-6 py-10"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                >
+                    <motion.div variants={itemVariants} className="glass-card rounded-2xl p-8 space-y-8">
+                        {/* Title */}
+                        <div className="flex items-center gap-3">
+                            <div className="p-2.5 gradient-primary rounded-xl text-white shadow-lg shadow-violet-500/25">
+                                <UserPlus className="w-6 h-6" />
                             </div>
-                        )}
-                        <div>
-                            <Label>หน้าที่</Label>
-                            <CreatableSelect
-                                options={roleOptions}
-                                value={
-                                    roleOptions.find(
-                                        (o) => o.value === data.role
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("role", opt?.value || "")
-                                }
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-                        <div>
-                            <Label>ประเภทบุคคลากร</Label>
-                            <CreatableSelect
-                                options={userTypeOptions}
-                                value={
-                                    userTypeOptions.find(
-                                        (o) => o.value === data.user_type
-                                    ) || null
-                                }
-                                onChange={(opt) =>
-                                    setData("user_type", opt?.value || "")
-                                }
-                                isClearable
-                                placeholder="เลือก..."
-                                theme={selectTheme}
-                                styles={selectStyles}
-                            />
-                        </div>
-                        {/* Password Section */}
-                        {mode === "create" && (
-                            <div className="md:col-span-2">
-                                <Label>รหัสผ่านเริ่มต้น (จากวันเกิด)</Label>
-                                <Input
-                                    value={data.password}
-                                    readOnly
-                                    className="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white cursor-not-allowed"
-                                />
-                            </div>
-                        )}
-                        
-                        {mode === "edit" && (
-                            <div className="md:col-span-2">
-                                <div className="space-y-4">
-                                    <div className="flex items-center space-x-3">
-                                        <input
-                                            type="checkbox"
-                                            id="changePassword"
-                                            checked={changePassword}
-                                            onChange={(e) => {
-                                                setChangePassword(e.target.checked);
-                                                if (!e.target.checked) {
-                                                    setData("password", "");
-                                                }
-                                            }}
-                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                        />
-                                        <Label
-                                            htmlFor="changePassword"
-                                            className="flex items-center space-x-2 cursor-pointer"
-                                        >
-                                            <Lock size={16} className="text-gray-500" />
-                                            <span>เปลี่ยนรหัสผ่าน</span>
-                                        </Label>
-                                    </div>
-
-                                    {changePassword && (
-                                        <div className="space-y-3">
-                                            <Label htmlFor="password">
-                                                รหัสผ่านใหม่
-                                            </Label>
-                                            <div className="relative">
-                                                <Input
-                                                    id="password"
-                                                    type={showPassword ? "text" : "password"}
-                                                    value={data.password}
-                                                    onChange={(e) =>
-                                                        setData("password", e.target.value)
-                                                    }
-                                                    className="pr-12 dark:bg-gray-800 dark:text-white"
-                                                    placeholder="กรอกรหัสผ่านใหม่"
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        setShowPassword(!showPassword)
-                                                    }
-                                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                                >
-                                                    {showPassword ? (
-                                                        <EyeOff size={16} />
-                                                    ) : (
-                                                        <Eye size={16} />
-                                                    )}
-                                                </button>
-                                            </div>
-                                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                                                💡 รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร
-                                            </p>
-                                            {errors.password && (
-                                                <p className="text-red-500 text-xs flex items-center space-x-1">
-                                                    <AlertCircle size={12} />
-                                                    <span>{errors.password}</span>
-                                                </p>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="md:col-span-2 flex justify-end pt-4">
-                            <Button type="submit" disabled={processing}>
-                                💾{" "}
+                            <h1 className="text-3xl font-bold text-gradient-primary">
                                 {mode === "edit"
-                                    ? "อัปเดตผู้ใช้"
-                                    : "บันทึกผู้ใช้ใหม่"}
-                            </Button>
+                                    ? "แก้ไขผู้ใช้งาน"
+                                    : "เพิ่มผู้ใช้งาน"}
+                            </h1>
                         </div>
-                    </form>
-                </Card>
+
+                        <form
+                            onSubmit={handleSubmit}
+                            className="grid grid-cols-1 md:grid-cols-2 gap-6"
+                        >
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">รหัสพนักงาน (EMID)</Label>
+                                <Input
+                                    value={data.emid}
+                                    onChange={(e) =>
+                                        setData("emid", e.target.value)
+                                    }
+                                    readOnly={data.user_type === "external"}
+                                    className={cn(
+                                        inputClassName,
+                                        data.user_type === "external" && "bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
+                                    )}
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    *{" "}
+                                    {data.user_type === "external"
+                                        ? "สร้างอัตโนมัติจากสายงาน"
+                                        : "กรอกเลข 6 หลักเองได้"}
+                                </p>
+                            </motion.div>
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">คำนำหน้าชื่อ</Label>
+                                <Select
+                                    options={prenameOptions}
+                                    value={
+                                        prenameOptions.find(
+                                            (o) => o.value === data.prename
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setData("prename", opt?.value || "")
+                                    }
+                                    isClearable
+                                    placeholder="เลือก..."
+                                    theme={selectTheme}
+                                    styles={selectStyles}
+                                />
+                            </motion.div>
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">ชื่อ</Label>
+                                <Input
+                                    value={data.fname}
+                                    onChange={(e) =>
+                                        setData("fname", e.target.value)
+                                    }
+                                    className={inputClassName}
+                                />
+                            </motion.div>
+
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">นามสกุล</Label>
+                                <Input
+                                    value={data.lname}
+                                    onChange={(e) =>
+                                        setData("lname", e.target.value)
+                                    }
+                                    className={inputClassName}
+                                />
+                            </motion.div>
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">เพศ</Label>
+                                <CreatableSelect
+                                    options={sexOptions}
+                                    value={
+                                        sexOptions.find(
+                                            (o) => o.value === data.sex
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setData("sex", opt?.value || "")
+                                    }
+                                    isClearable
+                                    placeholder="เลือก..."
+                                    theme={selectTheme}
+                                    styles={selectStyles}
+                                />
+                            </motion.div>
+
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">ตำแหน่งงาน</Label>
+                                <CreatableSelect
+                                    options={positionOptions}
+                                    value={
+                                        positionOptions.find(
+                                            (o) => o.value === data.position_id
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setData("position_id", opt?.value || "")
+                                    }
+                                    onCreateOption={handleCreatePosition}
+                                    isClearable
+                                    placeholder="เลือก..."
+                                    theme={selectTheme}
+                                    styles={selectStyles}
+                                />
+                            </motion.div>
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">ระดับ</Label>
+                                <Input
+                                    value={data.grade}
+                                    onChange={(e) =>
+                                        setData("grade", e.target.value)
+                                    }
+                                    className={inputClassName}
+                                />
+                            </motion.div>
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">กอง</Label>
+                                <CreatableSelect
+                                    options={departmentOptions}
+                                    value={
+                                        departmentOptions.find(
+                                            (o) => o.value === data.department_id
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setData("department_id", opt?.value || "")
+                                    }
+                                    onCreateOption={handleCreateDepartment}
+                                    isClearable
+                                    placeholder="เลือก..."
+                                    theme={selectTheme}
+                                    styles={selectStyles}
+                                />
+                            </motion.div>
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">ฝ่าย</Label>
+                                <CreatableSelect
+                                    options={factionOptions}
+                                    value={
+                                        factionOptions.find(
+                                            (o) => o.value === data.faction_id
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setData("faction_id", opt?.value || "")
+                                    }
+                                    onCreateOption={handleCreateFaction}
+                                    isClearable
+                                    placeholder="เลือก..."
+                                    theme={selectTheme}
+                                    styles={selectStyles}
+                                />
+                            </motion.div>
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">สายปฏิบัติงาน</Label>
+                                <CreatableSelect
+                                    options={divisionOptions}
+                                    value={
+                                        divisionOptions.find(
+                                            (o) => o.value === data.division_id
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setData("division_id", opt?.value || "")
+                                    }
+                                    isClearable
+                                    placeholder="เลือก..."
+                                    theme={selectTheme}
+                                    styles={selectStyles}
+                                />
+                            </motion.div>
+                            {mode === "create" && (
+                                <motion.div variants={itemVariants}>
+                                    <Label className="text-gray-700 dark:text-gray-300 font-medium">วันเกิด</Label>
+                                    <div className="flex gap-2">
+                                        <Select
+                                            options={dayOptions}
+                                            value={dayOptions.find(
+                                                (d) => d.value === birthDay
+                                            )}
+                                            onChange={(opt) =>
+                                                setBirthDay(opt?.value || "")
+                                            }
+                                            isClearable
+                                            placeholder="วัน"
+                                            theme={selectTheme}
+                                            styles={selectStyles}
+                                            className="w-1/3"
+                                        />
+                                        <Select
+                                            options={monthOptions}
+                                            value={monthOptions.find(
+                                                (m) => m.value === birthMonth
+                                            )}
+                                            onChange={(opt) =>
+                                                setBirthMonth(opt?.value || "")
+                                            }
+                                            isClearable
+                                            placeholder="เดือน"
+                                            theme={selectTheme}
+                                            styles={selectStyles}
+                                            className="w-1/3"
+                                        />
+                                        <Select
+                                            options={yearOptions}
+                                            value={yearOptions.find(
+                                                (y) => y.value === birthYear
+                                            )}
+                                            onChange={(opt) =>
+                                                setBirthYear(opt?.value || "")
+                                            }
+                                            isClearable
+                                            placeholder="ปี"
+                                            theme={selectTheme}
+                                            styles={selectStyles}
+                                            className="w-1/3"
+                                        />
+                                    </div>
+                                </motion.div>
+                            )}
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">หน้าที่</Label>
+                                <CreatableSelect
+                                    options={roleOptions}
+                                    value={
+                                        roleOptions.find(
+                                            (o) => o.value === data.role
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setData("role", opt?.value || "")
+                                    }
+                                    isClearable
+                                    placeholder="เลือก..."
+                                    theme={selectTheme}
+                                    styles={selectStyles}
+                                />
+                            </motion.div>
+                            <motion.div variants={itemVariants}>
+                                <Label className="text-gray-700 dark:text-gray-300 font-medium">ประเภทบุคคลากร</Label>
+                                <CreatableSelect
+                                    options={userTypeOptions}
+                                    value={
+                                        userTypeOptions.find(
+                                            (o) => o.value === data.user_type
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setData("user_type", opt?.value || "")
+                                    }
+                                    isClearable
+                                    placeholder="เลือก..."
+                                    theme={selectTheme}
+                                    styles={selectStyles}
+                                />
+                            </motion.div>
+                            {/* Password Section */}
+                            {mode === "create" && (
+                                <motion.div variants={itemVariants} className="md:col-span-2">
+                                    <Label className="text-gray-700 dark:text-gray-300 font-medium">รหัสผ่านเริ่มต้น (จากวันเกิด)</Label>
+                                    <Input
+                                        value={data.password}
+                                        readOnly
+                                        className={cn(inputClassName, "bg-gray-100 dark:bg-gray-700 cursor-not-allowed")}
+                                    />
+                                </motion.div>
+                            )}
+
+                            {mode === "edit" && (
+                                <motion.div variants={itemVariants} className="md:col-span-2">
+                                    <div className="glass-card rounded-xl p-5 space-y-4 border border-violet-200/50 dark:border-violet-800/30">
+                                        <div className="flex items-center space-x-3">
+                                            <input
+                                                type="checkbox"
+                                                id="changePassword"
+                                                checked={changePassword}
+                                                onChange={(e) => {
+                                                    setChangePassword(e.target.checked);
+                                                    if (!e.target.checked) {
+                                                        setData("password", "");
+                                                    }
+                                                }}
+                                                className="w-4 h-4 text-violet-600 rounded focus:ring-violet-500 border-gray-300"
+                                            />
+                                            <Label
+                                                htmlFor="changePassword"
+                                                className="flex items-center space-x-2 cursor-pointer text-gray-700 dark:text-gray-300"
+                                            >
+                                                <Lock size={16} className="text-violet-500" />
+                                                <span>เปลี่ยนรหัสผ่าน</span>
+                                            </Label>
+                                        </div>
+
+                                        {changePassword && (
+                                            <div className="space-y-3">
+                                                <Label htmlFor="password" className="text-gray-700 dark:text-gray-300 font-medium">
+                                                    รหัสผ่านใหม่
+                                                </Label>
+                                                <div className="relative">
+                                                    <Input
+                                                        id="password"
+                                                        type={showPassword ? "text" : "password"}
+                                                        value={data.password}
+                                                        onChange={(e) =>
+                                                            setData("password", e.target.value)
+                                                        }
+                                                        className={cn(inputClassName, "pr-12")}
+                                                        placeholder="กรอกรหัสผ่านใหม่"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setShowPassword(!showPassword)
+                                                        }
+                                                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-violet-600 dark:text-gray-400 dark:hover:text-violet-400 transition-colors"
+                                                    >
+                                                        {showPassword ? (
+                                                            <EyeOff size={16} />
+                                                        ) : (
+                                                            <Eye size={16} />
+                                                        )}
+                                                    </button>
+                                                </div>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร
+                                                </p>
+                                                {errors.password && (
+                                                    <p className="text-red-500 text-xs flex items-center space-x-1">
+                                                        <AlertCircle size={12} />
+                                                        <span>{errors.password}</span>
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </motion.div>
+                            )}
+
+                            <motion.div variants={itemVariants} className="md:col-span-2 flex justify-end pt-4">
+                                <button
+                                    type="submit"
+                                    disabled={processing}
+                                    className={cn(
+                                        "inline-flex items-center gap-2 px-6 py-2.5 gradient-primary text-white rounded-xl font-medium",
+                                        "hover:shadow-lg hover:shadow-violet-500/25 transition-all duration-200",
+                                        "disabled:opacity-50 disabled:cursor-not-allowed"
+                                    )}
+                                >
+                                    <Save className="w-4 h-4" />
+                                    {mode === "edit"
+                                        ? "อัปเดตผู้ใช้"
+                                        : "บันทึกผู้ใช้ใหม่"}
+                                </button>
+                            </motion.div>
+                        </form>
+                    </motion.div>
+                </motion.div>
             </div>
         </MainLayout>
     );

@@ -24,6 +24,7 @@ interface QuestionCardProps {
     answer: any;
     onAnswerChange: (value: any) => void;
     questionNumber: number;
+    hideScoreDescription?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -107,6 +108,7 @@ export function QuestionCard({
     answer,
     onAnswerChange,
     questionNumber,
+    hideScoreDescription = false,
 }: QuestionCardProps) {
     const [otherText, setOtherText] = useState<string>("");
     const [selectedOtherId, setSelectedOtherId] = useState<number | null>(null);
@@ -209,6 +211,13 @@ export function QuestionCard({
 
     const handleOptionSelect = (optionId: number) => {
         if (question.type === "choice") {
+            // Toggle off if clicking the already-selected option
+            if (isSelected(optionId)) {
+                setSelectedOtherId(null);
+                setOtherText("");
+                onAnswerChange(null);
+                return;
+            }
             if (optionId === otherOption?.id) {
                 setSelectedOtherId(optionId);
                 // ถ้ามี text อยู่แล้ว ให้ส่งไปเลย ถ้าไม่มีให้รอ input
@@ -226,11 +235,25 @@ export function QuestionCard({
                 onAnswerChange(optionId);
             }
         } else if (question.type === "multiple_choice") {
-            const currentAnswers = Array.isArray(answer) ? answer : [];
-            let newAnswers;
+            // Extract array from various formats: array, wrapped {value: [...]}, or null
+            let currentAnswers: any[] = [];
+            if (Array.isArray(answer)) {
+                currentAnswers = answer;
+            } else if (typeof answer === "object" && answer !== null && Array.isArray((answer as any).value)) {
+                currentAnswers = (answer as any).value;
+            }
 
-            if (currentAnswers.includes(optionId)) {
-                newAnswers = currentAnswers.filter((id) => id !== optionId);
+            // Match bare ID OR {option_id: ID} object form
+            const matchesId = (item: any, id: number) => {
+                if (typeof item === "object" && item !== null) return item.option_id === id;
+                return item === id;
+            };
+
+            const isUncheck = currentAnswers.some((item) => matchesId(item, optionId));
+            let newAnswers: any[];
+
+            if (isUncheck) {
+                newAnswers = currentAnswers.filter((item) => !matchesId(item, optionId));
                 if (optionId === otherOption?.id) {
                     setSelectedOtherId(null);
                     setOtherText("");
@@ -262,10 +285,19 @@ export function QuestionCard({
             question.type === "multiple_choice" &&
             selectedOtherId === otherOption?.id
         ) {
-            const currentAnswers = Array.isArray(answer) ? answer : [];
-            const otherAnswers = currentAnswers.filter(
-                (id) => id !== otherOption?.id
-            );
+            // Extract array from wrapped {value:[...]} or plain array
+            let currentAnswers: any[] = [];
+            if (Array.isArray(answer)) {
+                currentAnswers = answer;
+            } else if (typeof answer === "object" && answer !== null && Array.isArray((answer as any).value)) {
+                currentAnswers = (answer as any).value;
+            }
+
+            // Strip ALL existing other-option entries (bare ID + object form) so we don't accumulate per keystroke
+            const otherAnswers = currentAnswers.filter((item) => {
+                if (typeof item === "object" && item !== null) return item.option_id !== otherOption?.id;
+                return item !== otherOption?.id;
+            });
 
             if (text.trim()) {
                 onAnswerChange([
@@ -282,7 +314,8 @@ export function QuestionCard({
     };
 
     const handleRatingSelect = (rating: number) => {
-        onAnswerChange(rating);
+        // Toggle off if clicking the same rating
+        onAnswerChange(answer === rating ? null : rating);
     };
 
     const handleTextChange = (text: string) => {
@@ -305,8 +338,14 @@ export function QuestionCard({
                     answer
             );
         } else if (question.type === "multiple_choice") {
-            if (Array.isArray(answer)) {
-                return answer.some((item) => {
+            // Extract array from various wrapper formats
+            let arr: any[] | null = null;
+            if (Array.isArray(answer)) arr = answer;
+            else if (typeof answer === "object" && answer !== null && Array.isArray((answer as any).value)) {
+                arr = (answer as any).value;
+            }
+            if (arr) {
+                return arr.some((item) => {
                     if (typeof item === "object" && item !== null) {
                         return item.option_id === optionId;
                     }
@@ -474,34 +513,36 @@ export function QuestionCard({
                 </div>
 
                 {/* Description area below buttons */}
-                <AnimatePresence mode="wait">
-                    {activeMeta && (
-                        <motion.div
-                            key={activeScore}
-                            initial={{ opacity: 0, y: -6, height: 0 }}
-                            animate={{ opacity: 1, y: 0, height: "auto" }}
-                            exit={{ opacity: 0, y: -6, height: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className={cn(
-                                "rounded-xl px-4 py-3 text-center text-sm leading-relaxed",
-                                "bg-gray-50/80 dark:bg-gray-700/50 backdrop-blur-sm",
-                                "border border-gray-200/60 dark:border-gray-600/40"
-                            )}
-                        >
-                            <span
+                {!hideScoreDescription && (
+                    <AnimatePresence mode="wait">
+                        {activeMeta && (
+                            <motion.div
+                                key={activeScore}
+                                initial={{ opacity: 0, y: -6, height: 0 }}
+                                animate={{ opacity: 1, y: 0, height: "auto" }}
+                                exit={{ opacity: 0, y: -6, height: 0 }}
+                                transition={{ duration: 0.2 }}
                                 className={cn(
-                                    "font-bold mr-1.5",
-                                    activeMeta.text
+                                    "rounded-xl px-4 py-3 text-center text-sm leading-relaxed",
+                                    "bg-gray-50/80 dark:bg-gray-700/50 backdrop-blur-sm",
+                                    "border border-gray-200/60 dark:border-gray-600/40"
                                 )}
                             >
-                                {activeScore} - {activeMeta.label}:
-                            </span>
-                            <span className="text-gray-600 dark:text-gray-300">
-                                {activeMeta.description}
-                            </span>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                                <span
+                                    className={cn(
+                                        "font-bold mr-1.5",
+                                        activeMeta.text
+                                    )}
+                                >
+                                    {activeScore} - {activeMeta.label}:
+                                </span>
+                                <span className="text-gray-600 dark:text-gray-300">
+                                    {activeMeta.description}
+                                </span>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                )}
             </div>
         );
     };

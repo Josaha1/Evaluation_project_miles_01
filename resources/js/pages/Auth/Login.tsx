@@ -91,7 +91,7 @@ export default function Login({ announcement }: LoginProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       <Head title='เข้าสู่ระบบ - ระบบประเมิน 360 องศา'>
         <meta name="description" content="เข้าสู่ระบบประเมินพนักงาน 360 องศา - ระบบประเมินประสิทธิภาพและพัฒนาบุคลากร" />
       </Head>
@@ -108,7 +108,7 @@ export default function Login({ announcement }: LoginProps) {
       <div className="flex min-h-screen">
         
         {/* Left Sidebar - Always Expanded */}
-        <div className="hidden lg:flex lg:w-64 xl:w-72 bg-gradient-to-b from-indigo-600 via-blue-600 to-purple-700 relative overflow-hidden">
+        <div className="hidden lg:flex lg:w-64 xl:w-72 bg-gradient-to-b from-violet-600 via-purple-600 to-violet-800 relative overflow-hidden">
         
           {/* Background Pattern */}
           <div className="absolute inset-0 bg-black/10">
@@ -234,12 +234,12 @@ export default function Login({ announcement }: LoginProps) {
         </div>
 
         {/* Main Content Area - Login Form */}
-        <div className="flex-1 flex items-center justify-center p-4 lg:p-8 bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+        <div className="flex-1 flex items-center justify-center p-4 lg:p-8 bg-gradient-to-br from-gray-50 via-white to-violet-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
           <div className="w-full max-w-lg">
             
             {/* Mobile Logo & Title */}
             <div className="lg:hidden text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-full mb-4">
+              <div className="inline-flex items-center justify-center w-16 h-16 gradient-primary rounded-full mb-4">
                 <Users className="w-8 h-8 text-white" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
@@ -279,7 +279,7 @@ export default function Login({ announcement }: LoginProps) {
                       name='emid'
                       value={data.emid}
                       onChange={e => setData('emid', e.target.value)}
-                      className="block w-full px-4 py-4 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700/50 dark:text-white transition-all duration-200 text-lg"
+                      className="block w-full px-4 py-4 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-700/50 dark:text-white transition-all duration-200 text-lg"
                       placeholder="กรอกรหัสพนักงาน"
                     />
                     {data.emid && (
@@ -302,7 +302,7 @@ export default function Login({ announcement }: LoginProps) {
                       name='password'
                       value={data.password}
                       onChange={e => setData('password', e.target.value)}
-                      className="block w-full px-4 py-4 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700/50 dark:text-white transition-all duration-200 text-lg"
+                      className="block w-full px-4 py-4 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 dark:bg-gray-700/50 dark:text-white transition-all duration-200 text-lg"
                       placeholder="กรอกรหัสผ่าน"
                     />
                     {data.password && (
@@ -319,7 +319,7 @@ export default function Login({ announcement }: LoginProps) {
                     <p className="text-sm text-amber-700 dark:text-amber-300 flex items-start gap-3">
                       <HelpCircle className="w-5 h-5 mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                       <span>
-                        <span className="font-medium">รหัสผ่านเริ่มต้น:</span> 01012568
+                        <span className="font-medium">รหัสผ่านเริ่มต้น:</span> 01012569
                       </span>
                     </p>
                   </div>
@@ -334,13 +334,13 @@ export default function Login({ announcement }: LoginProps) {
                         name="remember"
                         checked={data.remember}
                         onChange={handleRememberChange}
-                        className="w-5 h-5 rounded-lg border-2 border-gray-300 text-indigo-600 shadow-sm focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-gray-700/50 dark:border-gray-600 dark:focus:ring-offset-gray-800 transition-all duration-200"
+                        className="w-5 h-5 rounded-lg border-2 border-gray-300 text-violet-600 shadow-sm focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 dark:bg-gray-700/50 dark:border-gray-600 dark:focus:ring-offset-gray-800 transition-all duration-200"
                       />
                       {data.remember && (
                         <CheckCircle className="absolute -top-0.5 -right-0.5 w-3 h-3 text-green-500 bg-white rounded-full" />
                       )}
                     </div>
-                    <span className="ml-3 text-gray-700 dark:text-gray-300 font-medium group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors duration-200">
+                    <span className="ml-3 text-gray-700 dark:text-gray-300 font-medium group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors duration-200">
                       จดจำการเข้าสู่ระบบ
                     </span>
                   </label>
@@ -391,7 +391,7 @@ export default function Login({ announcement }: LoginProps) {
                   disabled={!hasSeenAnnouncement || processing}
                   className={`relative w-full py-5 px-6 rounded-2xl font-bold text-lg text-white transition-all duration-300 flex items-center justify-center gap-3 overflow-hidden ${
                     hasSeenAnnouncement && !processing
-                      ? 'bg-gradient-to-r from-indigo-600 via-blue-600 to-purple-600 hover:from-indigo-700 hover:via-blue-700 hover:to-purple-700 hover:shadow-2xl hover:shadow-indigo-500/25 transform hover:-translate-y-1 hover:scale-[1.02] active:scale-[0.98]'
+                      ? 'bg-gradient-to-r from-violet-600 via-purple-600 to-violet-700 hover:from-violet-700 hover:via-purple-700 hover:to-violet-800 hover:shadow-2xl hover:shadow-violet-500/25 transform hover:-translate-y-1 hover:scale-[1.02] active:scale-[0.98]'
                       : 'bg-gray-400 cursor-not-allowed opacity-60'
                   }`}
                 >
@@ -417,7 +417,7 @@ export default function Login({ announcement }: LoginProps) {
                     <button
                       type="button"
                       onClick={() => setShowAnnouncement(true)}
-                      className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 underline transition-colors flex items-center gap-1 mx-auto"
+                      className="text-sm text-violet-600 dark:text-violet-400 hover:text-violet-500 dark:hover:text-violet-300 underline transition-colors flex items-center gap-1 mx-auto"
                     >
                       <HelpCircle className="w-4 h-4" />
                       อ่านประกาศอีกครั้ง
@@ -502,7 +502,7 @@ export default function Login({ announcement }: LoginProps) {
                     // เปิด Google Drive โดยตรง
                     window.open(`https://drive.google.com/file/d/${GOOGLE_DRIVE_VIDEO_ID}/view?usp=sharing`, '_blank')
                   }}
-                  className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12.01 2C6.5 2 2.01 6.5 2.01 12s4.49 10 9.99 10c5.51 0 10-4.5 10-10s-4.49-10-9.99-10zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5-1.5.67-1.5 1.5.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5-1.5.67-1.5 1.5.67 1.5 1.5 1.5zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
@@ -525,11 +525,11 @@ export default function Login({ announcement }: LoginProps) {
               </div>
 
               {/* Instructions for Google Drive video */}
-              <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
+              <div className="mt-4 p-3 bg-violet-50 dark:bg-violet-900/20 rounded-lg border border-violet-200 dark:border-violet-800">
+                <h4 className="text-sm font-medium text-violet-900 dark:text-violet-100 mb-2">
                   💡 เคล็ดลับการดูวีดีโอ
                 </h4>
-                <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
+                <ul className="text-xs text-violet-800 dark:text-violet-200 space-y-1">
                   <li>• หากวีดีโอไม่แสดงผล ให้คลิก "เปิดใน Google Drive"</li>
                   <li>• สามารถดาวน์โหลดเพื่อดูออฟไลน์ได้</li>
                   <li>• แนะนำให้ดูในโหมดเต็มจอสำหรับความชัดเจน</li>

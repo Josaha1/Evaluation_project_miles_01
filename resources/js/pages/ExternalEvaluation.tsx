@@ -1,365 +1,493 @@
-import { useState, useEffect } from 'react'
-import { Head, router, usePage } from '@inertiajs/react'
-import { ChevronLeft, ChevronRight, Send, Loader2, User, Building2, AlertCircle } from 'lucide-react'
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { Head, router, usePage } from "@inertiajs/react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+    ChevronLeft, ChevronRight, Send, Loader2, User, Users, Building2,
+    AlertCircle, CheckCircle, Sparkles, Save,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { MultiEvaluateeQuestionCard } from "@/Components/MultiEvaluateeQuestionCard";
 
 interface Option {
-    id: number
-    label: string
-    value: string
-    score?: number
+    id: number;
+    label: string;
+    score?: number;
+    value?: string | number;
 }
 
 interface Question {
-    id: number
-    title: string
-    type: string // 'rating', 'choice', 'open_text', 'multiple_choice'
-    options: Option[]
-    is_required?: boolean
+    id: number;
+    title: string;
+    type: "rating" | "choice" | "multiple_choice" | "open_text";
+    options?: Option[];
 }
 
 interface SubAspect {
-    id: number
-    name: string
-    questions: Question[]
+    id: number;
+    name: string;
+    description?: string | null;
+    questions: Question[];
 }
 
 interface Aspect {
-    id: number
-    name: string
-    questions: Question[]
-    subaspects: SubAspect[]
+    id: number;
+    name: string;
+    description?: string | null;
+    questions: Question[];
+    subaspects: SubAspect[];
 }
 
 interface Part {
-    id: number
-    name: string
-    description?: string
-    order: number
-    aspects: Aspect[]
-    questions: Question[]
+    id: number;
+    name: string;
+    title?: string;
+    description?: string | null;
+    questions: Question[];
+    aspects: Aspect[];
 }
 
 interface Evaluatee {
-    id: number
-    name: string
-    position?: string
-    department?: string
+    id: number;
+    name: string;
+    position?: string | null;
+    department?: string | null;
+    division?: string | null;
+    grade?: number | string | null;
+    source_groups?: string[];
 }
 
 interface PageProps {
-    evaluation: { id: number; title: string; description?: string }
-    evaluatee: Evaluatee
-    organization: { id: number; name: string }
-    parts: Part[]
-    existingAnswers: Record<number, { value: string; other_text?: string }>
-    sessionId: number
+    evaluation: { id: number; title: string; description?: string };
+    evaluatee: Evaluatee;
+    evaluatees?: Evaluatee[];
+    organization: { id: number; name: string };
+    pickedOrg?: string | null;
+    parts: Part[];
+    existingAnswers: Record<string, { value: string; other_text?: string }>;
+    sessionId: number;
+}
+
+interface Group {
+    partId: number;
+    partName: string;
+    partDescription?: string | null;
+    aspectName: string | null;
+    subaspectName: string | null;
+    subaspectDescription: string | null;
+    questions: Question[];
 }
 
 export default function ExternalEvaluation() {
-    const { evaluation, evaluatee, organization, parts, existingAnswers } = usePage<PageProps>().props
+    const { evaluation, evaluatee, evaluatees: evaluateesProp, organization, pickedOrg, parts, existingAnswers } =
+        usePage<PageProps>().props;
 
-    const [currentStep, setCurrentStep] = useState(0)
-    const [answers, setAnswers] = useState<Record<number, { value: string; other_text?: string }>>({})
-    const [submitting, setSubmitting] = useState(false)
-    const [showConfirm, setShowConfirm] = useState(false)
+    const evaluatees: Evaluatee[] = (evaluateesProp && evaluateesProp.length > 0)
+        ? evaluateesProp
+        : [evaluatee];
 
-    // Flatten all questions into groups per part
-    const questionGroups = parts.map(part => {
-        const questions: Question[] = []
+    // Flatten parts → groups (1 page = 1 group, like internal AssignedEvaluationStep)
+    const groups: Group[] = useMemo(() => {
+        const out: Group[] = [];
+        parts.forEach((part) => {
+            const seenIds = new Set<number>();
 
-        // Direct part questions
-        if (part.questions) {
-            questions.push(...part.questions)
-        }
-
-        // Aspect questions
-        part.aspects?.forEach(aspect => {
-            if (aspect.questions) {
-                questions.push(...aspect.questions)
-            }
-            // Subaspect questions
-            aspect.subaspects?.forEach(sub => {
-                if (sub.questions) {
-                    questions.push(...sub.questions)
+            part.aspects?.forEach((aspect) => {
+                if (aspect.subaspects?.length) {
+                    aspect.subaspects.forEach((sub) => {
+                        if (sub.questions?.length) {
+                            sub.questions.forEach((q) => seenIds.add(q.id));
+                            out.push({
+                                partId: part.id,
+                                partName: part.name || part.title || "",
+                                partDescription: part.description,
+                                aspectName: aspect.name,
+                                subaspectName: sub.name,
+                                subaspectDescription: sub.description ?? null,
+                                questions: sub.questions,
+                            });
+                        }
+                    });
                 }
-            })
-        })
+                const aspectOnly = (aspect.questions || []).filter((q) => !seenIds.has(q.id));
+                if (aspectOnly.length) {
+                    aspectOnly.forEach((q) => seenIds.add(q.id));
+                    out.push({
+                        partId: part.id,
+                        partName: part.name || part.title || "",
+                        partDescription: part.description,
+                        aspectName: aspect.name,
+                        subaspectName: null,
+                        subaspectDescription: aspect.description ?? null,
+                        questions: aspectOnly,
+                    });
+                }
+            });
 
-        return { part, questions }
-    }).filter(g => g.questions.length > 0)
+            const partOnly = (part.questions || []).filter((q) => !seenIds.has(q.id));
+            if (partOnly.length) {
+                out.push({
+                    partId: part.id,
+                    partName: part.name || part.title || "",
+                    partDescription: part.description,
+                    aspectName: null,
+                    subaspectName: null,
+                    subaspectDescription: null,
+                    questions: partOnly,
+                });
+            }
+        });
+        return out;
+    }, [parts]);
 
-    // Initialize from existing answers
+    const [currentIndex, setCurrentIndex] = useState(0);
+    // Answer shape: { [questionId]: { [evaluateeId]: value | {value, other_text} } }
+    const [answers, setAnswers] = useState<{ [questionId: number]: { [evaluateeId: number]: any } }>({});
+    const [submitting, setSubmitting] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+
+    // Hydrate from existingAnswers (keyed `${evid}_${qid}`)
     useEffect(() => {
-        if (existingAnswers && Object.keys(existingAnswers).length > 0) {
-            const initial: Record<number, { value: string; other_text?: string }> = {}
-            Object.entries(existingAnswers).forEach(([qId, ans]) => {
-                initial[Number(qId)] = ans
-            })
-            setAnswers(initial)
-        }
-    }, [])
+        if (!existingAnswers) return;
+        const conv: { [qid: number]: { [evid: number]: any } } = {};
+        Object.entries(existingAnswers).forEach(([key, ans]) => {
+            const [evIdStr, qIdStr] = String(key).split("_");
+            const evid = Number(evIdStr);
+            const qid = Number(qIdStr);
+            if (!evid || !qid) return;
+            conv[qid] ??= {};
+            conv[qid][evid] = ans;
+        });
+        setAnswers(conv);
+    }, []);
 
-    const totalQuestions = questionGroups.reduce((sum, g) => sum + g.questions.length, 0)
-    const answeredCount = Object.keys(answers).length
+    const currentGroup = groups[currentIndex];
+    const isLastStep = currentIndex === groups.length - 1;
+    const totalQuestionCells = groups.reduce((s, g) => s + g.questions.length * evaluatees.length, 0);
 
-    const currentGroup = questionGroups[currentStep]
-    const isLastStep = currentStep === questionGroups.length - 1
+    const answeredCellsCount = useMemo(() => {
+        let n = 0;
+        groups.forEach((g) => {
+            g.questions.forEach((q) => {
+                evaluatees.forEach((ev) => {
+                    const a = answers[q.id]?.[ev.id];
+                    if (a === undefined || a === null) return;
+                    const v = typeof a === "object" && "value" in a ? a.value : a;
+                    if (v === undefined || v === null || v === "") return;
+                    if (Array.isArray(v) && v.length === 0) return;
+                    n++;
+                });
+            });
+        });
+        return n;
+    }, [groups, answers, evaluatees]);
 
-    const setAnswer = (questionId: number, value: string, otherText?: string) => {
-        setAnswers(prev => ({
+    const progressPercent = totalQuestionCells > 0
+        ? Math.round((answeredCellsCount / totalQuestionCells) * 100)
+        : 0;
+
+    const updateAnswer = (questionId: number, evaluateeId: number, value: any) => {
+        setAnswers((prev) => ({
             ...prev,
-            [questionId]: { value, other_text: otherText },
-        }))
-    }
+            [questionId]: { ...(prev[questionId] || {}), [evaluateeId]: value },
+        }));
+    };
 
     const handleSubmit = () => {
-        setSubmitting(true)
+        setSubmitting(true);
+        const formatted: any[] = [];
+        Object.entries(answers).forEach(([qIdStr, byEv]) => {
+            Object.entries(byEv).forEach(([evIdStr, ans]) => {
+                let value: any = ans;
+                let other_text: string | null = null;
+                if (typeof ans === "object" && ans !== null && "value" in ans) {
+                    value = (ans as any).value;
+                    other_text = (ans as any).other_text ?? null;
+                }
+                if (value === undefined || value === null || value === "") return;
+                if (Array.isArray(value) && value.length === 0) return;
+                formatted.push({
+                    question_id: Number(qIdStr),
+                    evaluatee_id: Number(evIdStr),
+                    value,
+                    other_text,
+                });
+            });
+        });
 
-        const formattedAnswers = Object.entries(answers).map(([qId, ans]) => ({
-            question_id: Number(qId),
-            value: ans.value,
-            other_text: ans.other_text || null,
-        }))
-
-        router.post(route('external.evaluate.submit'), {
-            answers: formattedAnswers,
-        }, {
-            onFinish: () => setSubmitting(false),
-        })
-    }
-
-    const renderQuestion = (question: Question) => {
-        const currentAnswer = answers[question.id]
-
-        return (
-            <div key={question.id} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                <h3 className="text-base font-medium text-gray-900 mb-4">
-                    {question.title}
-                </h3>
-
-                {question.type === 'rating' && question.options.length > 0 && (
-                    <div className="flex flex-wrap gap-3">
-                        {question.options.map(option => (
-                            <button
-                                key={option.id}
-                                type="button"
-                                onClick={() => setAnswer(question.id, String(option.value || option.score))}
-                                className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
-                                    currentAnswer?.value === String(option.value || option.score)
-                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                                        : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-300'
-                                }`}
-                            >
-                                {option.label}
-                            </button>
-                        ))}
-                    </div>
-                )}
-
-                {question.type === 'choice' && question.options.length > 0 && (
-                    <div className="space-y-2">
-                        {question.options.map(option => (
-                            <label
-                                key={option.id}
-                                className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                                    currentAnswer?.value === String(option.value || option.id)
-                                        ? 'border-indigo-500 bg-indigo-50'
-                                        : 'border-gray-200 hover:border-gray-300'
-                                }`}
-                            >
-                                <input
-                                    type="radio"
-                                    name={`q_${question.id}`}
-                                    checked={currentAnswer?.value === String(option.value || option.id)}
-                                    onChange={() => setAnswer(question.id, String(option.value || option.id))}
-                                    className="w-4 h-4 text-indigo-600"
-                                />
-                                <span className="text-sm text-gray-700">{option.label}</span>
-                            </label>
-                        ))}
-                    </div>
-                )}
-
-                {question.type === 'open_text' && (
-                    <textarea
-                        value={currentAnswer?.value || ''}
-                        onChange={e => setAnswer(question.id, e.target.value)}
-                        rows={3}
-                        className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="กรุณากรอกคำตอบ..."
-                    />
-                )}
-
-                {question.type === 'multiple_choice' && question.options.length > 0 && (
-                    <div className="space-y-2">
-                        {question.options.map(option => {
-                            const selectedValues = currentAnswer?.value ? JSON.parse(currentAnswer.value) : []
-                            const isChecked = selectedValues.includes(String(option.value || option.id))
-                            return (
-                                <label
-                                    key={option.id}
-                                    className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                                        isChecked
-                                            ? 'border-indigo-500 bg-indigo-50'
-                                            : 'border-gray-200 hover:border-gray-300'
-                                    }`}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={() => {
-                                            const val = String(option.value || option.id)
-                                            const updated = isChecked
-                                                ? selectedValues.filter((v: string) => v !== val)
-                                                : [...selectedValues, val]
-                                            setAnswer(question.id, JSON.stringify(updated))
-                                        }}
-                                        className="w-4 h-4 text-indigo-600 rounded"
-                                    />
-                                    <span className="text-sm text-gray-700">{option.label}</span>
-                                </label>
-                            )
-                        })}
-                    </div>
-                )}
-            </div>
-        )
-    }
+        if (formatted.length === 0) {
+            setSubmitting(false);
+            return;
+        }
+        router.post(
+            route("external.evaluate.submit"),
+            { answers: formatted },
+            {
+                onFinish: () => setSubmitting(false),
+                onError: (errors) => console.error("Submit errors:", errors),
+            }
+        );
+    };
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen gradient-primary-soft pb-12">
             <Head title={`ประเมิน - ${evaluation.title}`} />
 
-            {/* Header */}
-            <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-                <div className="max-w-3xl mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between mb-2">
-                        <h1 className="text-lg font-bold text-gray-900 truncate">{evaluation.title}</h1>
+            {/* Sticky Header */}
+            <div className="glass-navbar sticky top-0 z-10">
+                <div className="max-w-4xl mx-auto px-6 py-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <img src="/static/icon.png" alt="กนอ." className="w-8 h-8 flex-shrink-0" />
+                            <h1 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white truncate">
+                                {evaluation.title}
+                            </h1>
+                        </div>
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs font-medium flex-shrink-0">
+                            <Sparkles className="w-3 h-3" />
+                            {progressPercent}%
+                        </div>
                     </div>
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
+
+                    <div className="flex items-center gap-4 text-xs sm:text-sm text-muted-foreground mb-3 flex-wrap">
                         <div className="flex items-center gap-1.5">
-                            <User className="w-4 h-4" />
-                            <span>ผู้ถูกประเมิน: <strong className="text-gray-700">{evaluatee.name}</strong></span>
+                            <Users className="w-3.5 h-3.5" />
+                            <span>
+                                ผู้ถูกประเมิน:{" "}
+                                <strong className="text-foreground">
+                                    {evaluatees.length > 1 ? `${evaluatees.length} คน` : evaluatees[0]?.name}
+                                </strong>
+                            </span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                            <Building2 className="w-4 h-4" />
-                            <span>{organization.name}</span>
+                            <Building2 className="w-3.5 h-3.5" />
+                            <span>{pickedOrg || organization.name}</span>
                         </div>
                     </div>
-                    {/* Progress bar */}
-                    <div className="mt-3">
-                        <div className="flex justify-between text-xs text-gray-500 mb-1">
-                            <span>ตอบแล้ว {answeredCount}/{totalQuestions} ข้อ</span>
-                            <span>หัวข้อ {currentStep + 1}/{questionGroups.length}</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
+
+                    {/* Group progress indicators */}
+                    <div className="flex items-center gap-1">
+                        {groups.map((_, i) => (
                             <div
-                                className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0}%` }}
+                                key={i}
+                                className={cn(
+                                    "h-1.5 flex-1 rounded-full transition-all duration-300",
+                                    i < currentIndex
+                                        ? "bg-violet-500"
+                                        : i === currentIndex
+                                        ? "bg-gradient-to-r from-violet-500 to-purple-500"
+                                        : "bg-gray-200 dark:bg-gray-700"
+                                )}
                             />
-                        </div>
+                        ))}
                     </div>
                 </div>
             </div>
 
             {/* Content */}
-            <div className="max-w-3xl mx-auto px-4 py-6">
-                {currentGroup && (
-                    <>
-                        <div className="mb-4">
-                            <h2 className="text-lg font-semibold text-gray-900">
-                                {currentGroup.part.name}
-                            </h2>
-                            {currentGroup.part.description && (
-                                <p className="text-sm text-gray-500 mt-1">{currentGroup.part.description}</p>
-                            )}
+            <div className="max-w-4xl mx-auto px-6 py-8">
+                {/* Evaluatees Info Card (only when multi) */}
+                {evaluatees.length > 1 && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="glass-card rounded-2xl p-4 mb-6"
+                    >
+                        <div className="flex items-center gap-2 mb-3">
+                            <Users size={16} className="text-violet-600 dark:text-violet-400" />
+                            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                                รายชื่อผู้ถูกประเมิน
+                            </h3>
+                            <span className="text-xs px-2 py-1 rounded-full font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                                {evaluatees.length} คน
+                            </span>
                         </div>
-
-                        <div className="space-y-4">
-                            {currentGroup.questions.map(renderQuestion)}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {evaluatees.map((ev, idx) => (
+                                <div
+                                    key={ev.id}
+                                    className="flex items-center space-x-2 p-2 bg-white/60 dark:bg-gray-700/60 rounded-lg"
+                                >
+                                    <div className="w-6 h-6 bg-white dark:bg-gray-600 rounded-full flex items-center justify-center border border-gray-300 dark:border-gray-500 flex-shrink-0">
+                                        <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">
+                                            {idx + 1}
+                                        </span>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
+                                            {ev.name}
+                                        </p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                            {ev.position || ev.division || ""}
+                                        </p>
+                                    </div>
+                                    {ev.grade && (
+                                        <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                                            G{ev.grade}
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
                         </div>
-                    </>
+                    </motion.div>
                 )}
 
-                {/* Navigation */}
-                <div className="flex items-center justify-between mt-8 pb-8">
-                    <button
-                        onClick={() => setCurrentStep(prev => Math.max(0, prev - 1))}
-                        disabled={currentStep === 0}
-                        className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium ${
-                            currentStep === 0
-                                ? 'text-gray-400 cursor-not-allowed'
-                                : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
-                        }`}
-                    >
-                        <ChevronLeft className="w-4 h-4" />
-                        ก่อนหน้า
-                    </button>
+                <AnimatePresence mode="wait">
+                    {currentGroup && (
+                        <motion.div
+                            key={currentIndex}
+                            initial={{ opacity: 0, x: 30 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -30 }}
+                            transition={{ duration: 0.3 }}
+                            className="space-y-6"
+                        >
+                            {/* Section header (gradient card like internal) */}
+                            <div className="gradient-primary rounded-2xl p-5 text-white shadow-lg">
+                                {currentGroup.partName && (
+                                    <p className="text-violet-100 text-xs uppercase tracking-wide mb-1">
+                                        ส่วนที่ {groups.slice(0, currentIndex + 1).filter((g, i, arr) =>
+                                            i === 0 || g.partId !== arr[i - 1]?.partId
+                                        ).length}: {currentGroup.partName}
+                                    </p>
+                                )}
+                                <h3 className="text-xl font-bold">
+                                    {currentGroup.subaspectName || currentGroup.aspectName || currentGroup.partName}
+                                </h3>
+                                {currentGroup.subaspectDescription && (
+                                    <p className="text-violet-100 leading-relaxed mt-2 text-sm">
+                                        {currentGroup.subaspectDescription}
+                                    </p>
+                                )}
+                            </div>
 
-                    {isLastStep ? (
-                        <button
-                            onClick={() => setShowConfirm(true)}
-                            className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 transition-colors"
-                        >
-                            <Send className="w-4 h-4" />
-                            ส่งแบบประเมิน
-                        </button>
-                    ) : (
-                        <button
-                            onClick={() => setCurrentStep(prev => Math.min(questionGroups.length - 1, prev + 1))}
-                            className="flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
-                        >
-                            ถัดไป
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
+                            {/* Questions */}
+                            <div className="space-y-6">
+                                {currentGroup.questions.map((question, index) => {
+                                    const evaluateesAsCardEvaluatees = evaluatees.map((e) => ({
+                                        id: e.id,
+                                        name: e.name,
+                                        position: e.position || "",
+                                        department: e.department || "",
+                                        division: e.division || "",
+                                        grade: typeof e.grade === "number" ? e.grade : Number(e.grade) || 0,
+                                    }));
+                                    const questionAnswers = answers[question.id] || {};
+                                    return (
+                                        <MultiEvaluateeQuestionCard
+                                            key={question.id}
+                                            question={question as any}
+                                            evaluatees={evaluateesAsCardEvaluatees as any}
+                                            answers={questionAnswers}
+                                            onAnswerChange={(evaluateeId: number, value: any) =>
+                                                updateAnswer(question.id, evaluateeId, value)
+                                            }
+                                            questionNumber={index + 1}
+                                        />
+                                    );
+                                })}
+                            </div>
+
+                            {/* Navigation */}
+                            <div className="flex items-center justify-between pt-4">
+                                <button
+                                    onClick={() => {
+                                        setCurrentIndex((p) => Math.max(0, p - 1));
+                                        window.scrollTo({ top: 0, behavior: "smooth" });
+                                    }}
+                                    disabled={currentIndex === 0}
+                                    className={cn(
+                                        "flex items-center gap-2 px-5 py-3 rounded-xl font-medium transition-all",
+                                        currentIndex === 0
+                                            ? "text-gray-400 cursor-not-allowed"
+                                            : "glass-card hover:shadow-md"
+                                    )}
+                                >
+                                    <ChevronLeft className="w-4 h-4" /> ก่อนหน้า
+                                </button>
+                                {isLastStep ? (
+                                    <button
+                                        onClick={() => setShowConfirm(true)}
+                                        className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/25 transition-all"
+                                    >
+                                        <Send className="w-4 h-4" /> ส่งแบบประเมิน
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => {
+                                            setCurrentIndex((p) => Math.min(groups.length - 1, p + 1));
+                                            window.scrollTo({ top: 0, behavior: "smooth" });
+                                        }}
+                                        className="flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-white gradient-primary hover:opacity-90 shadow-lg shadow-violet-500/25 transition-all"
+                                    >
+                                        ถัดไป <ChevronRight className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
+                        </motion.div>
                     )}
-                </div>
+                </AnimatePresence>
             </div>
 
             {/* Confirm Modal */}
-            {showConfirm && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl max-w-md w-full p-6">
-                        <div className="text-center mb-6">
-                            <div className="inline-flex items-center justify-center w-14 h-14 bg-green-100 rounded-full mb-3">
-                                <Send className="w-6 h-6 text-green-600" />
-                            </div>
-                            <h3 className="text-lg font-bold text-gray-900">ยืนยันการส่งแบบประเมิน</h3>
-                            <p className="text-sm text-gray-500 mt-2">
-                                คุณตอบคำถามแล้ว {answeredCount} จาก {totalQuestions} ข้อ
-                            </p>
-                            {answeredCount < totalQuestions && (
-                                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
-                                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                                    <p className="text-xs text-amber-700">ยังมีคำถามที่ยังไม่ได้ตอบ</p>
+            <AnimatePresence>
+                {showConfirm && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            className="glass-card rounded-2xl max-w-md w-full p-6"
+                        >
+                            <div className="text-center mb-6">
+                                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full mb-4 shadow-lg shadow-emerald-500/30">
+                                    <Send className="w-7 h-7 text-white" />
                                 </div>
-                            )}
-                        </div>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setShowConfirm(false)}
-                                className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50"
-                            >
-                                กลับแก้ไข
-                            </button>
-                            <button
-                                onClick={handleSubmit}
-                                disabled={submitting}
-                                className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 flex items-center justify-center gap-2"
-                            >
-                                {submitting ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        กำลังส่ง...
-                                    </>
-                                ) : (
-                                    'ยืนยันส่ง'
+                                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                                    ยืนยันการส่งแบบประเมิน
+                                </h3>
+                                <p className="text-sm text-muted-foreground mt-2">
+                                    ตอบแล้ว {answeredCellsCount} จาก {totalQuestionCells} จุด
+                                    {evaluatees.length > 1 && ` (${evaluatees.length} คน)`}
+                                </p>
+                                {answeredCellsCount < totalQuestionCells && (
+                                    <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center gap-2 justify-center">
+                                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                                            ยังมีคำถามที่ยังไม่ได้ตอบครบ
+                                        </p>
+                                    </div>
                                 )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setShowConfirm(false)}
+                                    className="flex-1 px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+                                >
+                                    กลับแก้ไข
+                                </button>
+                                <button
+                                    onClick={handleSubmit}
+                                    disabled={submitting}
+                                    className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-bold hover:from-emerald-600 hover:to-teal-700 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 transition-all"
+                                >
+                                    {submitting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" /> กำลังส่ง...
+                                        </>
+                                    ) : (
+                                        "ยืนยันส่ง"
+                                    )}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
-    )
+    );
 }

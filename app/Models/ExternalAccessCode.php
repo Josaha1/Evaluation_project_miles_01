@@ -19,6 +19,8 @@ class ExternalAccessCode extends Model
         'evaluation_id',
         'fiscal_year',
         'is_used',
+        'use_count',
+        'max_uses',
         'used_at',
         'expires_at',
     ];
@@ -28,6 +30,28 @@ class ExternalAccessCode extends Model
         'used_at' => 'datetime',
         'expires_at' => 'datetime',
     ];
+
+    public function sessions()
+    {
+        return $this->hasMany(ExternalEvaluationSession::class, 'external_access_code_id');
+    }
+
+    /**
+     * Pivot: evaluatees this code can evaluate.
+     * 1 code now covers multiple evaluatees (1 org → N people to evaluate).
+     */
+    public function codeEvaluatees()
+    {
+        return $this->hasMany(ExternalCodeEvaluatee::class, 'external_access_code_id');
+    }
+
+    /**
+     * Pre-listed stakeholders captured from Excel import (องศาขวา bulk import).
+     */
+    public function stakeholders()
+    {
+        return $this->hasMany(ExternalStakeholder::class, 'external_access_code_id');
+    }
 
     public function organization(): BelongsTo
     {
@@ -55,7 +79,11 @@ class ExternalAccessCode extends Model
     }
 
     /**
-     * Check if the access code is valid (not used AND not expired).
+     * Check if the access code is valid:
+     *   - Not manually revoked (is_used=true used to mean "used", now means "manually revoked")
+     *   - Not expired
+     *   - Not exceeded max_uses (if set)
+     * Multiple people from same org can use the same code as long as max_uses not exceeded.
      */
     public function isValid(): bool
     {
@@ -64,6 +92,10 @@ class ExternalAccessCode extends Model
         }
 
         if ($this->expires_at && $this->expires_at->isPast()) {
+            return false;
+        }
+
+        if ($this->max_uses !== null && $this->use_count >= $this->max_uses) {
             return false;
         }
 

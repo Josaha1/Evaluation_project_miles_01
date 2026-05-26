@@ -1,8 +1,15 @@
-import React from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import { Card } from "@/Components/ui/card";
-import Highcharts from "highcharts";
-import HighchartsReact from "highcharts-react-official";
-import { useEffect, useState } from "react";
+import type Highcharts from "highcharts";
+
+const LazyHighchartsReact = lazy(() =>
+    Promise.all([
+        import("highcharts"),
+        import("highcharts-react-official"),
+    ]).then(([hc, hcReact]) => ({
+        default: (props: any) => <hcReact.default highcharts={hc.default} {...props} />,
+    }))
+);
 interface Part1Score {
     aspect: string;
     part_id: 1 | 4 | 7;
@@ -129,13 +136,14 @@ const ChartSection: React.FC<Props> = ({ data, filters }) => {
         return (
             <Card
                 key={`${partId}-${isDark ? "dark" : "light"}`}
-                className="p-6 shadow-lg border border-indigo-300 dark:border-indigo-500 text-black dark:text-white"
+                className="p-6 shadow-lg border border-violet-300 dark:border-violet-500 text-black dark:text-white"
             >
-                <HighchartsReact
-                    highcharts={Highcharts}
-                    className="text-black dark:text-white"
-                    options={chartOptions}
-                />
+                <Suspense fallback={<div className="h-64 animate-pulse bg-gray-200 dark:bg-gray-700 rounded-xl" />}>
+                    <LazyHighchartsReact
+                        className="text-black dark:text-white"
+                        options={chartOptions}
+                    />
+                </Suspense>
             </Card>
         );
     };

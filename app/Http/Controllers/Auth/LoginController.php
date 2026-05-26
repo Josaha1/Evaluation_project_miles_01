@@ -51,7 +51,7 @@ class LoginController extends Controller
             RateLimiter::clear($key); // reset rate limit
 
             $request->session()->regenerate(); // ป้องกัน session fixation
-            Auth::logoutOtherDevices($request->password);
+            // Allow unlimited concurrent sessions per account (do not invalidate other devices)
 
             // log การเข้าใช้งาน
             Log::info('Login successful', [

@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\AdminAccessCodeController;
+use App\Http\Controllers\AdminStakeholderController;
+use App\Http\Controllers\AdminStakeholderImportController;
 use App\Http\Controllers\AdminDepartmentController;
 use App\Http\Controllers\AdminDivisionController;
 use App\Http\Controllers\AdminEvaluationAssignmentController;
@@ -36,6 +38,7 @@ use Inertia\Inertia;
 Route::prefix('external')->name('external.')->group(function () {
     Route::get('/login', [ExternalEvaluatorController::class, 'showLogin'])->name('login');
     Route::post('/login', [ExternalEvaluatorController::class, 'login'])->name('login.submit')->middleware('throttle:5,1');
+    Route::post('/verify', [ExternalEvaluatorController::class, 'verify'])->name('verify')->middleware('throttle:20,1');
     Route::post('/logout', [ExternalEvaluatorController::class, 'logout'])->name('logout');
     Route::get('/thank-you', [ExternalEvaluatorController::class, 'showThankYou'])->name('thank-you');
 });
@@ -45,6 +48,7 @@ Route::prefix('external')->name('external.')->middleware(['external', 'throttle:
     Route::get('/confirm', [ExternalEvaluatorController::class, 'showConfirm'])->name('confirm');
     Route::post('/confirm', [ExternalEvaluatorController::class, 'confirm'])->name('confirm.submit');
     Route::get('/dashboard', [ExternalEvaluatorController::class, 'showDashboard'])->name('dashboard');
+    Route::post('/select-evaluatee/{evaluateeId}', [ExternalEvaluatorController::class, 'selectEvaluatee'])->name('select-evaluatee');
     Route::get('/evaluate', [ExternalEvaluatorController::class, 'showEvaluation'])->name('evaluate');
     Route::post('/evaluate', [ExternalEvaluatorController::class, 'submitEvaluation'])->name('evaluate.submit')->middleware('throttle:10,1');
 });
@@ -107,6 +111,8 @@ Route::middleware(['auth', 'role:user'])->group(function () {
         ->name('assigned-evaluations.show');
     Route::post('/assigned-evaluations/{evaluatee}/step/{step}', [AssignedEvaluationController::class, 'step'])
         ->name('assigned-evaluations.step');
+    Route::post('/assigned-evaluations/{evaluatee}/submit', [AssignedEvaluationController::class, 'submit'])
+        ->name('assigned-evaluations.submit');
     Route::get('/assigned-evaluations/{evaluatee}/step/{step}', [AssignedEvaluationController::class, 'showStep'])
         ->name('assigned-evaluations.questions');
 
@@ -151,6 +157,11 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         return app(HomeController::class)->admindashboard(request());
     })->name('admindashboard');
 
+    // Reset Evaluation — admin tool ล้างคำตอบ + ปลดล็อก submitted_at
+    Route::get("/admin/reset-evaluations", [\App\Http\Controllers\AdminResetEvaluationController::class, "index"])->name("admin.reset-evaluations.index");
+    Route::get("/admin/reset-evaluations/preview", [\App\Http\Controllers\AdminResetEvaluationController::class, "preview"])->name("admin.reset-evaluations.preview");
+    Route::post("/admin/reset-evaluations", [\App\Http\Controllers\AdminResetEvaluationController::class, "execute"])->name("admin.reset-evaluations.execute");
+
     /*
     |--------------------------------------------------------------------------
     | Admin User Management (จัดการสมาชิกทั้งหมด)
@@ -160,9 +171,25 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::get('/', [AdminUserController::class, 'index'])->name('index');
         Route::get('/create', [AdminUserController::class, 'create'])->name('create');
         Route::post('/', [AdminUserController::class, 'store'])->name('store');
+        Route::get('/import', [AdminUserController::class, 'showImport'])->name('import');
+        Route::post('/import/preview', [AdminUserController::class, 'previewImport'])->name('import.preview');
+        Route::post('/import/execute', [AdminUserController::class, 'executeImport'])->name('import.execute');
+        Route::get('/reconcile', [AdminUserController::class, 'showReconcile'])->name('reconcile');
+        Route::post('/reconcile/preview', [AdminUserController::class, 'previewReconcile'])->name('reconcile.preview');
+        Route::post('/reconcile/execute', [AdminUserController::class, 'executeReconcile'])->name('reconcile.execute');
+        Route::post('/reconcile/rollback', [AdminUserController::class, 'rollbackReconcile'])->name('reconcile.rollback');
         Route::get('/{user}/edit', [AdminUserController::class, 'edit'])->name('edit');
         Route::put('/{user}', [AdminUserController::class, 'update'])->name('update');
         Route::delete('/{user}', [AdminUserController::class, 'destroy'])->name('destroy');
+    });
+
+    // Logs / system info dashboard
+    Route::prefix('admin/logs')->name('admin.logs.')->group(function () {
+        Route::get('/',                [\App\Http\Controllers\AdminLogController::class, 'index'])->name('index');
+        Route::get('/app-log',         [\App\Http\Controllers\AdminLogController::class, 'appLog'])->name('app-log');
+        Route::get('/recent-activity', [\App\Http\Controllers\AdminLogController::class, 'recentActivity'])->name('recent-activity');
+        Route::get('/system-info',     [\App\Http\Controllers\AdminLogController::class, 'systemInfo'])->name('system-info');
+        Route::get('/submission-stats',[\App\Http\Controllers\AdminLogController::class, 'submissionStats'])->name('submission-stats');
     });
 
     // Helper routes สำหรับสร้างข้อมูลใหม่ใน Admin Form (inline create)
@@ -230,8 +257,18 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::post('/bulk-store', [AdminEvaluationAssignmentController::class, 'bulkStore'])->name('bulk-store');
         Route::delete('/bulk-delete', [AdminEvaluationAssignmentController::class, 'bulkDestroy'])->name('bulk-delete');
 
-        // Import from Excel
+        // เปลี่ยนแบบประเมิน / reset evaluation
+        Route::patch("/{assignment}/evaluation", [AdminEvaluationAssignmentController::class, "changeEvaluation"])->name("change-evaluation");
+        Route::post("/bulk-change-evaluation", [AdminEvaluationAssignmentController::class, "bulkChangeEvaluation"])->name("bulk-change-evaluation");
+
+        // Import from Excel — legacy endpoint (เก็บไว้เพื่อ backward compat)
         Route::post('/import-excel', [AdminEvaluationAssignmentController::class, 'importExcel'])->name('import-excel');
+
+        // Import wizard (3-step) — รองรับ layout หลายแบบ + manual mapping
+        Route::get('/import',          [AdminEvaluationAssignmentController::class, 'showImport'])->name('import');
+        Route::post('/import/preview', [AdminEvaluationAssignmentController::class, 'previewImport'])->name('import.preview');
+        Route::post('/import/execute', [AdminEvaluationAssignmentController::class, 'executeImport'])->name('import.execute');
+        Route::post('/import/export-issues', [AdminEvaluationAssignmentController::class, 'exportImportIssues'])->name('import.export-issues');
 
         // Analytics and export
         Route::get('/analytics', [AdminEvaluationAssignmentController::class, 'getAnalytics'])->name('analytics');
@@ -405,6 +442,8 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         // Assignments data API
         Route::get('/api/assignments-data', [AdminEvaluationReportController::class, 'getAssignmentsData'])
             ->name('api.assignments-data');
+        Route::get("/api/available-evaluations", [AdminEvaluationReportController::class, "getAvailableEvaluations"])
+            ->name("api.available-evaluations");
 
         // Legacy support routes
         Route::get('/list-evaluatees', [AdminEvaluationReportController::class, 'listEvaluatees'])
@@ -444,6 +483,24 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
         Route::put('/{accessCode}/revoke', [AdminAccessCodeController::class, 'revoke'])->name('revoke');
         Route::post('/{accessCode}/regenerate', [AdminAccessCodeController::class, 'regenerate'])->name('regenerate');
         Route::delete('/{accessCode}', [AdminAccessCodeController::class, 'destroy'])->name('destroy');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin Stakeholder Import (องศาขวา bulk import)
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('admin/stakeholders')->name('admin.stakeholders.')->group(function () {
+        // Import wizard (declared first so /import doesn't get matched by {stakeholder})
+        Route::get('/import',          [AdminStakeholderImportController::class, 'showImport'])->name('import');
+        Route::post('/import/preview', [AdminStakeholderImportController::class, 'previewImport'])->name('import.preview');
+        Route::post('/import/execute', [AdminStakeholderImportController::class, 'executeImport'])->name('import.execute');
+        Route::post('/import/export-unmatched', [AdminStakeholderImportController::class, 'exportUnmatched'])->name('import.export-unmatched');
+
+        // Stakeholder list / edit / delete (CRUD on external_stakeholders rows)
+        Route::get('/',                 [AdminStakeholderController::class, 'index'])->name('index');
+        Route::put('/{stakeholder}',    [AdminStakeholderController::class, 'update'])->name('update');
+        Route::delete('/{stakeholder}', [AdminStakeholderController::class, 'destroy'])->name('destroy');
     });
 
 });

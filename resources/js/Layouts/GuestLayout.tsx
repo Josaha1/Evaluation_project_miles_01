@@ -12,9 +12,9 @@ interface GuestLayoutProps {
     maxWidth?: 'sm' | 'md' | 'lg' | 'xl'
 }
 
-export default function GuestLayout({ 
-    children, 
-    title, 
+export default function GuestLayout({
+    children,
+    title,
     showLogo = true,
     maxWidth = 'lg'
 }: GuestLayoutProps) {
@@ -30,12 +30,12 @@ export default function GuestLayout({
     return (
         <>
             <Head title={title || 'หน้าหลัก'} />
-            <div className="min-h-screen flex flex-col justify-center items-center relative bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black">
-                
+            <div className="min-h-screen flex flex-col justify-center items-center relative gradient-primary-soft">
+
                 {/* Dark Mode Toggle - Fixed Position */}
                 <div className="fixed top-4 right-4 z-50">
-                    <DarkModeToggle 
-                        darkMode={darkMode} 
+                    <DarkModeToggle
+                        darkMode={darkMode}
                         onToggle={toggleDarkMode}
                         className="shadow-lg"
                     />
@@ -43,23 +43,21 @@ export default function GuestLayout({
 
                 {/* Main Content */}
                 <div className={`
-                    w-full ${maxWidthClasses[maxWidth]} mx-6 px-6 py-8 
-                    bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm
-                    shadow-xl border border-gray-200/50 dark:border-gray-700/50
-                    rounded-2xl transition-all duration-300
+                    w-full ${maxWidthClasses[maxWidth]} mx-6 px-6 py-8
+                    glass-card rounded-2xl transition-all duration-300
                     hover:shadow-2xl
                 `}>
                     {/* Logo Section */}
                     {showLogo && (
                         <div className="text-center mb-8">
-                            <Link 
-                                href={route('home')} 
+                            <Link
+                                href={route('home')}
                                 className="inline-block transition-transform hover:scale-105"
                             >
-                                <img 
-                                    src="/static/icon.png" 
-                                    alt="IMS-Thai" 
-                                    className="h-32 w-auto mx-auto" 
+                                <img
+                                    src="/static/icon.png"
+                                    alt="กนอ."
+                                    className="h-32 w-auto mx-auto"
                                 />
                             </Link>
                         </div>
@@ -73,11 +71,11 @@ export default function GuestLayout({
 
                 {/* Decorative Elements */}
                 <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-                    <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-300/20 dark:bg-blue-600/10 rounded-full blur-3xl"></div>
+                    <div className="absolute -top-40 -right-40 w-80 h-80 bg-violet-300/20 dark:bg-violet-600/10 rounded-full blur-3xl"></div>
                     <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-300/20 dark:bg-purple-600/10 rounded-full blur-3xl"></div>
                 </div>
             </div>
-            
+
             <Footer />
         </>
     )
