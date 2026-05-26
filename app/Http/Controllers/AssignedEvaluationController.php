@@ -77,19 +77,10 @@ class AssignedEvaluationController extends Controller
 
         $allQuestionIds = $allQuestionIds->unique()->filter();
 
-        $answeredCount = Answer::where('evaluation_id', $evaluation->id)
-            ->where('user_id', $user->id)
-            ->where('evaluatee_id', $evaluateeId)
-            ->where('fiscal_year', $assignment->fiscal_year)
-            ->whereIn('question_id', $allQuestionIds)
-            ->count();
+        // ตอบครบไม่ใช่ "เสร็จ" — user ต้องกดปุ่มส่งคำตอบเอง
+        // line 57 ครอบ is_submitted=true แล้ว ที่นี่ปล่อยให้เข้า form ได้เพื่อให้กดส่งได้
 
-        if ($answeredCount === $allQuestionIds->count()) {
-            // ✅ ตอบครบแล้ว ส่งกลับหน้ารวม
-            return redirect()->route('dashboard', ['fiscal_year' => $assignment->fiscal_year])->with('success', 'ประเมินเสร็จสมบูรณ์แล้ว');
-        }
-
-        // ⛔ ถ้ายังไม่ครบ หาหัวข้อล่าสุดที่ประเมินแล้วจริงๆ (รองรับการประเมินหลายคน)
+        // หาหัวข้อล่าสุดที่ประเมินแล้วจริงๆ (รองรับการประเมินหลายคน)
         
         // Get all assignments for this evaluator in the same fiscal year
         // Exclude self-eval rows — those go through /evaluations/self, not assigned-eval
@@ -208,7 +199,13 @@ class AssignedEvaluationController extends Controller
             }
         }
 
-        return redirect()->route('dashboard', ['fiscal_year' => $assignment->fiscal_year])->with('success', 'การประเมินเสร็จสมบูรณ์แล้ว');
+        // ตอบครบทุก group แต่ยังไม่กดส่ง → ไป step สุดท้ายให้กดปุ่มส่งคำตอบได้
+        return redirect()->route('assigned-evaluations.questions', [
+            'evaluatee'   => $evaluateeId,
+            'step'        => $lastCompletedStep ?? 1,
+            'group'       => $lastCompletedGroup ?? 0,
+            'fiscal_year' => $assignment->fiscal_year,
+        ]);
     }
 
     public function step($evaluateeId, $step, Request $request)

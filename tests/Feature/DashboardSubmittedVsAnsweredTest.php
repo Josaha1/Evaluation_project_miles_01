@@ -101,6 +101,53 @@ it('submitted assignment IS counted as completed', function () {
     expect($angleTop['evaluatees'][0]['is_submitted'])->toBeTrue();
 });
 
+it('assigned-eval show: answered-but-not-submitted ไม่ถูก redirect ออก (ต้องเปิด form ให้กดส่งได้)', function () {
+    EvaluationAssignment::factory()->create([
+        'evaluator_id' => $this->evaluator->id,
+        'evaluatee_id' => $this->evaluatee->id,
+        'evaluation_id' => $this->eval->id,
+        'angle' => 'top',
+        'fiscal_year' => '2026',
+        'submitted_at' => null,
+    ]);
+    // ตอบครบทุกข้อ
+    Answer::create([
+        'evaluation_id' => $this->eval->id,
+        'user_id' => $this->evaluator->id,
+        'evaluatee_id' => $this->evaluatee->id,
+        'question_id' => $this->q->id,
+        'option_id' => $this->opt->id,
+        'fiscal_year' => 2026,
+    ]);
+
+    $res = $this->actingAs($this->evaluator)
+        ->get('/assigned-evaluations/'.$this->evaluatee->id.'?fiscal_year=2026');
+
+    // ก่อน fix: redirect ไป /dashboard with 'ประเมินเสร็จสมบูรณ์แล้ว'
+    // หลัง fix: redirect ไป /assigned-evaluations/.../step/N/group/G (เปิดหน้า form ให้กดส่ง)
+    $res->assertRedirect();
+    expect($res->headers->get('Location'))->not->toContain('/dashboard');
+    expect($res->headers->get('Location'))->toContain('/assigned-evaluations/');
+    expect((string) session('success'))->not->toContain('ประเมินเสร็จสมบูรณ์');
+});
+
+it('assigned-eval show: submitted แล้ว ยัง block (กลับ dashboard with error)', function () {
+    EvaluationAssignment::factory()->create([
+        'evaluator_id' => $this->evaluator->id,
+        'evaluatee_id' => $this->evaluatee->id,
+        'evaluation_id' => $this->eval->id,
+        'angle' => 'top',
+        'fiscal_year' => '2026',
+        'submitted_at' => now(),
+    ]);
+
+    $res = $this->actingAs($this->evaluator)
+        ->get('/assigned-evaluations/'.$this->evaluatee->id.'?fiscal_year=2026');
+
+    $res->assertRedirect();
+    expect(session('error'))->toContain('ส่งแบบประเมิน');
+});
+
 it('angle_summary completed_count uses is_submitted not progress', function () {
     // 2 assignments: 1 submitted, 1 answered-only
     $ee2 = makeOrgUserDS(['role' => 'user', 'grade' => '12']);
