@@ -371,13 +371,28 @@ class AssignedEvaluationController extends Controller
             ? (int) $request->fiscal_year
             : EvaluationLookupService::currentFiscalYear();
 
-        EvaluationAssignment::where('evaluator_id', $user->id)
-            ->where('evaluatee_id', $evaluateeId)
-            ->where('fiscal_year', $fiscalYear)
-            ->whereNull('submitted_at')
-            ->update(['submitted_at' => now()]);
+        // bulk submit: 1 form ครอบหลาย evaluatee — กดส่ง 1 ครั้ง = ส่งทั้ง form
+        // scope = (evaluator + evaluation + fy). ถ้าไม่มี evaluation_id → fall back เฉพาะ evaluatee
+        $evaluationId = $request->input('evaluation_id');
+        if (!$evaluationId) {
+            $assignment = EvaluationAssignment::where('evaluator_id', $user->id)
+                ->where('evaluatee_id', $evaluateeId)
+                ->where('fiscal_year', $fiscalYear)
+                ->first();
+            $evaluationId = $assignment?->evaluation_id;
+        }
 
-        return response()->json(['success' => true]);
+        $q = EvaluationAssignment::where('evaluator_id', $user->id)
+            ->where('fiscal_year', $fiscalYear)
+            ->whereNull('submitted_at');
+        if ($evaluationId) {
+            $q->where('evaluation_id', $evaluationId);
+        } else {
+            $q->where('evaluatee_id', $evaluateeId);
+        }
+        $updated = $q->update(['submitted_at' => now()]);
+
+        return response()->json(['success' => true, 'updated' => $updated]);
     }
 
     public function getExistingAnswers($evaluateeId, $evaluationId)

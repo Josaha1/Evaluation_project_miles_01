@@ -175,3 +175,42 @@ it('angle_summary completed_count uses is_submitted not progress', function () {
     // angle_summary.top.completed_count = 1 (เฉพาะที่ submitted) ไม่ใช่ 2
     expect($props['angle_summary']['top']['completed_count'])->toBe(1);
 });
+
+it('submit endpoint: marks all evaluatees in same evaluation form (bulk)', function () {
+    // 3 evaluatees ในแบบประเมินเดียวกัน, evaluator เดียวกัน, fiscal_year เดียวกัน — ทุกคน submitted_at = NULL
+    $ee2 = makeOrgUserDS(['role' => 'user', 'grade' => '12']);
+    $ee3 = makeOrgUserDS(['role' => 'user', 'grade' => '12']);
+    foreach ([$this->evaluatee->id, $ee2->id, $ee3->id] as $eeId) {
+        EvaluationAssignment::factory()->create([
+            'evaluator_id' => $this->evaluator->id, 'evaluatee_id' => $eeId,
+            'evaluation_id' => $this->eval->id, 'angle' => 'left',
+            'fiscal_year' => '2026', 'submitted_at' => null,
+        ]);
+    }
+    // แบบประเมินอื่น — ไม่ควรถูก submit
+    $otherEval = Evaluation::factory()->create([
+        'status' => 'published', 'fiscal_year' => 2026,
+        'user_type' => 'internal', 'grade_min' => 4, 'grade_max' => 8,
+    ]);
+    EvaluationAssignment::factory()->create([
+        'evaluator_id' => $this->evaluator->id, 'evaluatee_id' => $this->evaluatee->id,
+        'evaluation_id' => $otherEval->id, 'angle' => 'top',
+        'fiscal_year' => '2026', 'submitted_at' => null,
+    ]);
+
+    $res = $this->actingAs($this->evaluator)
+        ->post('/assigned-evaluations/'.$this->evaluatee->id.'/submit', [
+            'fiscal_year' => 2026,
+            'evaluation_id' => $this->eval->id,
+        ]);
+    $res->assertOk();
+
+    foreach ([$this->evaluatee->id, $ee2->id, $ee3->id] as $eeId) {
+        $a = \App\Models\EvaluationAssignment::where('evaluator_id', $this->evaluator->id)
+            ->where('evaluatee_id', $eeId)
+            ->where('evaluation_id', $this->eval->id)->first();
+        expect($a->submitted_at)->not->toBeNull();
+    }
+    $other = \App\Models\EvaluationAssignment::where('evaluation_id', $otherEval->id)->first();
+    expect($other->submitted_at)->toBeNull();
+});
