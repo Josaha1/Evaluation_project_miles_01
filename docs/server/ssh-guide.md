@@ -243,6 +243,85 @@ echo "Deploy complete: $STAMP"
 '
 ```
 
+### วิธีที่ 4: Deploy จาก Git (Recommended)
+
+> ⚠️ **บังคับทุก deploy** — ทำครบทั้ง 3 phase ตามลำดับ: **LOCAL master** → **VPS clean build** → **cache + reload**
+> ห้าม shortcut "config:cache only" แม้ commit จะเป็น BE-only เพราะ FE bundle/manifest อาจ desync
+
+**Phase 1 — LOCAL (housekeeping)**
+
+```bash
+# 1. commit + push branch ของคุณขึ้น GitHub
+git push josaha <branch-name>
+
+# 2. กลับมาที่ master locally — ห้ามค้างอยู่บน fix branch
+git checkout master
+```
+
+**Phase 2 + 3 — VPS (clean build → cache → reload)**
+
+```bash
+ssh -i ~/.ssh/hostinger_deploy root@187.127.97.68 '
+set -e
+STAMP=$(date +%Y%m%d-%H%M%S)
+TARGET=/var/www/evaluation-test            # หรือ /var/www/evaluation สำหรับ prod
+BRANCH=fix/your-branch                     # ★ เปลี่ยนเป็น branch ที่ต้องการ deploy
+DB=evaluation_db_test                      # หรือ evaluation_db สำหรับ prod
+cd $TARGET
+
+# Backup .env + DB
+cp .env /var/backups/$(basename $TARGET)-env-$STAMP 2>/dev/null || true
+mysqldump --routines --triggers --events $DB > /var/backups/$(basename $TARGET)-db-$STAMP.sql
+
+# Fetch + checkout (non-destructive — ไม่ใช้ reset --hard)
+git fetch --depth=1 origin $BRANCH
+git checkout origin/$BRANCH -- .
+git update-ref refs/heads/$BRANCH origin/$BRANCH
+git symbolic-ref HEAD refs/heads/$BRANCH
+
+# Clean build (บังคับ — กัน stale FE bundle)
+rm -rf public_html/build
+composer install --no-dev --optimize-autoloader --no-interaction
+npm ci 2>&1 | tail -3
+npm run build 2>&1 | tail -5
+
+# Cache + reload
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+chown -R deploy:www-data .
+chmod -R 755 storage bootstrap/cache
+systemctl reload php8.2-fpm
+
+echo "Deploy from git: $(git log -1 --oneline) @ $STAMP"
+'
+```
+
+**Smoke test หลัง deploy**
+
+```bash
+curl -sS -o /dev/null -w "HTTP %{http_code}\n" https://testevaluation.milesconsult.com/
+# หรือ https://evaluation.milesconsult.com/ สำหรับ prod
+```
+
+**ทำไมต้อง clean build ทุกครั้ง:**
+- BE-only commit ดูเหมือนไม่ต้อง npm build แต่ Vite manifest อาจ stale → browser โหลด CSS/JS hash เก่า
+- `rm -rf public_html/build` + `npm ci` (ใช้ lockfile) → กัน drift ระหว่าง deploy
+- bundle hash เปลี่ยน → browser cache bust อัตโนมัติ ไม่ต้องให้ user Ctrl+Shift+R
+
+**Rollback ผ่าน git:**
+
+```bash
+ssh -i ~/.ssh/hostinger_deploy root@187.127.97.68 '
+cd /var/www/evaluation
+git log --oneline -10                       # หา sha ที่ต้องการกลับไป
+git checkout <SHA> -- .                     # apply working tree เป็น sha นั้น
+rm -rf public_html/build && npm run build
+php artisan config:cache && php artisan route:cache && php artisan view:cache
+systemctl reload php8.2-fpm
+'
+```
+
 ## Rollback
 
 ```bash
