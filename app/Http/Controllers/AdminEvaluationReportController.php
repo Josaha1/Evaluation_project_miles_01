@@ -1579,9 +1579,12 @@ class AdminEvaluationReportController extends Controller
                 ->groupBy('evaluation_id', 'user_id', 'evaluatee_id');
 
             // Subquery: count total questions per evaluation
+            // ไม่นับ open_text ใน total — ตรงกับ FE progress (EvaluationAssignmentController:64)
+            // ถ้านับ → user ที่ตอบ required ครบแต่ไม่ตอบ open_text จะค้างเป็น pending ตลอด
             $questionCounts = DB::table('questions')
                 ->join('aspects', 'questions.aspect_id', '=', 'aspects.id')
                 ->join('parts', 'aspects.part_id', '=', 'parts.id')
+                ->where('questions.type', '!=', 'open_text')
                 ->select('parts.evaluation_id', DB::raw('COUNT(*) as total_questions'))
                 ->groupBy('parts.evaluation_id');
 
@@ -4038,9 +4041,12 @@ class AdminEvaluationReportController extends Controller
                 ->where('fiscal_year', $fiscalYear)
                 ->groupBy('evaluation_id', 'user_id', 'evaluatee_id');
 
+            // ไม่นับ open_text ใน total — ตรงกับ FE progress (EvaluationAssignmentController:64)
+            // ถ้านับ → user ที่ตอบ required ครบแต่ไม่ตอบ open_text จะค้างเป็น pending ตลอด
             $questionCounts = DB::table('questions')
                 ->join('aspects', 'questions.aspect_id', '=', 'aspects.id')
                 ->join('parts', 'aspects.part_id', '=', 'parts.id')
+                ->where('questions.type', '!=', 'open_text')
                 ->select('parts.evaluation_id', DB::raw('COUNT(*) as total_questions'))
                 ->groupBy('parts.evaluation_id');
 
@@ -4237,9 +4243,12 @@ class AdminEvaluationReportController extends Controller
                 ->where('fiscal_year', $fiscalYear)
                 ->groupBy('evaluation_id', 'user_id', 'evaluatee_id');
 
+            // ไม่นับ open_text ใน total — ตรงกับ FE progress (EvaluationAssignmentController:64)
+            // ถ้านับ → user ที่ตอบ required ครบแต่ไม่ตอบ open_text จะค้างเป็น pending ตลอด
             $questionCounts = DB::table('questions')
                 ->join('aspects', 'questions.aspect_id', '=', 'aspects.id')
                 ->join('parts', 'aspects.part_id', '=', 'parts.id')
+                ->where('questions.type', '!=', 'open_text')
                 ->select('parts.evaluation_id', DB::raw('COUNT(*) as total_questions'))
                 ->groupBy('parts.evaluation_id');
 
