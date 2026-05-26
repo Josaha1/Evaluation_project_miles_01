@@ -594,10 +594,11 @@ export default function Dashboard() {
         const allEvaluations = [...(evaluations.self ?? []), ...(evaluations.target ?? [])];
         const completed = allEvaluations.filter((e) => e.is_submitted ?? false).length;
         const pending = allEvaluations.filter((e) => !(e.is_submitted ?? false)).length;
-        const avgProgress =
-            allEvaluations.length > 0
-                ? allEvaluations.reduce((sum, e) => sum + (e.progress ?? 0), 0) / allEvaluations.length
-                : 0;
+        // ความคืบหน้ารวม = submission rate (กดส่งแล้วกี่%) ไม่ใช่ avg ของ answer %
+        // กัน header 100% หลอกตา ทั้งที่ยังไม่กดส่ง
+        const avgProgress = allEvaluations.length > 0
+            ? (completed / allEvaluations.length) * 100
+            : 0;
         return {
             total: allEvaluations.length,
             completed,
