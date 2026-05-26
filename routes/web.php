@@ -44,7 +44,7 @@ Route::prefix('external')->name('external.')->group(function () {
 });
 
 // External auth routes (ต้องมี external session)
-Route::prefix('external')->name('external.')->middleware(['external', 'throttle:30,1'])->group(function () {
+Route::prefix('external')->name('external.')->middleware(['external', 'throttle:30,1', 'evaluation.deadline'])->group(function () {
     Route::get('/confirm', [ExternalEvaluatorController::class, 'showConfirm'])->name('confirm');
     Route::post('/confirm', [ExternalEvaluatorController::class, 'confirm'])->name('confirm.submit');
     Route::get('/dashboard', [ExternalEvaluatorController::class, 'showDashboard'])->name('dashboard');
@@ -93,7 +93,7 @@ Route::middleware('auth')->group(function () {
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'role:user'])->group(function () {
+Route::middleware(['auth', 'role:user', 'evaluation.deadline'])->group(function () {
     // แสดงหน้าเริ่มต้นประเมินตนเอง
     Route::get('/dashboard', [EvaluationAssignmentController::class, 'index'])->name('dashboard');
     Route::get('/evaluations/self', [SelfEvaluationController::class, 'index'])->name('evaluationsself.index');
