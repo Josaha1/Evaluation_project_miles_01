@@ -454,10 +454,9 @@ export default function Dashboard() {
         // 2. Governor evaluation (form covers grade 13+)
         const governorEvaluations = (evaluations.target || []).filter((item) => formMaxGrade(item) >= 13);
         if (governorEvaluations.length > 0) {
-            const avgProgress =
-                governorEvaluations.reduce((sum, item) => sum + (item.progress || 0), 0) /
-                governorEvaluations.length;
             const completed = governorEvaluations.filter((item) => item.is_submitted ?? false).length;
+            const _categoryProgress = governorEvaluations.length > 0
+                ? (completed / governorEvaluations.length) * 100 : 0;
             categories.push({
                 id: "governor",
                 title: "ประเมินผู้ว่าการ",
@@ -468,7 +467,9 @@ export default function Dashboard() {
                 borderColor: "border-amber-200/60 dark:border-amber-800/40",
                 hoverColor: "hover:bg-amber-50/80 dark:hover:bg-amber-900/20",
                 evaluatees: governorEvaluations,
-                progress: Math.round(avgProgress),
+                // progress % สะท้อน submission rate (กดส่ง) ไม่ใช่ answer-ครบ
+                // เพื่อไม่ให้ขึ้น 100% ทั้งที่ยังไม่กดส่ง (ดู PR fix dashboard-submitted-vs-answered)
+                progress: Math.round(_categoryProgress),
                 completed,
                 total: governorEvaluations.length,
                 show: true,
@@ -483,10 +484,9 @@ export default function Dashboard() {
             return min >= 9 && max <= 12;
         });
         if (executiveEvaluations.length > 0) {
-            const avgProgress =
-                executiveEvaluations.reduce((sum, item) => sum + (item.progress || 0), 0) /
-                executiveEvaluations.length;
             const completed = executiveEvaluations.filter((item) => item.is_submitted ?? false).length;
+            const _categoryProgress = executiveEvaluations.length > 0
+                ? (completed / executiveEvaluations.length) * 100 : 0;
             categories.push({
                 id: "executive",
                 title: "ประเมินผู้บริหารระดับ 9-12",
@@ -497,7 +497,9 @@ export default function Dashboard() {
                 borderColor: "border-emerald-200/60 dark:border-emerald-800/40",
                 hoverColor: "hover:bg-emerald-50/80 dark:hover:bg-emerald-900/20",
                 evaluatees: executiveEvaluations,
-                progress: Math.round(avgProgress),
+                // progress % สะท้อน submission rate (กดส่ง) ไม่ใช่ answer-ครบ
+                // เพื่อไม่ให้ขึ้น 100% ทั้งที่ยังไม่กดส่ง (ดู PR fix dashboard-submitted-vs-answered)
+                progress: Math.round(_categoryProgress),
                 completed,
                 total: executiveEvaluations.length,
                 show: true,
@@ -512,10 +514,9 @@ export default function Dashboard() {
             return min >= 4 && max <= 8;
         });
         if (staffEvaluations.length > 0) {
-            const avgProgress =
-                staffEvaluations.reduce((sum, item) => sum + (item.progress || 0), 0) /
-                staffEvaluations.length;
             const completed = staffEvaluations.filter((item) => item.is_submitted ?? false).length;
+            const _categoryProgress = staffEvaluations.length > 0
+                ? (completed / staffEvaluations.length) * 100 : 0;
             categories.push({
                 id: "staff",
                 title: "ประเมินพนักงานระดับ 4-8",
@@ -526,7 +527,9 @@ export default function Dashboard() {
                 borderColor: "border-sky-200/60 dark:border-sky-800/40",
                 hoverColor: "hover:bg-sky-50/80 dark:hover:bg-sky-900/20",
                 evaluatees: staffEvaluations,
-                progress: Math.round(avgProgress),
+                // progress % สะท้อน submission rate (กดส่ง) ไม่ใช่ answer-ครบ
+                // เพื่อไม่ให้ขึ้น 100% ทั้งที่ยังไม่กดส่ง (ดู PR fix dashboard-submitted-vs-answered)
+                progress: Math.round(_categoryProgress),
                 completed,
                 total: staffEvaluations.length,
                 show: true,
