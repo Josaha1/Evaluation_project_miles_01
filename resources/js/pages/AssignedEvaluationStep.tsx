@@ -890,7 +890,7 @@ export default function AssignedEvaluationStep() {
                                 try {
                                     await axios.post(
                                         route("assigned-evaluations.submit", { evaluatee: evaluatee_id }),
-                                        { fiscal_year: fiscal_year }
+                                        { fiscal_year: fiscal_year, evaluation_id: evaluation.id }
                                     );
                                     setShowCompletionModal(false);
                                     router.visit(route("dashboard"), {

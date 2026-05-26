@@ -182,7 +182,7 @@ class EvaluationAssignmentController extends Controller
                     'count' => $angleGroup->count(),
                     'evaluatees' => $angleGroup->values(),
                     'avg_progress' => round($angleGroup->avg('progress'), 1),
-                    'completed_count' => $angleGroup->filter(fn($item) => $item['progress'] >= 100)->count(),
+                    'completed_count' => $angleGroup->filter(fn($item) => $item['is_submitted'] ?? false)->count(),
                 ];
             });
         })->flatten(1);
@@ -194,7 +194,8 @@ class EvaluationAssignmentController extends Controller
                 'count' => $group->count(),
                 'evaluatees' => $group->values(),
                 'avg_progress' => round($group->avg('progress'), 1),
-                'completed_count' => $group->filter(fn($item) => $item['progress'] >= 100)->count(),
+                // นับเฉพาะที่กดส่งแล้ว (is_submitted)
+                'completed_count' => $group->filter(fn($item) => $item['is_submitted'] ?? false)->count(),
             ];
         });
 
@@ -274,7 +275,7 @@ class EvaluationAssignmentController extends Controller
                     'count' => $angleGroup->count(),
                     'evaluatees' => $angleGroup->values(),
                     'avg_progress' => round($angleGroup->avg('progress'), 1),
-                    'completed_count' => $angleGroup->filter(fn($item) => $item['progress'] >= 100)->count(),
+                    'completed_count' => $angleGroup->filter(fn($item) => $item['is_submitted'] ?? false)->count(),
                 ];
             });
             
@@ -283,7 +284,7 @@ class EvaluationAssignmentController extends Controller
                 'evaluation_title' => $evaluationTitle,
                 'total_evaluatees' => $group->count(),
                 'total_progress' => round($group->avg('progress'), 1),
-                'total_completed' => $group->filter(fn($item) => $item['progress'] >= 100)->count(),
+                'total_completed' => $group->filter(fn($item) => $item['is_submitted'] ?? false)->count(),
                 'angle_groups' => $angleGroups,
                 'evaluatees' => $group->values(),
             ];

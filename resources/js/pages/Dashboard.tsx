@@ -429,7 +429,8 @@ export default function Dashboard() {
                 hoverColor: "hover:bg-violet-50/80 dark:hover:bg-violet-900/20",
                 evaluatees: selfEvaluations,
                 progress: selfEval.progress || 0,
-                completed: (selfEval.progress || 0) >= 100 ? 1 : 0,
+                // self category นับ completed จาก is_submitted เท่านั้น
+                completed: (selfEval.is_submitted ?? false) ? 1 : 0,
                 total: 1,
                 show: true,
                 evaluationType: "self",
@@ -453,10 +454,9 @@ export default function Dashboard() {
         // 2. Governor evaluation (form covers grade 13+)
         const governorEvaluations = (evaluations.target || []).filter((item) => formMaxGrade(item) >= 13);
         if (governorEvaluations.length > 0) {
-            const avgProgress =
-                governorEvaluations.reduce((sum, item) => sum + (item.progress || 0), 0) /
-                governorEvaluations.length;
-            const completed = governorEvaluations.filter((item) => (item.progress || 0) >= 100).length;
+            const completed = governorEvaluations.filter((item) => item.is_submitted ?? false).length;
+            const _categoryProgress = governorEvaluations.length > 0
+                ? (completed / governorEvaluations.length) * 100 : 0;
             categories.push({
                 id: "governor",
                 title: "ประเมินผู้ว่าการ",
@@ -467,7 +467,9 @@ export default function Dashboard() {
                 borderColor: "border-amber-200/60 dark:border-amber-800/40",
                 hoverColor: "hover:bg-amber-50/80 dark:hover:bg-amber-900/20",
                 evaluatees: governorEvaluations,
-                progress: Math.round(avgProgress),
+                // progress % สะท้อน submission rate (กดส่ง) ไม่ใช่ answer-ครบ
+                // เพื่อไม่ให้ขึ้น 100% ทั้งที่ยังไม่กดส่ง (ดู PR fix dashboard-submitted-vs-answered)
+                progress: Math.round(_categoryProgress),
                 completed,
                 total: governorEvaluations.length,
                 show: true,
@@ -482,10 +484,9 @@ export default function Dashboard() {
             return min >= 9 && max <= 12;
         });
         if (executiveEvaluations.length > 0) {
-            const avgProgress =
-                executiveEvaluations.reduce((sum, item) => sum + (item.progress || 0), 0) /
-                executiveEvaluations.length;
-            const completed = executiveEvaluations.filter((item) => (item.progress || 0) >= 100).length;
+            const completed = executiveEvaluations.filter((item) => item.is_submitted ?? false).length;
+            const _categoryProgress = executiveEvaluations.length > 0
+                ? (completed / executiveEvaluations.length) * 100 : 0;
             categories.push({
                 id: "executive",
                 title: "ประเมินผู้บริหารระดับ 9-12",
@@ -496,7 +497,9 @@ export default function Dashboard() {
                 borderColor: "border-emerald-200/60 dark:border-emerald-800/40",
                 hoverColor: "hover:bg-emerald-50/80 dark:hover:bg-emerald-900/20",
                 evaluatees: executiveEvaluations,
-                progress: Math.round(avgProgress),
+                // progress % สะท้อน submission rate (กดส่ง) ไม่ใช่ answer-ครบ
+                // เพื่อไม่ให้ขึ้น 100% ทั้งที่ยังไม่กดส่ง (ดู PR fix dashboard-submitted-vs-answered)
+                progress: Math.round(_categoryProgress),
                 completed,
                 total: executiveEvaluations.length,
                 show: true,
@@ -511,10 +514,9 @@ export default function Dashboard() {
             return min >= 4 && max <= 8;
         });
         if (staffEvaluations.length > 0) {
-            const avgProgress =
-                staffEvaluations.reduce((sum, item) => sum + (item.progress || 0), 0) /
-                staffEvaluations.length;
-            const completed = staffEvaluations.filter((item) => (item.progress || 0) >= 100).length;
+            const completed = staffEvaluations.filter((item) => item.is_submitted ?? false).length;
+            const _categoryProgress = staffEvaluations.length > 0
+                ? (completed / staffEvaluations.length) * 100 : 0;
             categories.push({
                 id: "staff",
                 title: "ประเมินพนักงานระดับ 4-8",
@@ -525,7 +527,9 @@ export default function Dashboard() {
                 borderColor: "border-sky-200/60 dark:border-sky-800/40",
                 hoverColor: "hover:bg-sky-50/80 dark:hover:bg-sky-900/20",
                 evaluatees: staffEvaluations,
-                progress: Math.round(avgProgress),
+                // progress % สะท้อน submission rate (กดส่ง) ไม่ใช่ answer-ครบ
+                // เพื่อไม่ให้ขึ้น 100% ทั้งที่ยังไม่กดส่ง (ดู PR fix dashboard-submitted-vs-answered)
+                progress: Math.round(_categoryProgress),
                 completed,
                 total: staffEvaluations.length,
                 show: true,
@@ -536,11 +540,11 @@ export default function Dashboard() {
         return categories;
     }, [evaluations]);
 
-    // Self-evaluation completion check
+    // Self-evaluation completion check — ต้องกดส่งแล้วเท่านั้น
     const selfCompleted = useMemo(() => {
         const selfCategory = evaluationCategories.find((c) => c.evaluationType === "self");
         if (!selfCategory) return true;
-        return selfCategory.progress >= 100;
+        return (selfCategory.evaluatees[0]?.is_submitted ?? false);
     }, [evaluationCategories]);
 
     // Filter categories
@@ -551,10 +555,11 @@ export default function Dashboard() {
                     const matchesSearch = item.evaluatee_name
                         .toLowerCase()
                         .includes(searchTerm.toLowerCase());
+                    // เสร็จ = ผู้ใช้กดส่งคำตอบแล้ว (is_submitted) — ตอบครบไม่ถือว่าเสร็จ
                     const matchesFilter =
                         filterStatus === "all" ||
-                        (filterStatus === "completed" && (item.progress ?? 0) >= 100) ||
-                        (filterStatus === "pending" && (item.progress ?? 0) < 100);
+                        (filterStatus === "completed" && (item.is_submitted ?? false)) ||
+                        (filterStatus === "pending" && !(item.is_submitted ?? false));
                     return matchesSearch && matchesFilter;
                 });
                 return {
@@ -580,19 +585,20 @@ export default function Dashboard() {
     const step2Stats = useMemo(() => {
         const allTargetEvaluatees = step2Categories.flatMap((c) => c.evaluatees);
         const total = allTargetEvaluatees.length;
-        const completed = allTargetEvaluatees.filter((e) => (e.progress ?? 0) >= 100).length;
+        const completed = allTargetEvaluatees.filter((e) => e.is_submitted ?? false).length;
         return { total, completed };
     }, [step2Categories]);
 
     // Overall statistics
     const stats = useMemo(() => {
         const allEvaluations = [...(evaluations.self ?? []), ...(evaluations.target ?? [])];
-        const completed = allEvaluations.filter((e) => (e.progress ?? 0) >= 100).length;
-        const pending = allEvaluations.filter((e) => (e.progress ?? 0) < 100).length;
-        const avgProgress =
-            allEvaluations.length > 0
-                ? allEvaluations.reduce((sum, e) => sum + (e.progress ?? 0), 0) / allEvaluations.length
-                : 0;
+        const completed = allEvaluations.filter((e) => e.is_submitted ?? false).length;
+        const pending = allEvaluations.filter((e) => !(e.is_submitted ?? false)).length;
+        // ความคืบหน้ารวม = submission rate (กดส่งแล้วกี่%) ไม่ใช่ avg ของ answer %
+        // กัน header 100% หลอกตา ทั้งที่ยังไม่กดส่ง
+        const avgProgress = allEvaluations.length > 0
+            ? (completed / allEvaluations.length) * 100
+            : 0;
         return {
             total: allEvaluations.length,
             completed,
@@ -725,8 +731,10 @@ export default function Dashboard() {
     };
 
     // ── Status info for evaluatee ────────────────────────────────────────
-    const getEvaluateeStatus = (progress: number) => {
-        if (progress >= 100) return { label: "เสร็จสิ้น", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-100 dark:bg-emerald-900/30", ring: "ring-emerald-500/20" };
+    // 4 สถานะ: ส่งแล้ว / ตอบครบรอส่ง / กำลังดำเนินการ / ยังไม่เริ่ม
+    const getEvaluateeStatus = (progress: number, isSubmitted?: boolean) => {
+        if (isSubmitted) return { label: "ส่งคำตอบแล้ว", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-100 dark:bg-emerald-900/30", ring: "ring-emerald-500/20" };
+        if (progress >= 100) return { label: "ตอบครบ รอกดส่ง", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-100 dark:bg-orange-900/30", ring: "ring-orange-500/20" };
         if (progress > 0) return { label: "กำลังดำเนินการ", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/30", ring: "ring-amber-500/20" };
         return { label: "ยังไม่เริ่ม", color: "text-gray-500 dark:text-gray-400", bg: "bg-gray-100 dark:bg-gray-800", ring: "ring-gray-400/20" };
     };
@@ -1107,7 +1115,7 @@ export default function Dashboard() {
                                             </h2>
                                             {(() => {
                                                 const selfCat = step1Categories[0];
-                                                const isComplete = selfCat && selfCat.progress >= 100;
+                                                const isComplete = selfCat?.evaluatees[0]?.is_submitted ?? false;
                                                 return (
                                                     <motion.span
                                                         className={cn(
@@ -1137,7 +1145,7 @@ export default function Dashboard() {
                                     {step1Categories.map((category) => {
                                         const selfEval = category.evaluatees[0];
                                         const progress = selfEval?.progress ?? 0;
-                                        const isComplete = progress >= 100;
+                                        const isComplete = selfEval?.is_submitted ?? false;
 
                                         return (
                                             <motion.div
@@ -1370,7 +1378,8 @@ export default function Dashboard() {
                                         {step2Categories.map((category) => {
                                             // Allow clicking even if self is not completed — user can view evaluatee list
                                             const isLocked = false;
-                                            const isAllComplete = category.progress >= 100;
+                                            // ทั้งหมวด complete = ผู้ถูกประเมินทุกคนถูกกดส่งแล้ว
+                                            const isAllComplete = category.total > 0 && category.completed >= category.total;
                                             const isExpanded = expandedCategories.has(category.id);
                                             const accent = getCategoryAccent(category.evaluationType);
 
@@ -1582,7 +1591,7 @@ export default function Dashboard() {
                                                                             })().map(([angle, evaluateesInAngle]) => {
                                                                                 const ad = getAngleDisplay(angle);
                                                                                 const angleCompleted = evaluateesInAngle.filter(
-                                                                                    (e) => (e.progress ?? 0) >= 100
+                                                                                    (e) => e.is_submitted ?? false
                                                                                 ).length;
 
                                                                                 return (
@@ -1622,8 +1631,9 @@ export default function Dashboard() {
                                                                                         <div className="space-y-1.5 ml-2">
                                                                                             {evaluateesInAngle.map((evaluatee, index) => {
                                                                                                 const p = evaluatee.progress ?? 0;
-                                                                                                const isDone = p >= 100;
-                                                                                                const st = getEvaluateeStatus(p);
+                                                                                                const submitted = evaluatee.is_submitted ?? false;
+                                                                                                const isDone = submitted;
+                                                                                                const st = getEvaluateeStatus(p, submitted);
 
                                                                                                 return (
                                                                                                     <motion.div
