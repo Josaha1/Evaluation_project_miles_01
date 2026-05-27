@@ -847,9 +847,7 @@ class ExternalEvaluatorController extends Controller
         $accessCode = $sessionAccessCode;  // for logging compat
         $evaluateeId = $sessionEvaluateeId;
 
-        // Mark session as completed (touch + then clear so user can submit additional batches)
         $externalSession->update(['completed_at' => now()]);
-        $externalSession->update(['completed_at' => null]);
 
         Log::channel('stack')->info('External evaluation submitted', [
             'session_id' => $externalSession->id,
