@@ -33,6 +33,7 @@ interface VerifyStakeholder {
     organization_name: string;
     sub_group: string | null;
     contact_person: string | null;
+    contact_persons?: string[];
     evaluatees_count: number;
     submitted_count: number;
     related_code_ids?: number[];
@@ -105,15 +106,16 @@ export default function ExternalLogin() {
         return verified.stakeholders.filter((s) =>
             s.organization_name.toLowerCase().includes(term) ||
             (s.contact_person ?? "").toLowerCase().includes(term) ||
+            (s.contact_persons ?? []).some((p) => p.toLowerCase().includes(term)) ||
             (s.sub_group ?? "").toLowerCase().includes(term)
         );
     }, [verified, stakeholderSearch]);
 
-    const pickStakeholder = (s: VerifyStakeholder) => {
+    const pickStakeholder = (s: VerifyStakeholder, contactName?: string) => {
         setData((prev) => ({
             ...prev,
             stakeholder_id: s.id,
-            evaluator_name: s.contact_person || prev.evaluator_name,
+            evaluator_name: contactName || s.contact_person || prev.evaluator_name,
             evaluator_position: s.organization_name,
         }));
         setCustomMode(false);
@@ -337,21 +339,16 @@ export default function ExternalLogin() {
                                                 )}
                                                 {filteredStakeholders.map((s) => {
                                                     const isSelected = data.stakeholder_id === s.id;
-                                                    return (
-                                                        <button
-                                                            type="button"
-                                                            key={s.id}
-                                                            onClick={() => pickStakeholder(s)}
-                                                            className={cn(
-                                                                "w-full text-left p-2.5 rounded-lg border transition-all flex items-start gap-2",
-                                                                isSelected ? "bg-violet-50 border-violet-400 ring-2 ring-violet-200" :
-                                                                    "bg-white border-gray-200 hover:border-violet-300 hover:bg-violet-50/30"
-                                                            )}
-                                                        >
+                                                    const persons = (s.contact_persons && s.contact_persons.length > 0) ? s.contact_persons : (s.contact_person ? [s.contact_person] : []);
+                                                    const hasMultiple = persons.length > 1;
+
+                                                    const header = (
+                                                        <div className="flex items-start gap-2">
                                                             <div className="flex-1 min-w-0">
                                                                 <div className="text-sm font-medium text-gray-800 truncate">{s.organization_name}</div>
                                                                 <div className="text-[11px] text-gray-500 flex items-center gap-2 flex-wrap mt-0.5">
-                                                                    {s.contact_person && <span>👤 {s.contact_person}</span>}
+                                                                    {!hasMultiple && persons[0] && <span>👤 {persons[0]}</span>}
+                                                                    {hasMultiple && <span>👥 {persons.length} คน</span>}
                                                                     {s.sub_group && <span className="text-violet-600">[{s.sub_group}]</span>}
                                                                     <span className="text-emerald-700">
                                                                         ✓ {s.submitted_count}/{s.evaluatees_count} ประเมิน
@@ -359,7 +356,41 @@ export default function ExternalLogin() {
                                                                 </div>
                                                             </div>
                                                             {isSelected && <CheckCircle className="w-5 h-5 text-violet-600 shrink-0" />}
-                                                        </button>
+                                                        </div>
+                                                    );
+
+                                                    const baseClass = cn(
+                                                        "w-full text-left p-2.5 rounded-lg border transition-all",
+                                                        isSelected ? "bg-violet-50 border-violet-400 ring-2 ring-violet-200" :
+                                                            "bg-white border-gray-200 hover:border-violet-300 hover:bg-violet-50/30"
+                                                    );
+
+                                                    if (!hasMultiple) {
+                                                        return (
+                                                            <button type="button" key={s.id} onClick={() => pickStakeholder(s)} className={baseClass}>
+                                                                {header}
+                                                            </button>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <div key={s.id} className={baseClass}>
+                                                            {header}
+                                                            <div className="mt-1.5 space-y-1 pl-1">
+                                                                {persons.map((p, i) => (
+                                                                    <button type="button" key={i}
+                                                                        onClick={() => pickStakeholder(s, p)}
+                                                                        className={cn(
+                                                                            "w-full text-left text-xs px-2 py-1.5 rounded-md border transition-all",
+                                                                            isSelected && data.evaluator_name === p
+                                                                                ? "bg-violet-100 border-violet-300 font-medium"
+                                                                                : "bg-gray-50 border-gray-200 hover:bg-violet-50 hover:border-violet-200"
+                                                                        )}>
+                                                                        👤 {p}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
                                                     );
                                                 })}
                                             </div>

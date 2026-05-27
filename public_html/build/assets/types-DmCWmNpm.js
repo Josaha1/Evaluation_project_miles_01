@@ -1,0 +1,1 @@
+function r(t){return t===13?"ผู้ว่าการ":t>=9&&t<=12?"ผู้บริหาร":t>=4&&t<=8?"พนักงาน":`ระดับ ${t}`}function n(t){return{self:"ตนเอง",top:"ผู้บังคับบัญชา",bottom:"ผู้ใต้บังคับบัญชา",left:"เพื่อนร่วมงาน",right:"องค์กรภายนอก"}[t]??t}function u(t){return t>=4.5?"text-green-600":t>=3.5?"text-blue-600":t>=2.5?"text-yellow-600":"text-red-600"}export{u as a,r as b,n as g};

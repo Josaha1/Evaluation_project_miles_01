@@ -120,12 +120,15 @@ class ExternalEvaluatorController extends Controller
                     ->whereNotNull('external_session_id')
                     ->pluck('evaluatee_id')->unique()->count();
 
+                $contactPersons = $allRelated->pluck('contact_person')->filter()->unique()->values();
+
                 return [
                     'id'                       => $first->id,
                     'organization_name'        => $first->organization_name,
                     'sub_group'                => $first->sub_group,
                     'contact_person'           => $first->contact_person,
-                    'evaluatees_count'         => $previewEvaluatees->count(),  // CROSS-GROUP total
+                    'contact_persons'          => $contactPersons,
+                    'evaluatees_count'         => $previewEvaluatees->count(),
                     'submitted_count'          => $submittedEvaluatees,
                     'related_code_ids'         => $relatedCodeIds,
                     'related_groups'           => $relatedGroups,
