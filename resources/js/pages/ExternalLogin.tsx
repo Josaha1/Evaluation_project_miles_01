@@ -284,24 +284,6 @@ export default function ExternalLogin() {
                                         </div>
                                     </div>
 
-                                    {verified.evaluatees.length > 0 && (
-                                        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
-                                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 mb-2">
-                                                <UserIcon className="w-3 h-3" /> ผู้ถูกประเมินที่รหัสนี้ครอบคลุม ({verified.evaluatees.length} คน)
-                                            </div>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {verified.evaluatees.map((e) => (
-                                                    <span key={e.id} className="text-xs bg-white/80 rounded px-2 py-1 border border-emerald-100">
-                                                        {e.name}
-                                                        {e.grade && <span className="text-gray-400 ml-1">C{e.grade}</span>}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                            <div className="text-[11px] text-emerald-700 mt-2 italic">
-                                                หลังเข้าระบบจะเห็น dashboard ให้เลือกประเมินทีละคน
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
 
                                 {/* Stakeholder picker with search */}
