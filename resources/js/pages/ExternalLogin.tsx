@@ -284,24 +284,6 @@ export default function ExternalLogin() {
                                         </div>
                                     </div>
 
-                                    {verified.evaluatees.length > 0 && (
-                                        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
-                                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 mb-2">
-                                                <UserIcon className="w-3 h-3" /> ผู้ถูกประเมินที่รหัสนี้ครอบคลุม ({verified.evaluatees.length} คน)
-                                            </div>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {verified.evaluatees.map((e) => (
-                                                    <span key={e.id} className="text-xs bg-white/80 rounded px-2 py-1 border border-emerald-100">
-                                                        {e.name}
-                                                        {e.grade && <span className="text-gray-400 ml-1">C{e.grade}</span>}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                            <div className="text-[11px] text-emerald-700 mt-2 italic">
-                                                หลังเข้าระบบจะเห็น dashboard ให้เลือกประเมินทีละคน
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
 
                                 {/* Stakeholder picker with search */}
@@ -514,9 +496,9 @@ export default function ExternalLogin() {
 
                                         {selectedStakeholder?.preview_evaluatees && selectedStakeholder.preview_evaluatees.length > 0 && (
                                             <div className="p-3 rounded-xl bg-blue-50 border border-blue-200">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">
-                                                        ✓ คุณจะประเมิน {selectedStakeholder.preview_evaluatees.length} คน
+                                                <div className="flex items-center justify-between">
+                                                    <div className="text-[11px] font-semibold text-blue-700">
+                                                        ✓ คุณจะประเมินทั้งหมด {selectedStakeholder.preview_evaluatees.length} ท่าน
                                                     </div>
                                                     {(selectedStakeholder.submitted_count ?? 0) > 0 && (
                                                         <span className="text-[10px] text-emerald-700">
@@ -524,31 +506,8 @@ export default function ExternalLogin() {
                                                         </span>
                                                     )}
                                                 </div>
-                                                <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-                                                    {selectedStakeholder.preview_evaluatees.map((e, idx) => (
-                                                        <div key={e.id} className="flex items-start gap-2 text-xs bg-white/60 rounded p-1.5">
-                                                            <span className="text-gray-400 font-mono w-5 shrink-0 mt-0.5">{idx + 1}.</span>
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center gap-2 flex-wrap">
-                                                                    <span className="font-medium text-gray-800">{e.name}</span>
-                                                                    {e.grade && <span className="text-gray-400 text-[11px]">C{e.grade}</span>}
-                                                                    {e.submitted && <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />}
-                                                                </div>
-                                                                {e.source_groups && e.source_groups.length > 0 && (
-                                                                    <div className="flex flex-wrap gap-1 mt-1">
-                                                                        {e.source_groups.map((g, gi) => (
-                                                                            <span key={gi} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 whitespace-normal">
-                                                                                {g}
-                                                                            </span>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                                <div className="text-[11px] text-blue-700 mt-2 italic">
-                                                    ⏱ ใช้เวลาประมาณ 5–10 นาที/คน · บันทึกอัตโนมัติทุกคำตอบ
+                                                <div className="text-[11px] text-blue-600 mt-1">
+                                                    ⏱ ใช้เวลาประมาณ 5–10 นาที/ท่าน · บันทึกอัตโนมัติทุกคำตอบ
                                                 </div>
                                             </div>
                                         )}
