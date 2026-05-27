@@ -25,7 +25,6 @@ class ExternalAuthMiddleware
         $externalSession = ExternalEvaluationSession::with(['organization', 'evaluatee', 'evaluation', 'accessCode'])
             ->where('id', $sessionId)
             ->where('session_token', $sessionToken)
-            ->whereNull('completed_at')
             ->first();
 
         if (!$externalSession) {
