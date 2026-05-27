@@ -120,12 +120,15 @@ class ExternalEvaluatorController extends Controller
                     ->whereNotNull('external_session_id')
                     ->pluck('evaluatee_id')->unique()->count();
 
+                $contactPersons = $allRelated->pluck('contact_person')->filter()->unique()->values();
+
                 return [
                     'id'                       => $first->id,
                     'organization_name'        => $first->organization_name,
                     'sub_group'                => $first->sub_group,
                     'contact_person'           => $first->contact_person,
-                    'evaluatees_count'         => $previewEvaluatees->count(),  // CROSS-GROUP total
+                    'contact_persons'          => $contactPersons,
+                    'evaluatees_count'         => $previewEvaluatees->count(),
                     'submitted_count'          => $submittedEvaluatees,
                     'related_code_ids'         => $relatedCodeIds,
                     'related_groups'           => $relatedGroups,
@@ -443,13 +446,16 @@ class ExternalEvaluatorController extends Controller
         $relatedCodeIds = $request->session()->get('related_code_ids', [$accessCode->id]);
         $pickedOrg = $request->session()->get('picked_org_name');
 
+        $currentEvaluationId = (int) $externalSession->evaluation_id;
+
         $pivotQuery = \DB::table('external_code_evaluatees as p')
             ->join('users as u', 'u.id', '=', 'p.evaluatee_id')
             ->leftJoin('evaluations as e', 'e.id', '=', 'p.evaluation_id')
             ->leftJoin('positions as pos', 'pos.id', '=', 'u.position_id')
             ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'p.external_access_code_id')
             ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
-            ->whereIn('p.external_access_code_id', $relatedCodeIds);
+            ->whereIn('p.external_access_code_id', $relatedCodeIds)
+            ->where('p.evaluation_id', $currentEvaluationId);
 
         // When picked_org is set, restrict to (access_code, evaluatee) pairs that exist
         // in external_stakeholders for THIS org_name (case-insensitive). Otherwise pivot
