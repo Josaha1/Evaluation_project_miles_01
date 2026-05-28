@@ -215,6 +215,22 @@ class ExternalEvaluatorController extends Controller
                     ->all();
                 if (empty($relatedCodeIds)) $relatedCodeIds = [$accessCode->id];
             }
+        } elseif ($request->filled('evaluator_position')) {
+            // custom mode: ถ้า org ที่กรอกตรงกับ stakeholder ของ code นี้ → treat เหมือนเลือก org
+            $maybeOrg = trim($request->input('evaluator_position'));
+            $orgNorm = \App\Models\ExternalStakeholder::normalizeName($maybeOrg);
+            $exists = \App\Models\ExternalStakeholder::query()
+                ->where('external_access_code_id', $accessCode->id)
+                ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$orgNorm])
+                ->exists();
+            if ($exists) {
+                $pickedOrgName = $maybeOrg;
+                $relatedCodeIds = \App\Models\ExternalStakeholder::query()
+                    ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$orgNorm])
+                    ->where('fiscal_year', $accessCode->fiscal_year)
+                    ->pluck('external_access_code_id')->unique()->values()->all();
+                if (empty($relatedCodeIds)) $relatedCodeIds = [$accessCode->id];
+            }
         }
 
         // Pick which evaluatee to start with — priority order:

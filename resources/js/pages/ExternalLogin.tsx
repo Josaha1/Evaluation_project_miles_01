@@ -420,15 +420,31 @@ export default function ExternalLogin() {
                                     </div>
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-700 mb-1">
-                                            ตำแหน่ง / องค์กร <span className="text-gray-400 text-xs">(ไม่บังคับ)</span>
+                                            หน่วยงาน / องค์กร {customMode && <span className="text-red-500">*</span>}
                                         </label>
-                                        <input
-                                            type="text"
-                                            value={data.evaluator_position}
-                                            onChange={(e) => setData("evaluator_position", e.target.value)}
-                                            className="block w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                            placeholder="เช่น ผู้จัดการ บริษัท ABC"
-                                        />
+                                        {customMode && verified.stakeholders.length > 0 ? (
+                                            <select
+                                                value={data.evaluator_position}
+                                                onChange={(e) => setData("evaluator_position", e.target.value)}
+                                                className="block w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 bg-white"
+                                                required
+                                            >
+                                                <option value="">— เลือกหน่วยงาน —</option>
+                                                {Array.from(new Set(verified.stakeholders.map((s) => s.organization_name))).sort().map((org) => (
+                                                    <option key={org} value={org}>{org}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <input
+                                                type="text"
+                                                value={data.evaluator_position}
+                                                onChange={(e) => setData("evaluator_position", e.target.value)}
+                                                className="block w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                placeholder="เช่น ผู้จัดการ บริษัท ABC"
+                                                readOnly={!!selectedStakeholder}
+                                            />
+                                        )}
+                                        {errors.evaluator_position && <p className="text-sm text-red-600 mt-1">{errors.evaluator_position}</p>}
                                     </div>
                                 </div>
 
