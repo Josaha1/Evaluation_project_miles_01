@@ -185,6 +185,38 @@ export default function ExternalEvaluation() {
         ? Math.round((answeredCellsCount / totalQuestionCells) * 100)
         : 0;
 
+    // ต้องตอบครบทุก (question × evaluatee) ใน group ปัจจุบัน ถึงจะกดถัดไปได้
+    const currentGroupComplete = useMemo(() => {
+        if (!currentGroup) return false;
+        const required = currentGroup.questions.filter((q) => q.type !== "open_text");
+        for (const q of required) {
+            for (const ev of evaluatees) {
+                const a = answers[q.id]?.[ev.id];
+                if (a === undefined || a === null) return false;
+                const v = typeof a === "object" && a !== null && "value" in a ? (a as any).value : a;
+                if (v === undefined || v === null || v === "") return false;
+                if (Array.isArray(v) && v.length === 0) return false;
+            }
+        }
+        return true;
+    }, [currentGroup, answers, evaluatees]);
+
+    const allRequiredComplete = useMemo(() => {
+        for (const g of groups) {
+            const required = g.questions.filter((q) => q.type !== "open_text");
+            for (const q of required) {
+                for (const ev of evaluatees) {
+                    const a = answers[q.id]?.[ev.id];
+                    if (a === undefined || a === null) return false;
+                    const v = typeof a === "object" && a !== null && "value" in a ? (a as any).value : a;
+                    if (v === undefined || v === null || v === "") return false;
+                    if (Array.isArray(v) && v.length === 0) return false;
+                }
+            }
+        }
+        return true;
+    }, [groups, answers, evaluatees]);
+
     const updateAnswer = (questionId: number, evaluateeId: number, value: any) => {
         setAnswers((prev) => ({
             ...prev,
@@ -387,6 +419,16 @@ export default function ExternalEvaluation() {
                                 })}
                             </div>
 
+                            {/* Validation warning */}
+                            {!currentGroupComplete && (
+                                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-2">
+                                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                                        กรุณาตอบคำถามทุกข้อให้ครบทุกผู้ถูกประเมิน ({evaluatees.length} คน) ก่อนไปขั้นถัดไป
+                                    </p>
+                                </div>
+                            )}
+
                             {/* Navigation */}
                             <div className="flex items-center justify-between pt-4">
                                 <button
@@ -407,7 +449,14 @@ export default function ExternalEvaluation() {
                                 {isLastStep ? (
                                     <button
                                         onClick={() => setShowConfirm(true)}
-                                        className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/25 transition-all"
+                                        disabled={!allRequiredComplete}
+                                        title={!allRequiredComplete ? "กรุณาตอบคำถามให้ครบทุกคนก่อนส่งแบบประเมิน" : ""}
+                                        className={cn(
+                                            "flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-white shadow-lg transition-all",
+                                            allRequiredComplete
+                                                ? "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-emerald-500/25"
+                                                : "bg-gray-400 cursor-not-allowed shadow-none"
+                                        )}
                                     >
                                         <Send className="w-4 h-4" /> ส่งแบบประเมิน
                                     </button>
@@ -417,7 +466,14 @@ export default function ExternalEvaluation() {
                                             setCurrentIndex((p) => Math.min(groups.length - 1, p + 1));
                                             window.scrollTo({ top: 0, behavior: "smooth" });
                                         }}
-                                        className="flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-white gradient-primary hover:opacity-90 shadow-lg shadow-violet-500/25 transition-all"
+                                        disabled={!currentGroupComplete}
+                                        title={!currentGroupComplete ? "กรุณาตอบคำถามในหน้านี้ให้ครบทุกคนก่อน" : ""}
+                                        className={cn(
+                                            "flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-white shadow-lg transition-all",
+                                            currentGroupComplete
+                                                ? "gradient-primary hover:opacity-90 shadow-violet-500/25"
+                                                : "bg-gray-400 cursor-not-allowed shadow-none"
+                                        )}
                                     >
                                         ถัดไป <ChevronRight className="w-4 h-4" />
                                     </button>
