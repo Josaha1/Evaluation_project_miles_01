@@ -297,9 +297,11 @@ class ExternalEvaluatorController extends Controller
         $sessionAccessCode = ExternalAccessCode::find($startingAccessCodeId) ?? $accessCode;
 
         $sessionToken = Str::random(64);
+        // Phase 2: ผูก session กับ stakeholder row โดยตรง — ใช้ id ที่ user เลือก (Step 3)
         $session = ExternalEvaluationSession::create([
             'external_access_code_id'  => $sessionAccessCode->id,
             'external_organization_id' => $sessionAccessCode->external_organization_id,
+            'external_stakeholder_id'  => $request->input('stakeholder_id'),
             'evaluatee_id'             => $startingEvaluateeId,
             'evaluation_id'            => $startingEvalId,
             'session_token'            => $sessionToken,
@@ -458,10 +460,8 @@ class ExternalEvaluatorController extends Controller
         $organization = $externalSession->organization;
         $accessCode = $externalSession->accessCode;
 
-        // Cross-group: list evaluatees from ALL related codes (same org_name across groups in this fy)
         $relatedCodeIds = $request->session()->get('related_code_ids', [$accessCode->id]);
         $pickedOrg = $request->session()->get('picked_org_name');
-
         $currentEvaluationId = (int) $externalSession->evaluation_id;
 
         $pivotQuery = \DB::table('external_code_evaluatees as p')
@@ -473,10 +473,19 @@ class ExternalEvaluatorController extends Controller
             ->whereIn('p.external_access_code_id', $relatedCodeIds)
             ->where('p.evaluation_id', $currentEvaluationId);
 
-        // When picked_org is set, restrict to (access_code, evaluatee) pairs that exist
-        // in external_stakeholders for THIS org_name (case-insensitive). Otherwise pivot
-        // returns ALL evaluatees in the related codes — i.e. other companies too.
-        if ($pickedOrg) {
+        // Phase 2: scope ระดับบุคคล — ดู evaluatee_ids ของ stakeholder คนนี้ก่อน
+        // ถ้า session ไม่มี stakeholder_id (legacy/custom mode) → fallback ใช้ org_name filter เดิม
+        if ($externalSession->external_stakeholder_id) {
+            $myEvaluateeIds = \App\Models\ExternalStakeholder::where('id', $externalSession->external_stakeholder_id)
+                ->orWhere(function ($q) use ($externalSession) {
+                    // กรณีคนเดียวกันถูก import หลาย row (ต่าง evaluatee) — รวมทุก row
+                    $q->where('contact_person', $externalSession->stakeholder?->contact_person)
+                      ->where('organization_name', $externalSession->stakeholder?->organization_name)
+                      ->whereIn('external_access_code_id', $externalSession->stakeholder ? [$externalSession->stakeholder->external_access_code_id] : []);
+                })
+                ->pluck('evaluatee_id')->unique()->all();
+            $pivotQuery->whereIn('p.evaluatee_id', $myEvaluateeIds);
+        } elseif ($pickedOrg) {
             $orgNorm = \App\Models\ExternalStakeholder::normalizeName($pickedOrg);
             $pivotQuery->whereExists(function ($q) use ($orgNorm) {
                 $q->select(\DB::raw(1))
@@ -691,7 +700,7 @@ class ExternalEvaluatorController extends Controller
             'questions.options',
         ])->orderBy('order')->get();
 
-        // Multi-evaluatee scope: all evaluatees from related codes that share THIS form
+        // Phase 2: scope ระดับบุคคล — stakeholder ของ session ดู evaluatees ของตัวเองเท่านั้น
         $pivotQuery = \DB::table('external_code_evaluatees as p')
             ->join('users as u', 'u.id', '=', 'p.evaluatee_id')
             ->leftJoin('positions as pos', 'pos.id', '=', 'u.position_id')
@@ -702,7 +711,15 @@ class ExternalEvaluatorController extends Controller
             ->whereIn('p.external_access_code_id', $relatedCodeIds)
             ->where('p.evaluation_id', $currentEvaluationId);
 
-        if ($pickedOrg) {
+        if ($externalSession->external_stakeholder_id) {
+            $stk = $externalSession->stakeholder;
+            $myEvaluateeIds = \App\Models\ExternalStakeholder::query()
+                ->where('external_access_code_id', $stk?->external_access_code_id)
+                ->where('organization_name', $stk?->organization_name)
+                ->when($stk?->contact_person, fn ($q) => $q->where('contact_person', $stk->contact_person))
+                ->pluck('evaluatee_id')->unique()->all();
+            $pivotQuery->whereIn('p.evaluatee_id', $myEvaluateeIds);
+        } elseif ($pickedOrg) {
             $pickedNorm = \App\Models\ExternalStakeholder::normalizeName($pickedOrg);
             $pivotQuery->whereExists(function ($q) use ($pickedNorm) {
                 $q->select(\DB::raw(1))
