@@ -4418,12 +4418,33 @@ class AdminEvaluationReportController extends Controller
                 ->where('st.fiscal_year', $fiscalYear);
 
             if ($completed) {
-                // สำเร็จ = stakeholder slot ผูก session + session completed
-                $q->whereNotNull('st.external_session_id')->whereNotNull('s.completed_at');
+                // สำเร็จ = มี answer ของ (code, evaluatee) + evaluator_name = contact_person ใน session ที่ completed
+                // (เลิกใช้ st.external_session_id เป็น join key เพราะ field นี้ stale —
+                //  user login ซ้ำ session ใหม่ไม่ถูก link → คน submit จริงหายจาก export.
+                //  ต้อง match evaluator_name กับ contact_person เพื่อกัน false positive ระหว่าง
+                //  stakeholder slot คนละคน ที่ใช้ (code, evaluatee) เดียวกัน)
+                $q->whereExists(function ($sub) {
+                    $sub->select(DB::raw(1))->from('answers as ans2')
+                        ->join('external_evaluation_sessions as ses2', 'ses2.id', '=', 'ans2.external_session_id')
+                        ->whereColumn('ans2.external_access_code_id', 'st.external_access_code_id')
+                        ->whereColumn('ans2.evaluatee_id', 'st.evaluatee_id')
+                        ->whereNotNull('ses2.completed_at')
+                        ->where(function ($w) {
+                            $w->whereColumn('ses2.evaluator_name', 'st.contact_person')
+                              ->orWhereNull('st.contact_person');
+                        });
+                });
             } else {
-                // pending = ยังไม่ผูก session หรือ session ยังไม่ completed
-                $q->where(function ($w) {
-                    $w->whereNull('st.external_session_id')->orWhereNull('s.completed_at');
+                $q->whereNotExists(function ($sub) {
+                    $sub->select(DB::raw(1))->from('answers as ans2')
+                        ->join('external_evaluation_sessions as ses2', 'ses2.id', '=', 'ans2.external_session_id')
+                        ->whereColumn('ans2.external_access_code_id', 'st.external_access_code_id')
+                        ->whereColumn('ans2.evaluatee_id', 'st.evaluatee_id')
+                        ->whereNotNull('ses2.completed_at')
+                        ->where(function ($w) {
+                            $w->whereColumn('ses2.evaluator_name', 'st.contact_person')
+                              ->orWhereNull('st.contact_person');
+                        });
                 });
             }
 
