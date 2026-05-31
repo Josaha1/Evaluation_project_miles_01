@@ -50,8 +50,6 @@ export default function ExternalDashboard() {
         if (flash?.error) toast.error(flash.error);
     }, [flash]);
 
-    const progress = activeEvaluatees.length > 0 ? (activeCompleted / activeEvaluatees.length) * 100 : 0;
-
     const handleSelect = (evaluateeId: number) => {
         router.post(route("external.select-evaluatee", { evaluateeId }));
     };
@@ -81,6 +79,7 @@ export default function ExternalDashboard() {
     const remaining = activeEvaluatees.length - activeCompleted;
     const isAllDone = activeEvaluatees.length > 0 && remaining === 0;
     const nextPending = activeEvaluatees.find((e) => !e.is_completed);
+    const progress = activeEvaluatees.length > 0 ? (activeCompleted / activeEvaluatees.length) * 100 : 0;
 
     const handleLogout = () => {
         const msg = isAllDone
