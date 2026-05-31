@@ -67,15 +67,23 @@ export default function ExternalLogin() {
 
     const csrf = () => (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || "";
 
-    const handleVerify = async () => {
-        if (!data.code) return;
+    // auto-verify ถ้ามี code ใน URL → ข้าม step กรอก code ไปเลือก org ทันที
+    useEffect(() => {
+        if (prefillCode && step === 1 && !verified && !verifying) {
+            verifyCode(prefillCode);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [prefillCode]);
+
+    const verifyCode = async (codeValue: string) => {
+        if (!codeValue) return;
         setVerifying(true);
         setVerifyError(null);
         try {
             const res = await fetch(route("external.verify"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrf(), Accept: "application/json" },
-                body: JSON.stringify({ code: data.code }),
+                body: JSON.stringify({ code: codeValue }),
             });
             const body = await res.json();
             if (!res.ok) {
@@ -90,6 +98,8 @@ export default function ExternalLogin() {
             setVerifying(false);
         }
     };
+
+    const handleVerify = () => verifyCode(data.code);
 
     // unique orgs จาก stakeholders → step 2 dropdown
     const uniqueOrgs = useMemo(() => {
@@ -181,9 +191,9 @@ export default function ExternalLogin() {
                         </div>
                     </div>
 
-                    {/* Stepper */}
+                    {/* Stepper — ซ่อน step 1 (กรอกรหัส) ถ้า code มาจาก URL */}
                     <div className="flex items-center justify-center gap-2 mb-5 flex-wrap">
-                        {([1, 2, 3, 4] as Step[]).map((s, i) => (
+                        {(prefillCode ? [2, 3, 4] : [1, 2, 3, 4]).map((s, i, arr) => (
                             <div key={s} className="flex items-center gap-1.5">
                                 <div className={cn(
                                     "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all",
@@ -196,9 +206,9 @@ export default function ExternalLogin() {
                                     "text-[11px] font-medium",
                                     step === s ? "text-violet-700" : step > s ? "text-emerald-700" : "text-gray-500"
                                 )}>
-                                    {STEP_LABELS[s]}
+                                    {STEP_LABELS[s as Step]}
                                 </span>
-                                {i < 3 && <ChevronRight className="w-3 h-3 text-gray-300" />}
+                                {i < arr.length - 1 && <ChevronRight className="w-3 h-3 text-gray-300" />}
                             </div>
                         ))}
                     </div>
@@ -220,8 +230,17 @@ export default function ExternalLogin() {
                     )}
 
                     <AnimatePresence mode="wait">
-                        {/* ─── STEP 1 — กรอก Access Code ─────────────────────────── */}
-                        {step === 1 && (
+                        {/* ─── Auto-verifying state ─────────────────────────── */}
+                        {step === 1 && prefillCode && verifying && (
+                            <motion.div key="auto-verify" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                className="glass-card rounded-2xl p-10 text-center">
+                                <Loader2 className="w-10 h-10 mx-auto mb-3 text-violet-600 animate-spin" />
+                                <p className="text-sm font-medium text-gray-700">กำลังตรวจสอบรหัส...</p>
+                            </motion.div>
+                        )}
+
+                        {/* ─── STEP 1 — กรอก Access Code (กรณีไม่มี code ใน URL หรือ verify fail) ─ */}
+                        {step === 1 && !verifying && (!prefillCode || verifyError) && (
                             <motion.div key="step1" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
                                 className="glass-card rounded-2xl p-7">
                                 <div className="text-center mb-5">
