@@ -13,6 +13,7 @@ class ExternalEvaluationSession extends Model
     protected $fillable = [
         'external_access_code_id',
         'external_organization_id',
+        'external_stakeholder_id',
         'evaluatee_id',
         'evaluation_id',
         'session_token',
@@ -47,5 +48,10 @@ class ExternalEvaluationSession extends Model
     public function evaluation(): BelongsTo
     {
         return $this->belongsTo(Evaluation::class);
+    }
+
+    public function stakeholder(): BelongsTo
+    {
+        return $this->belongsTo(ExternalStakeholder::class, 'external_stakeholder_id');
     }
 }
