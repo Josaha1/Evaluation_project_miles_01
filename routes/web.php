@@ -37,8 +37,8 @@ use Inertia\Inertia;
 // Guest external routes (ไม่ต้อง auth)
 Route::prefix('external')->name('external.')->group(function () {
     Route::get('/login', [ExternalEvaluatorController::class, 'showLogin'])->name('login');
-    Route::post('/login', [ExternalEvaluatorController::class, 'login'])->name('login.submit')->middleware('throttle:5,1');
-    Route::post('/verify', [ExternalEvaluatorController::class, 'verify'])->name('verify')->middleware('throttle:20,1');
+    Route::post('/login', [ExternalEvaluatorController::class, 'login'])->name('login.submit')->middleware('throttle:30,1');
+    Route::post('/verify', [ExternalEvaluatorController::class, 'verify'])->name('verify')->middleware('throttle:60,1');
     Route::post('/logout', [ExternalEvaluatorController::class, 'logout'])->name('logout');
     Route::get('/thank-you', [ExternalEvaluatorController::class, 'showThankYou'])->name('thank-you');
 });
