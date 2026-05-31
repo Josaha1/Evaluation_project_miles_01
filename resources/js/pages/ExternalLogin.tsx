@@ -191,27 +191,32 @@ export default function ExternalLogin() {
                         </div>
                     </div>
 
-                    {/* Stepper — ซ่อน step 1 (กรอกรหัส) ถ้า code มาจาก URL */}
-                    <div className="flex items-center justify-center gap-2 mb-5 flex-wrap">
-                        {(prefillCode ? [2, 3, 4] : [1, 2, 3, 4]).map((s, i, arr) => (
-                            <div key={s} className="flex items-center gap-1.5">
-                                <div className={cn(
-                                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all",
-                                    step === s ? "gradient-primary text-white shadow-md scale-110" :
-                                    step > s ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"
-                                )}>
-                                    {step > s ? <CheckCircle className="w-3.5 h-3.5" /> : s}
-                                </div>
-                                <span className={cn(
-                                    "text-[11px] font-medium",
-                                    step === s ? "text-violet-700" : step > s ? "text-emerald-700" : "text-gray-500"
-                                )}>
-                                    {STEP_LABELS[s as Step]}
-                                </span>
-                                {i < arr.length - 1 && <ChevronRight className="w-3 h-3 text-gray-300" />}
-                            </div>
-                        ))}
-                    </div>
+                    {/* Stepper — 3 ขั้นเสมอ; step 1 (กรอกรหัส) เป็น auth gate ก่อนเริ่ม wizard */}
+                    {step !== 1 && (
+                        <div className="flex items-center justify-center gap-2 mb-5 flex-wrap">
+                            {([2, 3, 4] as Step[]).map((s, i, arr) => {
+                                const displayNum = i + 1;
+                                return (
+                                    <div key={s} className="flex items-center gap-1.5">
+                                        <div className={cn(
+                                            "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all",
+                                            step === s ? "gradient-primary text-white shadow-md scale-110" :
+                                            step > s ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"
+                                        )}>
+                                            {step > s ? <CheckCircle className="w-3.5 h-3.5" /> : displayNum}
+                                        </div>
+                                        <span className={cn(
+                                            "text-[11px] font-medium",
+                                            step === s ? "text-violet-700" : step > s ? "text-emerald-700" : "text-gray-500"
+                                        )}>
+                                            {STEP_LABELS[s]}
+                                        </span>
+                                        {i < arr.length - 1 && <ChevronRight className="w-3 h-3 text-gray-300" />}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
 
                     {/* Flash messages */}
                     {flash?.success && (
