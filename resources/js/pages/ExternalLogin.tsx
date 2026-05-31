@@ -142,6 +142,12 @@ export default function ExternalLogin() {
     };
 
     const pickPerson = (stakeholderId: number | "", name: string) => {
+        // คลิกซ้ำคนเดิม → ยกเลิกการเลือก
+        if (data.stakeholder_id === stakeholderId && data.evaluator_name === name && name) {
+            setData("stakeholder_id", "");
+            setData("evaluator_name", "");
+            return;
+        }
         setData("stakeholder_id", stakeholderId);
         setData("evaluator_name", name);
     };
