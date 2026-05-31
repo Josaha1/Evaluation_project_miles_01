@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RoleMiddleware;
 use App\Http\Middleware\ExternalAuthMiddleware;
+use App\Http\Middleware\EvaluationDeadlineMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -22,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => RoleMiddleware::class,
             'external' => ExternalAuthMiddleware::class,
+            'evaluation.deadline' => EvaluationDeadlineMiddleware::class,
         ]);
         $middleware->redirectUsersTo(function (Request $request) {
             return $request->user()?->role === 'admin' ? '/dashboardadmin' : '/dashboard';
