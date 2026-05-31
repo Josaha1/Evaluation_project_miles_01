@@ -4589,7 +4589,9 @@ class AdminEvaluationReportController extends Controller
                     $sheet->setCellValue('I' . $row, $r->evaluation_title ?? '-');
                     $sheet->setCellValue('J' . $row, $r->started_at ? \Carbon\Carbon::parse($r->started_at)->format('d/m/Y H:i') : '-');
                     $sheet->setCellValue('K' . $row, $r->completed_at ? \Carbon\Carbon::parse($r->completed_at)->format('d/m/Y H:i') : '-');
-                    $status = $r->completed_at ? 'สำเร็จ' : ($r->started_at ? 'กำลังทำ' : 'ยังไม่เริ่ม');
+                    // อ้างจาก $completed flag (filter ผ่าน EXISTS แล้ว) ไม่ใช่ joined ts
+                    // (joined ts อาจ NULL ถ้า contact_person ↔ evaluator_name ไม่ตรง 100%)
+                    $status = $completed ? 'สำเร็จ' : ($r->started_at ? 'กำลังทำ' : 'ยังไม่เริ่ม');
                     $sheet->setCellValue('L' . $row, $status);
                     $sheet->setCellValue('M' . $row, $r->evaluator_name ?? '-');
 
