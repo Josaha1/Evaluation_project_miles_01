@@ -4405,17 +4405,20 @@ class AdminEvaluationReportController extends Controller
 
             $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
 
-            // session ที่ตรงกับ stakeholder slot จริง — match (code, evaluatee, evaluator=contact)
-            // ไม่ใช้ st.external_session_id เพราะ stale ตอน user login ซ้ำ
-            $sessionSub = DB::table('external_evaluation_sessions')
+            // session-per-slot key จาก answers ไม่ใช่ session row โดยตรง
+            // (session.evaluatee_id = คนแรกที่เลือกตอน login เท่านั้น แต่ submit ครอบหลายคน
+            //  เช่น session 199 ของวีรชาติ มี evaluatee_id=1042 แต่ answers ครอบ {872,946,1042}
+            //  ต้อง group จาก answers.evaluatee_id เพื่อ leftJoin แต่ละ stakeholder slot ติด)
+            $sessionSub = DB::table('answers as a')
+                ->join('external_evaluation_sessions as ses', 'ses.id', '=', 'a.external_session_id')
                 ->select(
-                    'external_access_code_id',
-                    'evaluatee_id',
-                    'evaluator_name',
-                    DB::raw('MAX(started_at) as started_at'),
-                    DB::raw('MAX(completed_at) as completed_at')
+                    'a.external_access_code_id',
+                    'a.evaluatee_id',
+                    'ses.evaluator_name',
+                    DB::raw('MIN(ses.started_at) as started_at'),
+                    DB::raw('MAX(ses.completed_at) as completed_at')
                 )
-                ->groupBy('external_access_code_id', 'evaluatee_id', 'evaluator_name');
+                ->groupBy('a.external_access_code_id', 'a.evaluatee_id', 'ses.evaluator_name');
 
             $q = DB::table('external_stakeholders as st')
                 ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'st.external_access_code_id')
