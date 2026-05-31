@@ -7,6 +7,8 @@
 > ดูคู่มือ test แยก: [test-environment.md](./test-environment.md)
 >
 > **อัปเดต 2026-04-26**: เพิ่ม MySQL user สำหรับ DBeaver — ดู [dbeaver-access.md](./dbeaver-access.md)
+>
+> **อัปเดต 2026-05-26**: เพิ่ม feature ปิดระบบประเมินตามเวลา — ดู [evaluation-deadline.md](./evaluation-deadline.md)
 
 ## ข้อมูล Server
 
