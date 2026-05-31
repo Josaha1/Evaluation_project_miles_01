@@ -547,13 +547,16 @@ class ExternalEvaluatorController extends Controller
         // Mark completed via answers (across all related sessions of this evaluator? or just current session)
         // For now: completion = ANY answer for this evaluatee from sessions linked to picked org
         $pickedOrgNorm = $pickedOrg ? \App\Models\ExternalStakeholder::normalizeName($pickedOrg) : null;
-        $sessionsForOrg = $pickedOrgNorm
-            ? \App\Models\ExternalStakeholder::query()
-                ->whereIn('external_access_code_id', $relatedCodeIds)
-                ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$pickedOrgNorm])
-                ->whereNotNull('external_session_id')
-                ->pluck('external_session_id')->unique()->toArray()
-            : [$externalSession->id];
+        // include sessions ทั้งหมดของ evaluator คนนี้ใน scope codes + session ปัจจุบัน
+        // (กัน external_stakeholders.external_session_id เก็บแค่ session ล่าสุด → orphan answers)
+        $evaluatorSessionIds = \App\Models\ExternalEvaluationSession::query()
+            ->whereIn('external_access_code_id', $relatedCodeIds)
+            ->where('evaluator_name', $externalSession->evaluator_name)
+            ->pluck('id')->toArray();
+        $sessionsForOrg = array_values(array_unique(array_merge(
+            [$externalSession->id],
+            $evaluatorSessionIds
+        )));
 
         $completedEvaluateeIds = \App\Models\Answer::whereIn('external_session_id', $sessionsForOrg)
             ->pluck('evaluatee_id')->unique()->toArray();
