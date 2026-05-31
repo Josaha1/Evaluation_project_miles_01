@@ -408,9 +408,15 @@ class ExternalEvaluatorController extends Controller
      */
     public function logout(Request $request)
     {
+        // เก็บ code ของ session ก่อนล้าง เพื่อใส่กลับใน URL → user re-login ได้ทันที
+        $code = null;
+        if ($sessionId = $request->session()->get('external_session_id')) {
+            $code = ExternalEvaluationSession::find($sessionId)?->accessCode?->code;
+        }
+
         $request->session()->forget(['external_session_token', 'external_session_id', 'picked_org_name', 'related_code_ids']);
 
-        return redirect()->route('external.login')
+        return redirect()->route('external.login', $code ? ['code' => $code] : [])
             ->with('success', 'ออกจากระบบเรียบร้อยแล้ว');
     }
 
