@@ -76,6 +76,7 @@ export interface PageProps {
         total_responses: number;
         avg_score: number;
         evaluatee_count: number;
+        evaluator_count?: number;
     }>;
 }
 

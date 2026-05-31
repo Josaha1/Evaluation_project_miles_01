@@ -734,33 +734,35 @@ class EvaluationExportService
         $fiscalYear = $filters['fiscal_year'] ?? date('Y');
 
         // Header
-        $sheet->setCellValue('A1', 'รายงานคะแนนองค์กรภายนอก (องศาขวา)');
-        $sheet->mergeCells('A1:G1');
+        $sheet->setCellValue('A1', 'รายงานคะแนนองค์กรภายนอก (องศาขวา) — ระดับบุคคล');
+        $sheet->mergeCells('A1:H1');
         $sheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
         $sheet->setCellValue('A2', 'ปีงบประมาณ: พ.ศ. ' . ($fiscalYear + 543));
-        $sheet->mergeCells('A2:G2');
+        $sheet->mergeCells('A2:H2');
 
-        // Column headers
-        $headers = ['A4' => 'องค์กร', 'B4' => 'รหัส', 'C4' => 'ผู้ถูกประเมิน', 'D4' => 'ระดับ', 'E4' => 'จำนวนคำตอบ', 'F4' => 'คะแนนเฉลี่ย', 'G4' => 'วันที่ประเมิน'];
+        // Phase 4: เพิ่ม "ผู้ประเมิน" col — แสดงระดับบุคคล (org × evaluator × evaluatee)
+        $headers = ['A4' => 'องค์กร', 'B4' => 'รหัส', 'C4' => 'ผู้ประเมิน', 'D4' => 'ผู้ถูกประเมิน', 'E4' => 'ระดับ', 'F4' => 'จำนวนคำตอบ', 'G4' => 'คะแนนเฉลี่ย', 'H4' => 'วันที่ประเมิน'];
         foreach ($headers as $cell => $header) {
             $sheet->setCellValue($cell, $header);
         }
-        $sheet->getStyle('A4:G4')->getFont()->setBold(true);
-        $sheet->getStyle('A4:G4')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('7C3AED');
-        $sheet->getStyle('A4:G4')->getFont()->getColor()->setRGB('FFFFFF');
+        $sheet->getStyle('A4:H4')->getFont()->setBold(true);
+        $sheet->getStyle('A4:H4')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('7C3AED');
+        $sheet->getStyle('A4:H4')->getFont()->getColor()->setRGB('FFFFFF');
 
-        // Data: group by org + evaluatee
+        // Data: group by org × evaluator × evaluatee — ระดับบุคคลแท้
         $results = DB::table('answers as a')
             ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
             ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
             ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
+            ->leftJoin('external_evaluation_sessions as ses', 'a.external_session_id', '=', 'ses.id')
             ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
             ->where('eac.fiscal_year', $fiscalYear)
             ->whereNotNull('a.external_access_code_id')
-            ->groupBy('eo.id', 'eo.name', 'eo.org_code', 'evaluatee.id', 'evaluatee.fname', 'evaluatee.lname', 'evaluatee.grade')
+            ->groupBy('eo.id', 'eo.name', 'eo.org_code', 'ses.evaluator_name', 'evaluatee.id', 'evaluatee.fname', 'evaluatee.lname', 'evaluatee.grade')
             ->select([
                 'eo.name as org_name',
                 DB::raw("COALESCE(eo.org_code, '') as org_code"),
+                DB::raw("COALESCE(ses.evaluator_name, '-') as evaluator_name"),
                 DB::raw("CONCAT(evaluatee.fname, ' ', evaluatee.lname) as evaluatee_name"),
                 'evaluatee.grade',
                 DB::raw('COUNT(a.id) as answer_count'),
@@ -768,6 +770,7 @@ class EvaluationExportService
                 DB::raw('MAX(a.created_at) as last_answer'),
             ])
             ->orderBy('eo.name')
+            ->orderBy('evaluator_name')
             ->orderBy('evaluatee.fname')
             ->get();
 
@@ -775,23 +778,22 @@ class EvaluationExportService
         foreach ($results as $r) {
             $sheet->setCellValue('A' . $row, $r->org_name);
             $sheet->setCellValue('B' . $row, $r->org_code);
-            $sheet->setCellValue('C' . $row, $r->evaluatee_name);
-            $sheet->setCellValue('D' . $row, $r->grade);
-            $sheet->setCellValue('E' . $row, $r->answer_count);
-            $sheet->setCellValue('F' . $row, $r->avg_score);
-            $sheet->setCellValue('G' . $row, $r->last_answer ? date('d/m/Y', strtotime($r->last_answer)) : '-');
+            $sheet->setCellValue('C' . $row, $r->evaluator_name);
+            $sheet->setCellValue('D' . $row, $r->evaluatee_name);
+            $sheet->setCellValue('E' . $row, $r->grade);
+            $sheet->setCellValue('F' . $row, $r->answer_count);
+            $sheet->setCellValue('G' . $row, $r->avg_score);
+            $sheet->setCellValue('H' . $row, $r->last_answer ? date('d/m/Y', strtotime($r->last_answer)) : '-');
             $row++;
         }
 
-        // Auto-size columns
-        foreach (range('A', 'G') as $col) {
+        foreach (range('A', 'H') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
 
-        // Alternating row colors
         for ($i = 5; $i < $row; $i++) {
             if ($i % 2 === 0) {
-                $sheet->getStyle("A{$i}:G{$i}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F5F3FF');
+                $sheet->getStyle("A{$i}:H{$i}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F5F3FF');
             }
         }
     }

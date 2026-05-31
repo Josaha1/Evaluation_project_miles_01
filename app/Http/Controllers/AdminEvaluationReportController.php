@@ -1010,9 +1010,12 @@ class AdminEvaluationReportController extends Controller
     private function getExternalOrgMetrics(int $fiscalYear): array
     {
         try {
+            // Phase 4: evaluator_count นับ stakeholder คนจริง (ถ้า session มี stakeholder_id)
+            // fallback ใช้ session_id สำหรับ session legacy ก่อน backfill
             $results = DB::table('answers as a')
                 ->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
                 ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+                ->leftJoin('external_evaluation_sessions as ses', 'a.external_session_id', '=', 'ses.id')
                 ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
                 ->where('eac.fiscal_year', $fiscalYear)
                 ->whereNotNull('a.external_access_code_id')
@@ -1025,7 +1028,7 @@ class AdminEvaluationReportController extends Controller
                     DB::raw('COUNT(a.id) as total_responses'),
                     DB::raw('ROUND(AVG(CASE WHEN o.score IS NOT NULL THEN o.score WHEN a.value REGEXP "^[0-9]+(\\.?[0-9]*)$" THEN CAST(a.value AS DECIMAL(5,2)) ELSE NULL END), 2) as avg_score'),
                     DB::raw('COUNT(DISTINCT a.evaluatee_id) as evaluatee_count'),
-                    DB::raw('COUNT(DISTINCT eac.id) as evaluator_count'),
+                    DB::raw('COUNT(DISTINCT COALESCE(ses.external_stakeholder_id, ses.id)) as evaluator_count'),
                 ])
                 ->get();
 

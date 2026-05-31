@@ -17,7 +17,7 @@ interface ReportsTabProps {
         scores: { self: number; top: number; bottom: number; left: number; right: number; average: number };
         completionStatus: { totalAngles: number; completedAngles: number; completionRate: number; lastActivity: string };
     }>;
-    externalOrgMetrics: Array<{ org_id: number; org_name: string; total_responses: number; avg_score: number; evaluatee_count: number }>;
+    externalOrgMetrics: Array<{ org_id: number; org_name: string; total_responses: number; avg_score: number; evaluatee_count: number; evaluator_count?: number }>;
     onViewIndividual: (userId: number) => void;
 }
 
