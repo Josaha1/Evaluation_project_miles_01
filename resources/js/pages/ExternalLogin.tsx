@@ -142,6 +142,12 @@ export default function ExternalLogin() {
     };
 
     const pickPerson = (stakeholderId: number | "", name: string) => {
+        // คลิกซ้ำคนเดิม → ยกเลิกการเลือก
+        if (data.stakeholder_id === stakeholderId && data.evaluator_name === name && name) {
+            setData("stakeholder_id", "");
+            setData("evaluator_name", "");
+            return;
+        }
         setData("stakeholder_id", stakeholderId);
         setData("evaluator_name", name);
     };
@@ -191,27 +197,32 @@ export default function ExternalLogin() {
                         </div>
                     </div>
 
-                    {/* Stepper — ซ่อน step 1 (กรอกรหัส) ถ้า code มาจาก URL */}
-                    <div className="flex items-center justify-center gap-2 mb-5 flex-wrap">
-                        {(prefillCode ? [2, 3, 4] : [1, 2, 3, 4]).map((s, i, arr) => (
-                            <div key={s} className="flex items-center gap-1.5">
-                                <div className={cn(
-                                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all",
-                                    step === s ? "gradient-primary text-white shadow-md scale-110" :
-                                    step > s ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"
-                                )}>
-                                    {step > s ? <CheckCircle className="w-3.5 h-3.5" /> : s}
-                                </div>
-                                <span className={cn(
-                                    "text-[11px] font-medium",
-                                    step === s ? "text-violet-700" : step > s ? "text-emerald-700" : "text-gray-500"
-                                )}>
-                                    {STEP_LABELS[s as Step]}
-                                </span>
-                                {i < arr.length - 1 && <ChevronRight className="w-3 h-3 text-gray-300" />}
-                            </div>
-                        ))}
-                    </div>
+                    {/* Stepper — 3 ขั้นเสมอ; step 1 (กรอกรหัส) เป็น auth gate ก่อนเริ่ม wizard */}
+                    {step !== 1 && (
+                        <div className="flex items-center justify-center gap-2 mb-5 flex-wrap">
+                            {([2, 3, 4] as Step[]).map((s, i, arr) => {
+                                const displayNum = i + 1;
+                                return (
+                                    <div key={s} className="flex items-center gap-1.5">
+                                        <div className={cn(
+                                            "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all",
+                                            step === s ? "gradient-primary text-white shadow-md scale-110" :
+                                            step > s ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"
+                                        )}>
+                                            {step > s ? <CheckCircle className="w-3.5 h-3.5" /> : displayNum}
+                                        </div>
+                                        <span className={cn(
+                                            "text-[11px] font-medium",
+                                            step === s ? "text-violet-700" : step > s ? "text-emerald-700" : "text-gray-500"
+                                        )}>
+                                            {STEP_LABELS[s]}
+                                        </span>
+                                        {i < arr.length - 1 && <ChevronRight className="w-3 h-3 text-gray-300" />}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
 
                     {/* Flash messages */}
                     {flash?.success && (
@@ -239,52 +250,22 @@ export default function ExternalLogin() {
                             </motion.div>
                         )}
 
-                        {/* ─── STEP 1 — กรอก Access Code (กรณีไม่มี code ใน URL หรือ verify fail) ─ */}
+                        {/* ─── No-code / verify-fail error — เข้าได้เฉพาะผ่านลิงก์มี ?code= ───── */}
                         {step === 1 && !verifying && (!prefillCode || verifyError) && (
-                            <motion.div key="step1" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-                                className="glass-card rounded-2xl p-7">
-                                <div className="text-center mb-5">
-                                    <div className="w-12 h-12 mx-auto mb-3 rounded-2xl gradient-primary flex items-center justify-center shadow-lg shadow-violet-500/25">
-                                        <KeyRound className="w-6 h-6 text-white" />
-                                    </div>
-                                    <h2 className="text-xl font-bold">กรอก Access Code</h2>
-                                    <p className="text-sm text-muted-foreground">รหัสที่ได้รับจากเจ้าหน้าที่</p>
+                            <motion.div key="step1-error" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                                className="glass-card rounded-2xl p-8 text-center">
+                                <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-red-100 flex items-center justify-center">
+                                    <AlertCircle className="w-7 h-7 text-red-600" />
                                 </div>
-
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Access Code</label>
-                                        <input
-                                            type="text"
-                                            value={data.code}
-                                            onChange={(e) => { setData("code", e.target.value.toUpperCase()); setVerifyError(null); }}
-                                            onKeyDown={(e) => e.key === "Enter" && data.code && handleVerify()}
-                                            className="block w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 text-center text-xl font-mono tracking-widest uppercase"
-                                            placeholder="IEAT-XXX-XXXXXX" maxLength={20} autoFocus
-                                        />
-                                        {verifyError && (
-                                            <div className="mt-2 flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
-                                                <AlertCircle className="w-4 h-4 text-red-500" />
-                                                <p className="text-sm text-red-600">{verifyError}</p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <button
-                                        onClick={handleVerify}
-                                        disabled={verifying || !data.code || data.code.length < 8}
-                                        className={cn(
-                                            "w-full py-3 px-6 rounded-xl font-bold text-white transition-all flex items-center justify-center gap-2",
-                                            verifying || !data.code ? "bg-gray-400 cursor-not-allowed" : "gradient-primary hover:shadow-lg hover:shadow-violet-500/25"
-                                        )}
-                                    >
-                                        {verifying ? (
-                                            <><Loader2 className="w-5 h-5 animate-spin" /> กำลังตรวจสอบ...</>
-                                        ) : (
-                                            <>ถัดไป <ArrowRight className="w-5 h-5" /></>
-                                        )}
-                                    </button>
-                                </div>
+                                <h2 className="text-lg font-bold text-gray-900 mb-2">
+                                    {prefillCode ? "ตรวจสอบรหัสไม่สำเร็จ" : "ลิงก์เข้าใช้งานไม่ถูกต้อง"}
+                                </h2>
+                                <p className="text-sm text-muted-foreground mb-4">
+                                    {verifyError || "กรุณาเข้าใช้งานผ่านลิงก์ที่ได้รับจากเจ้าหน้าที่"}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                    หากมีปัญหาในการเข้าใช้งาน ติดต่อ กนอ.
+                                </p>
                             </motion.div>
                         )}
 

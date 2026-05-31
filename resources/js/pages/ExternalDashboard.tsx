@@ -1,6 +1,7 @@
 import { Head, router, usePage } from "@inertiajs/react";
 import { motion } from "framer-motion";
-import { Building2, User as UserIcon, CheckCircle, ArrowRight, LogOut, ClipboardList, Sparkles, AlertTriangle, Trophy, Clock } from "lucide-react";
+import { Building2, User as UserIcon, CheckCircle, ArrowRight, LogOut, ClipboardList, Sparkles, AlertTriangle, Trophy, Clock, XCircle, RotateCcw } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useEffect } from "react";
@@ -15,6 +16,8 @@ interface Evaluatee {
     access_code_id: number;
     source_groups?: string[];
     is_completed: boolean;
+    is_skipped?: boolean;
+    skip_reason?: string | null;
     org_total_uses: number;
 }
 
@@ -47,15 +50,36 @@ export default function ExternalDashboard() {
         if (flash?.error) toast.error(flash.error);
     }, [flash]);
 
-    const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
-
     const handleSelect = (evaluateeId: number) => {
         router.post(route("external.select-evaluatee", { evaluateeId }));
     };
 
-    const remaining = totalCount - completedCount;
-    const isAllDone = totalCount > 0 && remaining === 0;
-    const nextPending = evaluatees.find((e) => !e.is_completed);
+    const [skipModal, setSkipModal] = useState<{ evaluateeId: number; name: string } | null>(null);
+    const [skipReason, setSkipReason] = useState("ไม่เคยร่วมงาน");
+
+    const csrf = () => (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || "";
+
+    const submitSkip = async (evaluateeId: number, reason: string | null) => {
+        const res = await fetch(route("external.skip-evaluatee"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrf(), Accept: "application/json" },
+            body: JSON.stringify({ evaluatee_id: evaluateeId, reason }),
+        });
+        if (res.ok) {
+            setSkipModal(null);
+            router.reload({ only: ["evaluatees", "totalCount", "completedCount"] });
+        } else {
+            toast.error("บันทึกไม่สำเร็จ");
+        }
+    };
+
+    const activeEvaluatees = evaluatees.filter((e) => !e.is_skipped);
+    const skippedEvaluatees = evaluatees.filter((e) => e.is_skipped);
+    const activeCompleted = activeEvaluatees.filter((e) => e.is_completed).length;
+    const remaining = activeEvaluatees.length - activeCompleted;
+    const isAllDone = activeEvaluatees.length > 0 && remaining === 0;
+    const nextPending = activeEvaluatees.find((e) => !e.is_completed);
+    const progress = activeEvaluatees.length > 0 ? (activeCompleted / activeEvaluatees.length) * 100 : 0;
 
     const handleLogout = () => {
         const msg = isAllDone
@@ -176,27 +200,33 @@ export default function ExternalDashboard() {
                 ) : nextPending ? (
                     <motion.div
                         initial={{ y: 5, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
-                        className="rounded-2xl gradient-primary p-5 text-white shadow-lg shadow-violet-500/25"
+                        className="rounded-2xl gradient-primary p-6 text-white shadow-xl shadow-violet-500/30 relative overflow-hidden"
                     >
-                        <div className="flex items-center justify-between flex-wrap gap-3">
+                        {/* deco */}
+                        <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+                        <div className="absolute -bottom-12 -left-8 w-44 h-44 rounded-full bg-white/5 blur-2xl pointer-events-none" />
+
+                        <div className="relative flex items-center justify-between flex-wrap gap-4">
                             <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0">
-                                    <span className="text-xl font-bold">{nextPending.name?.charAt(0) || "?"}</span>
+                                <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0 shadow-inner">
+                                    <Sparkles className="w-7 h-7" />
                                 </div>
                                 <div className="min-w-0">
-                                    <div className="text-[11px] uppercase tracking-wide text-white/80">ลำดับถัดไป ({completedCount + 1}/{totalCount})</div>
-                                    <div className="text-lg font-bold truncate">{nextPending.name}</div>
-                                    <div className="text-xs text-white/80 truncate">
-                                        {nextPending.position || "—"}
-                                        {nextPending.grade && ` · เกรด C${nextPending.grade}`}
+                                    <div className="text-[11px] uppercase tracking-wider text-white/80 font-semibold">ประเมินทั้งหมด</div>
+                                    <div className="text-xl font-bold leading-tight">
+                                        เหลืออีก {remaining} คน จากทั้งหมด {activeEvaluatees.length} คน
+                                    </div>
+                                    <div className="text-xs text-white/80 mt-0.5 truncate">
+                                        เริ่มจาก <b>{nextPending.name}</b>
+                                        {nextPending.position && ` · ${nextPending.position}`}
                                     </div>
                                 </div>
                             </div>
                             <button
                                 onClick={() => handleSelect(nextPending.id)}
-                                className="px-6 py-3 rounded-xl bg-white text-violet-700 font-bold hover:bg-violet-50 shadow-md flex items-center gap-2 whitespace-nowrap"
+                                className="px-7 py-3.5 rounded-xl bg-white text-violet-700 font-bold hover:bg-violet-50 shadow-md flex items-center gap-2 whitespace-nowrap"
                             >
-                                เริ่มประเมินเลย <ArrowRight className="w-5 h-5" />
+                                ประเมินทั้งหมด <ArrowRight className="w-5 h-5" />
                             </button>
                         </div>
                     </motion.div>
@@ -230,23 +260,23 @@ export default function ExternalDashboard() {
                     </div>
                 )}
 
-                {/* Evaluatees list — pending first, completed below */}
+                {/* Evaluatees list — exclude skipped (shown separately below) */}
                 <div>
                     <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                         <ClipboardList className="w-5 h-5 text-violet-600" />
-                        รายชื่อทั้งหมด ({totalCount})
+                        รายชื่อทั้งหมด ({activeEvaluatees.length})
                         <span className="text-xs font-normal text-gray-500 ml-auto">
-                            ⏳ {remaining} ค้าง · ✓ {completedCount} เสร็จ
+                            ⏳ {remaining} ค้าง · ✓ {activeCompleted} เสร็จ
                         </span>
                     </h2>
 
-                    {evaluatees.length === 0 ? (
+                    {activeEvaluatees.length === 0 ? (
                         <div className="glass-card rounded-2xl p-8 text-center text-gray-500">
-                            ไม่พบรายชื่อผู้ที่ต้องประเมิน
+                            {skippedEvaluatees.length > 0 ? "ไม่มีรายชื่อในรายการประเมิน (ทั้งหมดอยู่ในไม่ประเมิน)" : "ไม่พบรายชื่อผู้ที่ต้องประเมิน"}
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {[...evaluatees].sort((a, b) => Number(a.is_completed) - Number(b.is_completed)).map((e, i) => (
+                            {[...activeEvaluatees].sort((a, b) => Number(a.is_completed) - Number(b.is_completed)).map((e, i) => (
                                 <motion.div key={e.id}
                                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: i * 0.04 }}
@@ -286,22 +316,16 @@ export default function ExternalDashboard() {
                                         </div>
                                     </div>
 
-                                    <div className="mt-3 flex items-center justify-between">
+                                    <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
                                         {e.is_completed ? (
                                             <div className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
-                                                <CheckCircle className="w-3.5 h-3.5" />
-                                                ประเมินแล้ว
+                                                <CheckCircle className="w-3.5 h-3.5" /> ประเมินแล้ว
                                             </div>
                                         ) : (
-                                            <button onClick={(ev) => { ev.stopPropagation(); handleSelect(e.id); }}
-                                                className="inline-flex items-center gap-1 px-4 py-2 rounded-xl gradient-primary text-white text-sm font-semibold hover:shadow-lg transition-all">
-                                                ประเมินเลย <ArrowRight className="w-4 h-4" />
+                                            <button onClick={(ev) => { ev.stopPropagation(); setSkipModal({ evaluateeId: e.id, name: e.name }); }}
+                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 text-[11px] font-medium hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 transition-colors">
+                                                <XCircle className="w-3.5 h-3.5" /> ไม่ประเมิน
                                             </button>
-                                        )}
-                                        {e.org_total_uses > 0 && (
-                                            <span className="text-[10px] text-gray-400">
-                                                องค์กรใช้รหัสนี้แล้ว {e.org_total_uses} ครั้ง
-                                            </span>
                                         )}
                                     </div>
                                 </motion.div>
@@ -310,11 +334,73 @@ export default function ExternalDashboard() {
                     )}
                 </div>
 
+                {skippedEvaluatees.length > 0 && (
+                    <div className="glass-card rounded-2xl p-5">
+                        <div className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1.5">
+                            <XCircle className="w-4 h-4 text-gray-500" /> ไม่ประเมิน ({skippedEvaluatees.length})
+                        </div>
+                        <div className="space-y-1.5">
+                            {skippedEvaluatees.map((e) => (
+                                <div key={e.id} className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-200">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium text-gray-700 truncate">{e.name}</div>
+                                        {e.skip_reason && <div className="text-[11px] text-gray-500">เหตุผล: {e.skip_reason}</div>}
+                                    </div>
+                                    <button onClick={() => submitSkip(e.id, null)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] text-violet-600 hover:bg-violet-50 font-medium">
+                                        <RotateCcw className="w-3 h-3" /> กลับมาประเมิน
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 <div className="text-center text-xs text-gray-400 pt-4">
-                    💡 หากองค์กรของคุณมีหลายคนที่จะร่วมประเมิน — ส่ง URL/รหัสนี้ให้คนอื่นใช้ได้
-                    แต่ละคนกรอกชื่อตัวเอง คะแนนจะไม่ปะปนกัน
+                    💡 ถ้าไม่เคยร่วมงานด้วย สามารถกด "ไม่ประเมิน" ได้ จะไม่ถูกนับในการคำนวณคะแนน
                 </div>
             </div>
+
+            {/* Skip reason modal */}
+            {skipModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+                    onClick={() => setSkipModal(null)}>
+                    <div className="glass-card rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                        <div className="text-center mb-4">
+                            <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-amber-100 flex items-center justify-center">
+                                <AlertTriangle className="w-6 h-6 text-amber-600" />
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-900">ไม่ประเมินคนนี้</h3>
+                            <p className="text-sm text-gray-600 mt-1">{skipModal.name}</p>
+                        </div>
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">เหตุผล (ไม่บังคับ)</label>
+                                <select value={skipReason} onChange={(e) => setSkipReason(e.target.value)}
+                                    className="w-full text-sm border-2 border-gray-200 rounded-lg px-3 py-2 bg-white">
+                                    <option value="ไม่เคยร่วมงาน">ไม่เคยร่วมงาน</option>
+                                    <option value="ข้อมูลไม่เพียงพอ">ข้อมูลไม่เพียงพอ</option>
+                                    <option value="ไม่อยู่ในขอบเขตงานที่ดูแล">ไม่อยู่ในขอบเขตงานที่ดูแล</option>
+                                    <option value="อื่นๆ">อื่นๆ</option>
+                                </select>
+                            </div>
+                            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                                ระบบจะไม่นำคนนี้มาคิดในตัวหารคะแนน
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => setSkipModal(null)}
+                                    className="flex-1 px-4 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50">
+                                    ยกเลิก
+                                </button>
+                                <button onClick={() => submitSkip(skipModal.evaluateeId, skipReason)}
+                                    className="flex-1 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold">
+                                    ยืนยันไม่ประเมิน
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

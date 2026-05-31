@@ -49,6 +49,7 @@ Route::prefix('external')->name('external.')->middleware(['external', 'throttle:
     Route::post('/confirm', [ExternalEvaluatorController::class, 'confirm'])->name('confirm.submit');
     Route::get('/dashboard', [ExternalEvaluatorController::class, 'showDashboard'])->name('dashboard');
     Route::post('/select-evaluatee/{evaluateeId}', [ExternalEvaluatorController::class, 'selectEvaluatee'])->name('select-evaluatee');
+    Route::post('/skip-evaluatee', [ExternalEvaluatorController::class, 'toggleSkip'])->name('skip-evaluatee');
     Route::get('/evaluate', [ExternalEvaluatorController::class, 'showEvaluation'])->name('evaluate');
     Route::post('/evaluate', [ExternalEvaluatorController::class, 'submitEvaluation'])->name('evaluate.submit')->middleware('throttle:10,1');
 });

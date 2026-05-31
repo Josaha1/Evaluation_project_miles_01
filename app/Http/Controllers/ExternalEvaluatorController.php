@@ -406,11 +406,46 @@ class ExternalEvaluatorController extends Controller
     /**
      * Clear session and redirect to login.
      */
+    /**
+     * Toggle skip status for evaluatee — user ระบุว่าจะไม่ประเมินคนนี้
+     */
+    public function toggleSkip(Request $request)
+    {
+        $data = $request->validate([
+            'evaluatee_id' => 'required|integer|exists:users,id',
+            'reason' => 'nullable|string|max:255',
+        ]);
+
+        $session = $request->attributes->get('external_session');
+        $existing = \App\Models\ExternalEvaluationSkip::query()
+            ->where('external_evaluation_session_id', $session->id)
+            ->where('evaluatee_id', $data['evaluatee_id'])
+            ->first();
+
+        if ($existing) {
+            $existing->delete();
+            return response()->json(['skipped' => false]);
+        }
+
+        \App\Models\ExternalEvaluationSkip::create([
+            'external_evaluation_session_id' => $session->id,
+            'evaluatee_id' => $data['evaluatee_id'],
+            'reason' => $data['reason'] ?? null,
+        ]);
+        return response()->json(['skipped' => true]);
+    }
+
     public function logout(Request $request)
     {
+        // เก็บ code ของ session ก่อนล้าง เพื่อใส่กลับใน URL → user re-login ได้ทันที
+        $code = null;
+        if ($sessionId = $request->session()->get('external_session_id')) {
+            $code = ExternalEvaluationSession::find($sessionId)?->accessCode?->code;
+        }
+
         $request->session()->forget(['external_session_token', 'external_session_id', 'picked_org_name', 'related_code_ids']);
 
-        return redirect()->route('external.login')
+        return redirect()->route('external.login', $code ? ['code' => $code] : [])
             ->with('success', 'ออกจากระบบเรียบร้อยแล้ว');
     }
 
@@ -524,12 +559,19 @@ class ExternalEvaluatorController extends Controller
             ->pluck('evaluatee_id')->unique()->toArray();
         $completedSet = array_flip($completedEvaluateeIds);
 
+        // Phase 5: skip set — evaluatee ที่ user เลือกไม่ประเมิน
+        $skips = \App\Models\ExternalEvaluationSkip::query()
+            ->where('external_evaluation_session_id', $externalSession->id)
+            ->get()
+            ->keyBy('evaluatee_id');
+
         // Group rows by evaluatee_id (dedup) — collect source_groups for each
         $evaluatees = $pivotEvaluatees
             ->groupBy('user_id')
-            ->map(function ($rows) use ($completedSet, $accessCode) {
+            ->map(function ($rows) use ($completedSet, $accessCode, $skips) {
                 $r = $rows->first();
                 $sourceGroups = $rows->pluck('source_group')->filter()->unique()->values()->all();
+                $skip = $skips->get($r->user_id);
                 return [
                     'id'                => $r->user_id,
                     'name'              => trim($r->prename . $r->fname . ' ' . $r->lname),
@@ -540,6 +582,8 @@ class ExternalEvaluatorController extends Controller
                     'access_code_id'    => (int) $r->access_code_id,
                     'source_groups'     => $sourceGroups,
                     'is_completed'      => isset($completedSet[$r->user_id]),
+                    'is_skipped'        => $skip !== null,
+                    'skip_reason'       => $skip?->reason,
                     'org_total_uses'    => $accessCode->use_count,
                 ];
             })
@@ -702,6 +746,11 @@ class ExternalEvaluatorController extends Controller
             'questions.options',
         ])->orderBy('order')->get();
 
+        // Phase 5: filter ออก evaluatees ที่ user เลือก skip
+        $skippedIds = \App\Models\ExternalEvaluationSkip::query()
+            ->where('external_evaluation_session_id', $externalSession->id)
+            ->pluck('evaluatee_id')->all();
+
         // Phase 2: scope ระดับบุคคล — stakeholder ของ session ดู evaluatees ของตัวเองเท่านั้น
         $pivotQuery = \DB::table('external_code_evaluatees as p')
             ->join('users as u', 'u.id', '=', 'p.evaluatee_id')
@@ -711,7 +760,8 @@ class ExternalEvaluatorController extends Controller
             ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'p.external_access_code_id')
             ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
             ->whereIn('p.external_access_code_id', $relatedCodeIds)
-            ->where('p.evaluation_id', $currentEvaluationId);
+            ->where('p.evaluation_id', $currentEvaluationId)
+            ->when($skippedIds, fn ($q) => $q->whereNotIn('p.evaluatee_id', $skippedIds));
 
         // Phase 5: cross-code aggregation — เหมือน showDashboard
         if ($externalSession->external_stakeholder_id && $externalSession->stakeholder) {
