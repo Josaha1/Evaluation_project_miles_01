@@ -4405,6 +4405,18 @@ class AdminEvaluationReportController extends Controller
 
             $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
 
+            // session ที่ตรงกับ stakeholder slot จริง — match (code, evaluatee, evaluator=contact)
+            // ไม่ใช้ st.external_session_id เพราะ stale ตอน user login ซ้ำ
+            $sessionSub = DB::table('external_evaluation_sessions')
+                ->select(
+                    'external_access_code_id',
+                    'evaluatee_id',
+                    'evaluator_name',
+                    DB::raw('MAX(started_at) as started_at'),
+                    DB::raw('MAX(completed_at) as completed_at')
+                )
+                ->groupBy('external_access_code_id', 'evaluatee_id', 'evaluator_name');
+
             $q = DB::table('external_stakeholders as st')
                 ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'st.external_access_code_id')
                 ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
@@ -4414,7 +4426,11 @@ class AdminEvaluationReportController extends Controller
                 })
                 ->leftJoin('evaluations as ev', 'ev.id', '=', 'ece.evaluation_id')
                 ->leftJoin('users as ee', 'ee.id', '=', 'st.evaluatee_id')
-                ->leftJoin('external_evaluation_sessions as s', 's.id', '=', 'st.external_session_id')
+                ->leftJoinSub($sessionSub, 's', function ($j) {
+                    $j->on('s.external_access_code_id', '=', 'st.external_access_code_id')
+                      ->on('s.evaluatee_id', '=', 'st.evaluatee_id')
+                      ->on('s.evaluator_name', '=', 'st.contact_person');
+                })
                 ->where('st.fiscal_year', $fiscalYear);
 
             if ($completed) {
@@ -4585,6 +4601,22 @@ class AdminEvaluationReportController extends Controller
                 $flushGroup($row - 1);
                 $sheet->getStyle("H5:H" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 $sheet->getStyle("L5:L" . ($row - 1))->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+            }
+
+            // เส้นตาราง — header หนา + data บาง + outline หนารอบทั้งตาราง
+            $lastDataRow = max(5, $row - 1);
+            $borderStyle = \PhpOffice\PhpSpreadsheet\Style\Border::class;
+            $sheet->getStyle("A4:M4")->getBorders()->applyFromArray([
+                'allBorders' => ['borderStyle' => $borderStyle::BORDER_THIN, 'color' => ['rgb' => 'FFFFFF']],
+                'outline'    => ['borderStyle' => $borderStyle::BORDER_MEDIUM, 'color' => ['rgb' => '111827']],
+            ]);
+            $sheet->getStyle("A5:M{$lastDataRow}")->getBorders()->applyFromArray([
+                'allBorders' => ['borderStyle' => $borderStyle::BORDER_THIN, 'color' => ['rgb' => 'D1D5DB']],
+                'outline'    => ['borderStyle' => $borderStyle::BORDER_MEDIUM, 'color' => ['rgb' => '111827']],
+            ]);
+            $sheet->getStyle("A4:M{$lastDataRow}")->getAlignment()->setWrapText(true);
+            for ($r = 5; $r <= $lastDataRow; $r++) {
+                $sheet->getRowDimension($r)->setRowHeight(-1);
             }
 
             $base = $completed ? 'completed-evaluators-external' : 'pending-evaluators-external';
