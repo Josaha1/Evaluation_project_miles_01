@@ -3,7 +3,7 @@ import { Head, useForm, usePage } from "@inertiajs/react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     KeyRound, CheckCircle, AlertCircle, Loader2, Shield,
-    User as UserIcon, Building2, ClipboardCheck, ArrowRight, ArrowLeft, ChevronRight, UserCheck, Search,
+    User as UserIcon, Building2, ArrowRight, ArrowLeft, ChevronRight, Search, Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -11,21 +11,6 @@ interface PageProps {
     prefillCode: string;
     flash?: { success?: string; error?: string };
     errors?: { code?: string[]; evaluator_name?: string[]; evaluator_position?: string[] };
-}
-
-interface VerifyEvaluatee {
-    id: number;
-    name: string;
-    grade: number | null;
-    position: string | null;
-}
-
-interface VerifyStakeholderEvaluatee {
-    id: number;
-    name: string;
-    grade: number | null;
-    source_groups: string[];
-    submitted: boolean;
 }
 
 interface VerifyStakeholder {
@@ -38,7 +23,6 @@ interface VerifyStakeholder {
     submitted_count: number;
     related_code_ids?: number[];
     related_groups?: string[];
-    preview_evaluatees?: VerifyStakeholderEvaluatee[];
 }
 
 interface VerifyResponse {
@@ -46,21 +30,29 @@ interface VerifyResponse {
     fiscal_year: number;
     organization: { id: number; name: string };
     evaluation: { id: number; title: string } | null;
-    evaluatees: VerifyEvaluatee[];
     stakeholders: VerifyStakeholder[];
     use_count: number;
     max_uses: number | null;
 }
 
+type Step = 1 | 2 | 3 | 4;
+
+const STEP_LABELS: Record<Step, string> = {
+    1: "กรอกรหัส",
+    2: "เลือกหน่วยงาน",
+    3: "เลือกผู้ประเมิน",
+    4: "ยืนยัน",
+};
+
 export default function ExternalLogin() {
     const { prefillCode, flash } = usePage<PageProps>().props;
 
-    const [step, setStep] = useState<1 | 2 | 3>(1);   // 3 = confirmation
+    const [step, setStep] = useState<Step>(1);
     const [verifying, setVerifying] = useState(false);
     const [verifyError, setVerifyError] = useState<string | null>(null);
     const [verified, setVerified] = useState<VerifyResponse | null>(null);
-    const [stakeholderSearch, setStakeholderSearch] = useState("");
-    const [customMode, setCustomMode] = useState(false);
+    const [orgSearch, setOrgSearch] = useState("");
+    const [pickedOrg, setPickedOrg] = useState<string>("");
 
     const { data, setData, post, processing, errors } = useForm({
         code: prefillCode || "",
@@ -99,31 +91,49 @@ export default function ExternalLogin() {
         }
     };
 
-    const filteredStakeholders = useMemo(() => {
-        if (!verified) return [];
-        const term = stakeholderSearch.trim().toLowerCase();
-        if (!term) return verified.stakeholders;
-        return verified.stakeholders.filter((s) =>
-            s.organization_name.toLowerCase().includes(term) ||
-            (s.contact_person ?? "").toLowerCase().includes(term) ||
-            (s.contact_persons ?? []).some((p) => p.toLowerCase().includes(term)) ||
-            (s.sub_group ?? "").toLowerCase().includes(term)
-        );
-    }, [verified, stakeholderSearch]);
+    // unique orgs จาก stakeholders → step 2 dropdown
+    const uniqueOrgs = useMemo(() => {
+        if (!verified) return [] as string[];
+        const set = new Set<string>();
+        verified.stakeholders.forEach((s) => set.add(s.organization_name));
+        return Array.from(set).sort();
+    }, [verified]);
 
-    const pickStakeholder = (s: VerifyStakeholder, contactName?: string) => {
-        setData((prev) => ({
-            ...prev,
-            stakeholder_id: s.id,
-            evaluator_name: contactName || s.contact_person || prev.evaluator_name,
-            evaluator_position: s.organization_name,
-        }));
-        setCustomMode(false);
+    const filteredOrgs = useMemo(() => {
+        const term = orgSearch.trim().toLowerCase();
+        if (!term) return uniqueOrgs;
+        return uniqueOrgs.filter((o) => o.toLowerCase().includes(term));
+    }, [uniqueOrgs, orgSearch]);
+
+    // stakeholders ใน picked org → step 3
+    const orgStakeholders = useMemo(() => {
+        if (!verified || !pickedOrg) return [] as VerifyStakeholder[];
+        return verified.stakeholders.filter((s) => s.organization_name === pickedOrg);
+    }, [verified, pickedOrg]);
+
+    // รวม contact_persons ทั้งหมดใน org (จากทุก stakeholder row)
+    const orgContactPersons = useMemo(() => {
+        const names = new Set<string>();
+        orgStakeholders.forEach((s) => {
+            (s.contact_persons || []).forEach((p) => p && names.add(p));
+            if (s.contact_person) names.add(s.contact_person);
+        });
+        return Array.from(names);
+    }, [orgStakeholders]);
+
+    const orgHasNamedContacts = orgContactPersons.length > 0;
+
+    const pickOrg = (org: string) => {
+        setPickedOrg(org);
+        setData("evaluator_position", org);
+        setData("evaluator_name", "");
+        setData("stakeholder_id", "");
+        setStep(3);
     };
 
-    const enableCustomMode = () => {
-        setData((prev) => ({ ...prev, stakeholder_id: "", evaluator_name: "", evaluator_position: "" }));
-        setCustomMode(true);
+    const pickPerson = (stakeholderId: number | "", name: string) => {
+        setData("stakeholder_id", stakeholderId);
+        setData("evaluator_name", name);
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -131,7 +141,7 @@ export default function ExternalLogin() {
         post(route("external.login.submit"));
     };
 
-    const selectedStakeholder = verified?.stakeholders.find((s) => s.id === data.stakeholder_id);
+    const canProceedStep3 = data.evaluator_name.trim().length > 0;
 
     return (
         <div className="min-h-screen gradient-primary-soft relative overflow-hidden">
@@ -152,15 +162,13 @@ export default function ExternalLogin() {
 
             <div className="relative flex items-center justify-center min-h-screen p-4 py-10">
                 <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5 }}
+                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
                     className="w-full max-w-2xl"
                 >
+                    {/* Header */}
                     <div className="text-center mb-6">
                         <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
+                            initial={{ scale: 0 }} animate={{ scale: 1 }}
                             transition={{ type: "spring", stiffness: 200, delay: 0.1 }}
                             className="inline-block mb-3"
                         >
@@ -174,26 +182,28 @@ export default function ExternalLogin() {
                     </div>
 
                     {/* Stepper */}
-                    <div className="flex items-center justify-center gap-3 mb-5">
-                        {([1, 2, 3] as const).map((s, i) => (
-                            <div key={s} className="flex items-center gap-2">
-                                <div
-                                    className={cn(
-                                        "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all",
-                                        step === s ? "gradient-primary text-white shadow-md" :
-                                        step > s ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"
-                                    )}
-                                >
-                                    {step > s ? <CheckCircle className="w-4 h-4" /> : s}
+                    <div className="flex items-center justify-center gap-2 mb-5 flex-wrap">
+                        {([1, 2, 3, 4] as Step[]).map((s, i) => (
+                            <div key={s} className="flex items-center gap-1.5">
+                                <div className={cn(
+                                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all",
+                                    step === s ? "gradient-primary text-white shadow-md scale-110" :
+                                    step > s ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"
+                                )}>
+                                    {step > s ? <CheckCircle className="w-3.5 h-3.5" /> : s}
                                 </div>
-                                <span className={cn("text-xs font-medium", step === s ? "text-violet-700" : "text-gray-500")}>
-                                    {s === 1 ? "กรอกรหัส" : s === 2 ? "เลือกหน่วยงาน" : "ยืนยัน"}
+                                <span className={cn(
+                                    "text-[11px] font-medium",
+                                    step === s ? "text-violet-700" : step > s ? "text-emerald-700" : "text-gray-500"
+                                )}>
+                                    {STEP_LABELS[s]}
                                 </span>
-                                {i < 2 && <ChevronRight className="w-4 h-4 text-gray-300" />}
+                                {i < 3 && <ChevronRight className="w-3 h-3 text-gray-300" />}
                             </div>
                         ))}
                     </div>
 
+                    {/* Flash messages */}
                     {flash?.success && (
                         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
                             className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
@@ -210,7 +220,7 @@ export default function ExternalLogin() {
                     )}
 
                     <AnimatePresence mode="wait">
-                        {/* ─── STEP 1 — Enter code ────────────────────────────── */}
+                        {/* ─── STEP 1 — กรอก Access Code ─────────────────────────── */}
                         {step === 1 && (
                             <motion.div key="step1" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
                                 className="glass-card rounded-2xl p-7">
@@ -259,21 +269,15 @@ export default function ExternalLogin() {
                             </motion.div>
                         )}
 
-                        {/* ─── STEP 2 — Pick organization + name ──────────────── */}
+                        {/* ─── STEP 2 — เลือกหน่วยงาน ─────────────────────────── */}
                         {step === 2 && verified && (
-                            <motion.form
-                                key="step2"
-                                initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-                                onSubmit={(e) => { e.preventDefault(); setStep(3); }}
-                                className="space-y-4"
-                            >
-                                {/* Code summary */}
-                                <div className="glass-card rounded-2xl p-5 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">รายละเอียดรหัส</span>
+                            <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+                                className="space-y-4">
+                                <div className="glass-card rounded-2xl p-5">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">รหัส</span>
                                         <span className="font-mono text-xs text-violet-600">{verified.code}</span>
                                     </div>
-
                                     <div className="p-3 rounded-xl bg-violet-50 border border-violet-200">
                                         <div className="flex items-center gap-1.5 text-[11px] font-semibold text-violet-700 mb-1">
                                             <Building2 className="w-3 h-3" /> กลุ่ม Stakeholder
@@ -283,286 +287,218 @@ export default function ExternalLogin() {
                                             ปีงบประมาณ พ.ศ. {verified.fiscal_year + 543}
                                         </div>
                                     </div>
-
                                 </div>
 
-                                {/* Stakeholder picker with search */}
-                                <div className="glass-card rounded-2xl p-5 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
-                                            <UserCheck className="w-4 h-4 text-violet-600" />
-                                            ฉันคือบริษัท/หน่วยงาน...
-                                        </div>
-                                        {!customMode && verified.stakeholders.length > 0 && (
-                                            <button type="button" onClick={enableCustomMode}
-                                                className="text-[11px] text-violet-600 hover:underline">
-                                                ไม่อยู่ในรายการ — กรอกเอง
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {!customMode && verified.stakeholders.length > 0 ? (
-                                        <>
-                                            <div className="relative">
-                                                <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
-                                                <input
-                                                    type="text"
-                                                    value={stakeholderSearch}
-                                                    onChange={(e) => setStakeholderSearch(e.target.value)}
-                                                    placeholder="ค้นหาชื่อบริษัท / ผู้ติดต่อ..."
-                                                    className="w-full text-sm border-2 border-gray-200 rounded-lg pl-8 pr-3 py-2"
-                                                />
-                                            </div>
-                                            <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                                                {filteredStakeholders.length === 0 && (
-                                                    <div className="text-xs text-center text-gray-400 py-3">
-                                                        ไม่พบ — ลอง <button type="button" onClick={enableCustomMode} className="text-violet-600 underline">กรอกชื่อเอง</button>
-                                                    </div>
-                                                )}
-                                                {filteredStakeholders.map((s) => {
-                                                    const isSelected = data.stakeholder_id === s.id;
-                                                    const persons = (s.contact_persons && s.contact_persons.length > 0) ? s.contact_persons : (s.contact_person ? [s.contact_person] : []);
-                                                    const hasMultiple = persons.length > 1;
-
-                                                    const header = (
-                                                        <div className="flex items-start gap-2">
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="text-sm font-medium text-gray-800 truncate">{s.organization_name}</div>
-                                                                <div className="text-[11px] text-gray-500 flex items-center gap-2 flex-wrap mt-0.5">
-                                                                    {!hasMultiple && persons[0] && <span>👤 {persons[0]}</span>}
-                                                                    {hasMultiple && <span>👥 {persons.length} คน</span>}
-                                                                    {s.sub_group && <span className="text-violet-600">[{s.sub_group}]</span>}
-                                                                    <span className="text-emerald-700">
-                                                                        ✓ {s.submitted_count}/{s.evaluatees_count} ประเมิน
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                            {isSelected && <CheckCircle className="w-5 h-5 text-violet-600 shrink-0" />}
-                                                        </div>
-                                                    );
-
-                                                    const baseClass = cn(
-                                                        "w-full text-left p-2.5 rounded-lg border transition-all",
-                                                        isSelected ? "bg-violet-50 border-violet-400 ring-2 ring-violet-200" :
-                                                            "bg-white border-gray-200 hover:border-violet-300 hover:bg-violet-50/30"
-                                                    );
-
-                                                    if (!hasMultiple) {
-                                                        return (
-                                                            <button type="button" key={s.id} onClick={() => pickStakeholder(s)} className={baseClass}>
-                                                                {header}
-                                                            </button>
-                                                        );
-                                                    }
-
-                                                    return (
-                                                        <div key={s.id} className={baseClass}>
-                                                            {header}
-                                                            <div className="mt-1.5 space-y-1 pl-1">
-                                                                {persons.map((p, i) => (
-                                                                    <button type="button" key={i}
-                                                                        onClick={() => pickStakeholder(s, p)}
-                                                                        className={cn(
-                                                                            "w-full text-left text-xs px-2 py-1.5 rounded-md border transition-all",
-                                                                            isSelected && data.evaluator_name === p
-                                                                                ? "bg-violet-100 border-violet-300 font-medium"
-                                                                                : "bg-gray-50 border-gray-200 hover:bg-violet-50 hover:border-violet-200"
-                                                                        )}>
-                                                                        👤 {p}
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg p-2 text-amber-800">
-                                            💡 {verified.stakeholders.length === 0
-                                                ? "ระบบยังไม่มีรายชื่อหน่วยงาน — กรอกชื่อด้านล่างได้เลย"
-                                                : "กำลังกรอกชื่อเอง — กดปุ่ม \"เลือกจากรายการ\" ด้านบนเพื่อกลับ"}
-                                        </div>
-                                    )}
-
-                                    {customMode && verified.stakeholders.length > 0 && (
-                                        <button type="button" onClick={() => setCustomMode(false)}
-                                            className="text-[11px] text-violet-600 hover:underline">
-                                            ← เลือกจากรายการ
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Name + position */}
                                 <div className="glass-card rounded-2xl p-5 space-y-3">
                                     <div className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
-                                        <UserIcon className="w-4 h-4 text-violet-600" /> ข้อมูลผู้ประเมิน
+                                        <Building2 className="w-4 h-4 text-violet-600" /> เลือกหน่วยงาน / องค์กร
                                     </div>
-                                    {selectedStakeholder && (
-                                        <div className="text-xs bg-violet-50 border border-violet-200 rounded-lg p-2 text-violet-800 flex items-center gap-2">
-                                            <CheckCircle className="w-4 h-4 shrink-0" />
-                                            <span>เข้าใช้งานในนาม <b>{selectedStakeholder.organization_name}</b></span>
-                                        </div>
-                                    )}
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-1">
-                                            ชื่อ-นามสกุล <span className="text-red-500">*</span>
-                                        </label>
+
+                                    <div className="relative">
+                                        <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
                                         <input
                                             type="text"
-                                            value={data.evaluator_name}
-                                            onChange={(e) => setData("evaluator_name", e.target.value)}
-                                            className="block w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                            placeholder="เช่น นายสมชาย ใจดี"
-                                            required
+                                            value={orgSearch}
+                                            onChange={(e) => setOrgSearch(e.target.value)}
+                                            placeholder="ค้นหาชื่อหน่วยงาน..."
+                                            className="w-full text-sm border-2 border-gray-200 rounded-lg pl-8 pr-3 py-2"
+                                            autoFocus
                                         />
-                                        {errors.evaluator_name && <p className="text-sm text-red-600 mt-1">{errors.evaluator_name}</p>}
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-1">
-                                            หน่วยงาน / องค์กร {customMode && <span className="text-red-500">*</span>}
-                                        </label>
-                                        {customMode && verified.stakeholders.length > 0 ? (
-                                            <select
-                                                value={data.evaluator_position}
-                                                onChange={(e) => setData("evaluator_position", e.target.value)}
-                                                className="block w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500 bg-white"
-                                                required
-                                            >
-                                                <option value="">— เลือกหน่วยงาน —</option>
-                                                {Array.from(new Set(verified.stakeholders.map((s) => s.organization_name))).sort().map((org) => (
-                                                    <option key={org} value={org}>{org}</option>
-                                                ))}
-                                            </select>
-                                        ) : (
-                                            <input
-                                                type="text"
-                                                value={data.evaluator_position}
-                                                onChange={(e) => setData("evaluator_position", e.target.value)}
-                                                className="block w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                placeholder="เช่น ผู้จัดการ บริษัท ABC"
-                                                readOnly={!!selectedStakeholder}
-                                            />
+
+                                    <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                                        {filteredOrgs.length === 0 && (
+                                            <div className="text-xs text-center text-gray-400 py-3">
+                                                ไม่พบหน่วยงานตามที่ค้นหา
+                                            </div>
                                         )}
-                                        {errors.evaluator_position && <p className="text-sm text-red-600 mt-1">{errors.evaluator_position}</p>}
+                                        {filteredOrgs.map((org) => (
+                                            <button
+                                                key={org}
+                                                type="button"
+                                                onClick={() => pickOrg(org)}
+                                                className="w-full text-left p-3 rounded-lg border-2 border-gray-200 bg-white hover:border-violet-400 hover:bg-violet-50/50 transition-all"
+                                            >
+                                                <div className="text-sm font-medium text-gray-800">{org}</div>
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
 
                                 <div className="flex gap-2">
-                                    <button type="button" onClick={() => { setStep(1); setVerified(null); }}
-                                        className="px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:bg-gray-50 flex items-center gap-1.5">
+                                    <button type="button" onClick={() => setStep(1)}
+                                        className="flex items-center gap-1.5 px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:bg-gray-50">
+                                        <ArrowLeft className="w-4 h-4" /> ย้อน
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* ─── STEP 3 — เลือกผู้ประเมิน ─────────────────────────── */}
+                        {step === 3 && verified && (
+                            <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+                                className="space-y-4">
+                                <div className="glass-card rounded-2xl p-5">
+                                    <div className="p-3 rounded-xl bg-violet-50 border border-violet-200 flex items-center gap-2">
+                                        <CheckCircle className="w-4 h-4 text-violet-600 shrink-0" />
+                                        <div className="text-sm">
+                                            <span className="text-gray-600">หน่วยงาน:</span>{" "}
+                                            <span className="font-bold text-gray-900">{pickedOrg}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="glass-card rounded-2xl p-5 space-y-3">
+                                    <div className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
+                                        <UserIcon className="w-4 h-4 text-violet-600" />
+                                        {orgHasNamedContacts ? "เลือกชื่อของคุณ" : "กรอกชื่อ-นามสกุล"}
+                                    </div>
+
+                                    {orgHasNamedContacts ? (
+                                        <>
+                                            <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                                                {orgStakeholders.map((s) => {
+                                                    const persons = (s.contact_persons && s.contact_persons.length > 0)
+                                                        ? s.contact_persons
+                                                        : (s.contact_person ? [s.contact_person] : []);
+                                                    return persons.map((p, i) => {
+                                                        const isSelected = data.stakeholder_id === s.id && data.evaluator_name === p;
+                                                        return (
+                                                            <button
+                                                                key={`${s.id}-${i}`}
+                                                                type="button"
+                                                                onClick={() => pickPerson(s.id, p)}
+                                                                className={cn(
+                                                                    "w-full text-left p-3 rounded-lg border-2 transition-all flex items-center gap-2",
+                                                                    isSelected
+                                                                        ? "bg-violet-50 border-violet-400 ring-2 ring-violet-200"
+                                                                        : "bg-white border-gray-200 hover:border-violet-300 hover:bg-violet-50/30"
+                                                                )}
+                                                            >
+                                                                <UserIcon className="w-4 h-4 text-violet-600 shrink-0" />
+                                                                <span className="text-sm font-medium text-gray-800 flex-1">{p}</span>
+                                                                {isSelected && <CheckCircle className="w-4 h-4 text-violet-600 shrink-0" />}
+                                                            </button>
+                                                        );
+                                                    });
+                                                })}
+                                            </div>
+                                            <div className="border-t border-gray-200 pt-3 mt-2">
+                                                <div className="text-[11px] text-gray-500 mb-1.5">ถ้าไม่อยู่ในรายการ — กรอกชื่อเอง:</div>
+                                                <input
+                                                    type="text"
+                                                    value={data.stakeholder_id === "" ? data.evaluator_name : ""}
+                                                    onChange={(e) => pickPerson("", e.target.value)}
+                                                    placeholder="เช่น นายสมชาย ใจดี"
+                                                    className="w-full text-sm border-2 border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <div className="text-[11px] text-gray-500">
+                                                ระบบยังไม่มีรายชื่อสำหรับหน่วยงานนี้ — กรุณากรอกชื่อของคุณเอง
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={data.evaluator_name}
+                                                onChange={(e) => pickPerson("", e.target.value)}
+                                                placeholder="เช่น นายสมชาย ใจดี"
+                                                className="w-full text-sm border-2 border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                autoFocus
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex gap-2 justify-between">
+                                    <button type="button" onClick={() => { setStep(2); setPickedOrg(""); }}
+                                        className="flex items-center gap-1.5 px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:bg-gray-50">
+                                        <ArrowLeft className="w-4 h-4" /> ย้อน
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setStep(4)}
+                                        disabled={!canProceedStep3}
+                                        className={cn(
+                                            "flex items-center gap-1.5 px-5 py-3 rounded-xl font-bold text-white transition-all",
+                                            canProceedStep3 ? "gradient-primary hover:shadow-lg" : "bg-gray-400 cursor-not-allowed"
+                                        )}
+                                    >
+                                        ถัดไป <ArrowRight className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* ─── STEP 4 — ยืนยัน + Submit ─────────────────────────── */}
+                        {step === 4 && verified && (
+                            <motion.form
+                                key="step4"
+                                initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+                                onSubmit={handleSubmit}
+                                className="space-y-4"
+                            >
+                                <div className="glass-card rounded-2xl p-6 space-y-4">
+                                    <div className="text-center mb-2">
+                                        <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                                            <CheckCircle className="w-6 h-6 text-white" />
+                                        </div>
+                                        <h2 className="text-lg font-bold">ยืนยันข้อมูลก่อนเข้าระบบ</h2>
+                                    </div>
+
+                                    <div className="space-y-2.5">
+                                        <div className="flex items-start gap-3 p-3 rounded-xl bg-violet-50 border border-violet-200">
+                                            <Building2 className="w-4 h-4 text-violet-600 mt-0.5 shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-[11px] font-semibold text-violet-700 uppercase tracking-wide">หน่วยงาน</div>
+                                                <div className="text-sm font-bold text-gray-800 break-words">{pickedOrg}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-start gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                                            <UserIcon className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wide">ผู้ประเมิน</div>
+                                                <div className="text-sm font-bold text-gray-800 break-words">{data.evaluator_name}</div>
+                                                {data.stakeholder_id !== "" && (
+                                                    <div className="text-[10px] text-emerald-600 mt-0.5">✓ ตรวจสอบรายชื่อในระบบแล้ว</div>
+                                                )}
+                                                {data.stakeholder_id === "" && (
+                                                    <div className="text-[10px] text-amber-600 mt-0.5">⚠ กรอกชื่อเอง — ระบบจะบันทึกเป็นผู้ประเมินใหม่</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {errors.evaluator_name && <p className="text-sm text-red-600">{errors.evaluator_name}</p>}
+                                    {errors.evaluator_position && <p className="text-sm text-red-600">{errors.evaluator_position}</p>}
+                                </div>
+
+                                <div className="flex gap-2 justify-between">
+                                    <button type="button" onClick={() => setStep(3)}
+                                        className="flex items-center gap-1.5 px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:bg-gray-50">
                                         <ArrowLeft className="w-4 h-4" /> ย้อน
                                     </button>
                                     <button
                                         type="submit"
-                                        disabled={!data.evaluator_name}
+                                        disabled={processing}
                                         className={cn(
-                                            "flex-1 py-3 px-6 rounded-xl font-bold text-white transition-all flex items-center justify-center gap-2",
-                                            !data.evaluator_name ? "bg-gray-400 cursor-not-allowed" : "gradient-primary hover:shadow-lg hover:shadow-violet-500/25"
+                                            "flex items-center gap-1.5 px-6 py-3 rounded-xl font-bold text-white transition-all",
+                                            processing ? "bg-gray-400 cursor-not-allowed" :
+                                            "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/25"
                                         )}
                                     >
-                                        ถัดไป (ยืนยัน) <ArrowRight className="w-5 h-5" />
+                                        {processing ? (
+                                            <><Loader2 className="w-4 h-4 animate-spin" /> กำลังเข้าระบบ...</>
+                                        ) : (
+                                            <><Send className="w-4 h-4" /> เข้าสู่ระบบประเมิน</>
+                                        )}
                                     </button>
                                 </div>
                             </motion.form>
                         )}
-
-                        {/* ─── STEP 3 — Confirmation card ──────────────────────── */}
-                        {step === 3 && verified && (
-                            <motion.div
-                                key="step3"
-                                initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-                                className="space-y-4"
-                            >
-                                <div className="glass-card rounded-2xl p-6 border-2 border-violet-300">
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center">
-                                            <CheckCircle className="w-5 h-5 text-white" />
-                                        </div>
-                                        <div>
-                                            <div className="text-xs text-gray-500 uppercase tracking-wide">ยืนยันก่อนเริ่ม</div>
-                                            <div className="text-base font-bold text-gray-800">กรุณาตรวจสอบรายละเอียด</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-3">
-                                        {selectedStakeholder ? (
-                                            <div className="p-3 rounded-xl bg-violet-50 border border-violet-200">
-                                                <div className="text-[11px] font-semibold text-violet-700 uppercase tracking-wide mb-1">✓ คุณคือ</div>
-                                                <div className="text-base font-bold">{selectedStakeholder.organization_name}</div>
-                                                {selectedStakeholder.related_groups && selectedStakeholder.related_groups.length > 0 && (
-                                                    <div className="text-[11px] text-violet-600 mt-1">
-                                                        ในกลุ่ม: {selectedStakeholder.related_groups.join(" + ")}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-800">
-                                                ⚠ ไม่ได้เลือกหน่วยงาน — กรอกชื่อเอง
-                                            </div>
-                                        )}
-
-                                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                                            <div className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wide mb-1">✓ ผู้ประเมิน</div>
-                                            <div className="text-base font-bold">{data.evaluator_name}</div>
-                                            {data.evaluator_position && (
-                                                <div className="text-xs text-gray-600 mt-0.5">{data.evaluator_position}</div>
-                                            )}
-                                        </div>
-
-                                        {selectedStakeholder?.preview_evaluatees && selectedStakeholder.preview_evaluatees.length > 0 && (
-                                            <div className="p-3 rounded-xl bg-blue-50 border border-blue-200">
-                                                <div className="flex items-center justify-between">
-                                                    <div className="text-[11px] font-semibold text-blue-700">
-                                                        ✓ คุณจะประเมินทั้งหมด {selectedStakeholder.preview_evaluatees.length} ท่าน
-                                                    </div>
-                                                    {(selectedStakeholder.submitted_count ?? 0) > 0 && (
-                                                        <span className="text-[10px] text-emerald-700">
-                                                            (ทำไปแล้ว {selectedStakeholder.submitted_count})
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="text-[11px] text-blue-600 mt-1">
-                                                    ⏱ ใช้เวลาประมาณ 5–10 นาที/ท่าน · บันทึกอัตโนมัติทุกคำตอบ
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="flex gap-2 mt-5">
-                                        <button
-                                            type="button"
-                                            onClick={() => setStep(2)}
-                                            className="px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:bg-gray-50 flex items-center gap-1.5"
-                                        >
-                                            <ArrowLeft className="w-4 h-4" /> เปลี่ยนตัวเลือก
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={handleSubmit as any}
-                                            disabled={processing}
-                                            className={cn(
-                                                "flex-1 py-3 px-6 rounded-xl font-bold text-white transition-all flex items-center justify-center gap-2",
-                                                processing ? "bg-gray-400 cursor-not-allowed" : "gradient-primary hover:shadow-lg hover:shadow-violet-500/25"
-                                            )}
-                                        >
-                                            {processing ? (
-                                                <><Loader2 className="w-5 h-5 animate-spin" /> กำลังเข้าสู่ระบบ...</>
-                                            ) : (
-                                                <><CheckCircle className="w-5 h-5" /> ใช่ เริ่มประเมิน</>
-                                            )}
-                                        </button>
-                                    </div>
-                                </div>
-                            </motion.div>
-                        )}
                     </AnimatePresence>
-
-                    <div className="text-center mt-5">
-                        <p className="text-xs text-muted-foreground">
-                            &copy; {new Date().getFullYear()} Miles Consult Group
-                        </p>
-                    </div>
                 </motion.div>
             </div>
         </div>

@@ -475,14 +475,16 @@ class ExternalEvaluatorController extends Controller
 
         // Phase 2: scope ระดับบุคคล — ดู evaluatee_ids ของ stakeholder คนนี้ก่อน
         // ถ้า session ไม่มี stakeholder_id (legacy/custom mode) → fallback ใช้ org_name filter เดิม
-        if ($externalSession->external_stakeholder_id) {
-            $myEvaluateeIds = \App\Models\ExternalStakeholder::where('id', $externalSession->external_stakeholder_id)
-                ->orWhere(function ($q) use ($externalSession) {
-                    // กรณีคนเดียวกันถูก import หลาย row (ต่าง evaluatee) — รวมทุก row
-                    $q->where('contact_person', $externalSession->stakeholder?->contact_person)
-                      ->where('organization_name', $externalSession->stakeholder?->organization_name)
-                      ->whereIn('external_access_code_id', $externalSession->stakeholder ? [$externalSession->stakeholder->external_access_code_id] : []);
-                })
+        // Phase 5: cross-code aggregation — 2 modes
+        // mode A: verified (มี stakeholder_id) → scope ตาม (contact_person+org) ข้าม code
+        // mode B: custom (ไม่มี stakeholder_id แต่ มี picked_org_name) → scope ทั้ง org ข้าม code
+        if ($externalSession->external_stakeholder_id && $externalSession->stakeholder) {
+            $stk = $externalSession->stakeholder;
+            $orgNorm = \App\Models\ExternalStakeholder::normalizeName($stk->organization_name);
+            $myEvaluateeIds = \App\Models\ExternalStakeholder::query()
+                ->where('fiscal_year', $stk->fiscal_year)
+                ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$orgNorm])
+                ->when($stk->contact_person, fn ($q) => $q->where('contact_person', $stk->contact_person))
                 ->pluck('evaluatee_id')->unique()->all();
             $pivotQuery->whereIn('p.evaluatee_id', $myEvaluateeIds);
         } elseif ($pickedOrg) {
@@ -711,12 +713,14 @@ class ExternalEvaluatorController extends Controller
             ->whereIn('p.external_access_code_id', $relatedCodeIds)
             ->where('p.evaluation_id', $currentEvaluationId);
 
-        if ($externalSession->external_stakeholder_id) {
+        // Phase 5: cross-code aggregation — เหมือน showDashboard
+        if ($externalSession->external_stakeholder_id && $externalSession->stakeholder) {
             $stk = $externalSession->stakeholder;
+            $orgNorm = \App\Models\ExternalStakeholder::normalizeName($stk->organization_name);
             $myEvaluateeIds = \App\Models\ExternalStakeholder::query()
-                ->where('external_access_code_id', $stk?->external_access_code_id)
-                ->where('organization_name', $stk?->organization_name)
-                ->when($stk?->contact_person, fn ($q) => $q->where('contact_person', $stk->contact_person))
+                ->where('fiscal_year', $stk->fiscal_year)
+                ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$orgNorm])
+                ->when($stk->contact_person, fn ($q) => $q->where('contact_person', $stk->contact_person))
                 ->pluck('evaluatee_id')->unique()->all();
             $pivotQuery->whereIn('p.evaluatee_id', $myEvaluateeIds);
         } elseif ($pickedOrg) {
