@@ -2051,7 +2051,8 @@ class AdminEvaluationReportController extends Controller
             ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
             ->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
             ->join('questions as q', 'a.question_id', '=', 'q.id')
-            ->join('options as o', 'a.value', '=', 'o.id')
+            // leftJoin กัน open_text (a.value = ข้อความ ไม่ใช่ o.id) ถูก drop ทั้งแถว
+            ->leftJoin('options as o', 'a.value', '=', 'o.id')
             ->join('evaluation_assignments as ea', function($join) {
                 $join->on('a.evaluation_id', '=', 'ea.evaluation_id')
                      ->on('a.user_id', '=', 'ea.evaluator_id')
@@ -2089,6 +2090,7 @@ class AdminEvaluationReportController extends Controller
                 'o.id as option_id',
                 'o.label as option_label',
                 'o.score as option_score',
+                'a.value as raw_value',
                 'a.other_text',
                 'a.created_at as answer_date',
                 'a.updated_at as answer_updated'
@@ -2176,7 +2178,8 @@ class AdminEvaluationReportController extends Controller
             $sheet->setCellValue('K' . $row, $item->part_title);
             $sheet->setCellValue('L' . $row, $item->aspect_name);
             $sheet->setCellValue('M' . $row, $item->question_title);
-            $sheet->setCellValue('N' . $row, $item->option_label);
+            // open_text/ค่าที่ไม่ match option → ใช้ค่าที่ตอบจริง (a.value); ว่าง → null
+            $sheet->setCellValue('N' . $row, $item->option_label ?? $item->raw_value);
             
             $row++;
             $counter++;
