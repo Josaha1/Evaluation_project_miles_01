@@ -841,6 +841,7 @@ class EvaluationExportService
                         false,  // selfEvalOnly
                         true    // externalOrgMode
                     );
+                    $this->appendOpenTextSheet($spreadsheet, $evalId, $filters, false, true);
                 }
             }
 
@@ -1056,6 +1057,9 @@ class EvaluationExportService
             $qSheet->getColumnDimension('B')->setAutoSize(true);
             $qSheet->getColumnDimension('C')->setWidth(60);
 
+            // เพิ่มชีตคำถามปลายเปิด (ผู้ว่าการ/ผู้บริหาร/พนักงาน ใช้ method นี้)
+            $this->appendOpenTextSheet($spreadsheet, $evaluationId, $filters);
+
             $filename = 'รายงานการประเมิน_' . $evaluation->id . '_' . now()->format('Y-m-d_H-i-s') . '.xlsx';
             $filePath = storage_path('app/exports/' . $filename);
 
@@ -1071,6 +1075,139 @@ class EvaluationExportService
             Log::error('Export by evaluation type error: ' . $e->getMessage());
             throw $e;
         }
+    }
+
+    /**
+     * เพิ่มชีต "คำถามปลายเปิด" (row-per-answer) ต่อท้าย report แบบ pivot
+     * เพราะ open_text ใส่ในตารางคะแนน pivot ไม่ได้ — ต้องแยกชีต
+     * เลี่ยง CONCAT/CAST (mysql-only) โดย concat ชื่อใน PHP
+     */
+    private function appendOpenTextSheet($spreadsheet, int $evaluationId, array $filters = [], bool $selfEvalOnly = false, bool $externalOrgMode = false): void
+    {
+        $openQuestionIds = DB::table('questions as q')
+            ->join('aspects as asp', 'q.aspect_id', '=', 'asp.id')
+            ->join('parts as p', 'asp.part_id', '=', 'p.id')
+            ->where('p.evaluation_id', $evaluationId)
+            ->where('q.type', 'open_text')
+            ->orderBy('p.order')->orderBy('asp.id')->orderBy('q.order')
+            ->pluck('q.id')->toArray();
+
+        if (empty($openQuestionIds)) return;
+
+        $query = DB::table('answers as a')
+            ->join('users as evaluatee', 'a.evaluatee_id', '=', 'evaluatee.id')
+            ->join('questions as q', 'a.question_id', '=', 'q.id')
+            ->where('a.evaluation_id', $evaluationId)
+            ->whereIn('a.question_id', $openQuestionIds)
+            ->whereNotNull('a.value')
+            ->where('a.value', '!=', '');
+
+        if ($externalOrgMode) {
+            $query->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
+                  ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
+                  ->leftJoin('external_evaluation_sessions as ses', 'a.external_session_id', '=', 'ses.id')
+                  ->whereNotNull('a.external_access_code_id')
+                  ->addSelect([
+                      DB::raw("'right' as angle"),
+                      'ses.id as session_id',
+                      'ses.evaluator_name as evaluator_name',
+                      'eo.name as external_org_name',
+                  ]);
+            if (!empty($filters['external_org_id'])) $query->where('eo.id', $filters['external_org_id']);
+        } elseif ($selfEvalOnly) {
+            $query->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
+                  ->whereColumn('a.user_id', 'a.evaluatee_id')
+                  ->addSelect([
+                      DB::raw("'self' as angle"),
+                      'evaluator.emid as evaluator_emid',
+                      'evaluator.prename as evaluator_prename',
+                      'evaluator.fname as evaluator_fname',
+                      'evaluator.lname as evaluator_lname',
+                  ]);
+        } else {
+            $query->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
+                  ->join('evaluation_assignments as ea', function ($j) {
+                      $j->on('a.evaluation_id', '=', 'ea.evaluation_id')
+                        ->on('a.user_id', '=', 'ea.evaluator_id')
+                        ->on('a.evaluatee_id', '=', 'ea.evaluatee_id');
+                  })
+                  ->addSelect([
+                      'ea.angle',
+                      'evaluator.emid as evaluator_emid',
+                      'evaluator.prename as evaluator_prename',
+                      'evaluator.fname as evaluator_fname',
+                      'evaluator.lname as evaluator_lname',
+                  ]);
+        }
+
+        $query->addSelect([
+            'evaluatee.emid as evaluatee_emid',
+            'evaluatee.prename as evaluatee_prename',
+            'evaluatee.fname as evaluatee_fname',
+            'evaluatee.lname as evaluatee_lname',
+            'evaluatee.grade as evaluatee_grade',
+            'q.id as question_id',
+            'q.title as question_title',
+            'a.value as answer_text',
+            'a.created_at as answer_date',
+        ]);
+
+        if (!empty($filters['fiscal_year'])) $query->where('a.fiscal_year', $filters['fiscal_year']);
+        if (!empty($filters['division_id'])) $query->where('evaluatee.division_id', $filters['division_id']);
+        if (!empty($filters['user_id'])) $query->where('evaluatee.id', $filters['user_id']);
+        if (!empty($filters['department_id'])) $query->where('evaluatee.department_id', $filters['department_id']);
+        if (!empty($filters['position_id'])) $query->where('evaluatee.position_id', $filters['position_id']);
+        if (!empty($filters['grade'])) $query->where('evaluatee.grade', $filters['grade']);
+        if (!$selfEvalOnly && !$externalOrgMode && !empty($filters['angle'])) $query->where('ea.angle', $filters['angle']);
+
+        $results = $query->orderBy('evaluatee.fname')->orderBy('a.question_id')->get();
+        if ($results->isEmpty()) return;
+
+        $title = 'คำถามปลายเปิด';
+        if ($spreadsheet->sheetNameExists($title)) {
+            $title = mb_substr('ปลายเปิด-' . $evaluationId, 0, 31);
+        }
+        $sheet = $spreadsheet->createSheet();
+        $sheet->setTitle($title);
+
+        $cols = ['A','B','C','D','E','F','G','H','I','J'];
+        $headers = ['ลำดับ', 'รหัสผู้ถูกประเมิน', 'ชื่อผู้ถูกประเมิน', 'ระดับ', 'รหัสผู้ประเมิน', 'ชื่อผู้ประเมิน', 'มุมการประเมิน', 'คำถาม', 'คำตอบ', 'วันที่ตอบ'];
+        foreach ($headers as $i => $h) $sheet->setCellValue($cols[$i] . '1', $h);
+        $sheet->getStyle('A1:J1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:J1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('4F46E5');
+        $sheet->getStyle('A1:J1')->getFont()->getColor()->setRGB('FFFFFF');
+
+        $row = 2;
+        $n = 1;
+        foreach ($results as $r) {
+            if ($externalOrgMode) {
+                $evaluatorEmid = 'SESS-' . ($r->session_id ?? 0);
+                $evaluatorName = ($r->evaluator_name ?: '(ไม่ระบุชื่อ)') . ' [' . ($r->external_org_name ?? '') . ']';
+            } else {
+                $evaluatorEmid = $r->evaluator_emid ?? '';
+                $evaluatorName = trim(($r->evaluator_prename ?? '') . ($r->evaluator_fname ?? '') . ' ' . ($r->evaluator_lname ?? ''));
+            }
+            $evaluateeName = trim(($r->evaluatee_prename ?? '') . ($r->evaluatee_fname ?? '') . ' ' . ($r->evaluatee_lname ?? ''));
+
+            $sheet->setCellValue('A' . $row, $n);
+            $sheet->setCellValue('B' . $row, $r->evaluatee_emid);
+            $sheet->setCellValue('C' . $row, $evaluateeName);
+            $sheet->setCellValue('D' . $row, $r->evaluatee_grade);
+            $sheet->setCellValue('E' . $row, $evaluatorEmid);
+            $sheet->setCellValue('F' . $row, $evaluatorName);
+            $sheet->setCellValue('G' . $row, $this->translateAngle($r->angle));
+            $sheet->setCellValue('H' . $row, $r->question_title);
+            $sheet->setCellValueExplicit('I' . $row, $r->answer_text, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            $sheet->setCellValue('J' . $row, (string) $r->answer_date);
+            $row++;
+            $n++;
+        }
+
+        foreach ($cols as $c) $sheet->getColumnDimension($c)->setAutoSize(true);
+        $sheet->getColumnDimension('H')->setAutoSize(false);
+        $sheet->getColumnDimension('H')->setWidth(45);
+        $sheet->getColumnDimension('I')->setAutoSize(false);
+        $sheet->getColumnDimension('I')->setWidth(50);
     }
 
     /**
@@ -1718,6 +1855,7 @@ class EvaluationExportService
                 $sheet->setTitle($shortTitle);
 
                 $this->buildPivotSheet($sheet, $eval->id, $filters, 'รายงานการประเมินตนเอง: ' . $eval->title, true);
+                $this->appendOpenTextSheet($spreadsheet, $eval->id, $filters, true, false);
             }
 
             if ($first) {
