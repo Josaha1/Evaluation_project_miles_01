@@ -43,6 +43,7 @@ const EVALUATEE_REPORTS: ExportItem[] = [
     { id: "employees", title: "พนักงาน (ระดับ 4-8)", description: "คะแนนถ่วงน้ำหนัก: self 50% / top 20% / left 30%", icon: Users, accent: "sky" },
     { id: "self-evaluation", title: "ผลการประเมินตนเอง", description: "คะแนนตนเอง เทียบกับคะแนนจากมุมอื่น", icon: UserCheck, accent: "purple" },
     { id: "external-org", title: "องค์กรภายนอก (องศาขวา)", description: "คะแนนจากองค์กรภายนอก แยกตามองค์กร", icon: Globe, accent: "teal" },
+    { id: "external-group-summary", title: "องค์กรภายนอก — สรุปตามกลุ่ม", description: "เลือกผู้ถูกประเมินก่อน → ผู้ได้รับเชิญ/ส่งแล้ว/คงเหลือ แยกตามกลุ่มที่สังกัด + รายชื่อผู้ส่งแล้ว/ผู้ได้รับเชิญทั้งหมด", icon: Layers, accent: "teal" },
 ];
 
 const ANALYSIS_REPORTS: ExportItem[] = [
@@ -198,6 +199,12 @@ const ExportsTab: React.FC<ExportsTabProps> = ({
 
     /* ---------- export handler ---------- */
     const handleExport = async (type: string) => {
+        // สรุปตามกลุ่ม = รายงานต่อ 1 ผู้ถูกประเมิน → ต้องเลือกผู้ถูกประเมินก่อน
+        if (type === "external-group-summary" && !filterUser) {
+            toast.error("กรุณาเลือกผู้ถูกประเมินก่อน (เปิดตัวกรอง → ผู้ถูกประเมิน)");
+            setFiltersOpen(true);
+            return;
+        }
         setExporting(type);
         try {
             const formData = new FormData();
