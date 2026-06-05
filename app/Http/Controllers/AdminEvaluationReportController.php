@@ -697,8 +697,17 @@ class AdminEvaluationReportController extends Controller
      */
     private function getAvailableUsers(): array
     {
-        // Not needed for report page filters — return empty to reduce payload
-        return [];
+        // LOV ผู้ถูกประเมิน (id + ชื่อเต็ม) ใช้โดย ExportsTab filter + modal เลือกผู้ถูกประเมิน
+        // ประกอบชื่อใน PHP ไม่ใช้ CONCAT ใน SQL (กัน sqlite ไม่รองรับตอน test)
+        return DB::table('users')
+            ->where('role', 'user')
+            ->orderBy('fname')->orderBy('lname')
+            ->get(['id', 'prename', 'fname', 'lname'])
+            ->map(fn ($u) => [
+                'id'   => $u->id,
+                'name' => trim(($u->prename ?? '') . $u->fname . ' ' . $u->lname),
+            ])
+            ->all();
     }
 
     /**

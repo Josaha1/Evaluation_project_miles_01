@@ -5,7 +5,7 @@ import {
     FileText, BarChart3, Crown, Users, Shield, Globe,
     Layers, Database, Download, Loader2, UserCheck, ClipboardList,
     SlidersHorizontal, ChevronDown, X, Search, Calendar,
-    ArrowDownToLine, Filter, Sparkles,
+    ArrowDownToLine, Filter, Sparkles, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,7 +43,7 @@ const EVALUATEE_REPORTS: ExportItem[] = [
     { id: "employees", title: "พนักงาน (ระดับ 4-8)", description: "คะแนนถ่วงน้ำหนัก: self 50% / top 20% / left 30%", icon: Users, accent: "sky" },
     { id: "self-evaluation", title: "ผลการประเมินตนเอง", description: "คะแนนตนเอง เทียบกับคะแนนจากมุมอื่น", icon: UserCheck, accent: "purple" },
     { id: "external-org", title: "องค์กรภายนอก (องศาขวา)", description: "คะแนนจากองค์กรภายนอก แยกตามองค์กร", icon: Globe, accent: "teal" },
-    { id: "external-group-summary", title: "องค์กรภายนอก — สรุปตามกลุ่ม", description: "เลือกผู้ถูกประเมินก่อน → ผู้ได้รับเชิญ/ส่งแล้ว/คงเหลือ แยกตามกลุ่มที่สังกัด + รายชื่อผู้ส่งแล้ว/ผู้ได้รับเชิญทั้งหมด", icon: Layers, accent: "teal" },
+    { id: "external-group-summary", title: "องค์กรภายนอก — สรุปตามกลุ่ม", description: "คลิกแล้วเลือกผู้ถูกประเมิน → ผู้ได้รับเชิญ/ส่งแล้ว/คงเหลือ แยกตามกลุ่มที่สังกัด + รายชื่อผู้ส่งแล้ว/ผู้ได้รับเชิญทั้งหมด", icon: Layers, accent: "teal" },
 ];
 
 const ANALYSIS_REPORTS: ExportItem[] = [
@@ -151,6 +151,10 @@ const ExportsTab: React.FC<ExportsTabProps> = ({
     const [userSearch, setUserSearch] = useState("");
 
     const [filterUser, setFilterUser] = useState("");
+    // modal เลือกผู้ถูกประเมิน — เฉพาะการ์ด external-group-summary
+    const [groupModalOpen, setGroupModalOpen] = useState(false);
+    const [groupModalUser, setGroupModalUser] = useState("");
+    const [groupModalSearch, setGroupModalSearch] = useState("");
     const [filterDivision, setFilterDivision] = useState(selectedDivision || "");
     const [filterGrade, setFilterGrade] = useState(selectedGrade || "");
     const [filterAngle, setFilterAngle] = useState("");
@@ -163,6 +167,11 @@ const ExportsTab: React.FC<ExportsTabProps> = ({
     const filteredUsers = useMemo(
         () => availableUsers.filter((u) => !userSearch || u.name.toLowerCase().includes(userSearch.toLowerCase())).slice(0, 50),
         [availableUsers, userSearch],
+    );
+
+    const groupModalUsers = useMemo(
+        () => availableUsers.filter((u) => !groupModalSearch || u.name.toLowerCase().includes(groupModalSearch.toLowerCase())).slice(0, 50),
+        [availableUsers, groupModalSearch],
     );
 
     const activeChips = useMemo(() => {
@@ -198,11 +207,11 @@ const ExportsTab: React.FC<ExportsTabProps> = ({
     };
 
     /* ---------- export handler ---------- */
-    const handleExport = async (type: string) => {
-        // สรุปตามกลุ่ม = รายงานต่อ 1 ผู้ถูกประเมิน → ต้องเลือกผู้ถูกประเมินก่อน
-        if (type === "external-group-summary" && !filterUser) {
-            toast.error("กรุณาเลือกผู้ถูกประเมินก่อน (เปิดตัวกรอง → ผู้ถูกประเมิน)");
-            setFiltersOpen(true);
+    const handleExport = async (type: string, userOverride?: string) => {
+        // สรุปตามกลุ่ม = รายงานต่อ 1 ผู้ถูกประเมิน → ต้องระบุผู้ถูกประเมิน (modal ส่งมาทาง userOverride)
+        const evaluateeId = userOverride ?? filterUser;
+        if (type === "external-group-summary" && !evaluateeId) {
+            toast.error("กรุณาเลือกผู้ถูกประเมินก่อน");
             return;
         }
         setExporting(type);
@@ -211,7 +220,7 @@ const ExportsTab: React.FC<ExportsTabProps> = ({
             formData.append("fiscal_year", fiscalYear);
             if (filterDivision) formData.append("division_id", filterDivision);
             if (filterGrade) formData.append("grade", filterGrade);
-            if (filterUser) formData.append("user_id", filterUser);
+            if (evaluateeId) formData.append("user_id", evaluateeId);
             if (filterAngle) formData.append("angle", filterAngle);
             if (filterDepartment) formData.append("department_id", filterDepartment);
             if (filterPosition) formData.append("position_id", filterPosition);
@@ -288,7 +297,15 @@ const ExportsTab: React.FC<ExportsTabProps> = ({
                     </div>
 
                     <button
-                        onClick={() => handleExport(item.id)}
+                        onClick={() => {
+                            if (item.id === "external-group-summary") {
+                                setGroupModalUser("");
+                                setGroupModalSearch("");
+                                setGroupModalOpen(true);
+                            } else {
+                                handleExport(item.id);
+                            }
+                        }}
                         disabled={exporting !== null}
                         className={cn(
                             "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200",
@@ -498,6 +515,120 @@ const ExportsTab: React.FC<ExportsTabProps> = ({
                     {STATUS_REPORTS.map((item, i) => renderExportCard(item, i + EVALUATEE_REPORTS.length + ANALYSIS_REPORTS.length))}
                 </div>
             </section>
+
+            {/* ─── Modal: เลือกผู้ถูกประเมิน (เฉพาะ external-group-summary) ─── */}
+            <AnimatePresence>
+                {groupModalOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setGroupModalOpen(false)}
+                        onKeyDown={(e) => e.key === "Escape" && setGroupModalOpen(false)}
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4"
+                        role="dialog"
+                        aria-modal="true"
+                    >
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                            transition={{ type: "spring", stiffness: 320, damping: 28 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full max-w-md glass-card rounded-2xl ring-1 ring-gray-200/70 dark:ring-gray-700/60 shadow-2xl overflow-hidden"
+                        >
+                            {/* header */}
+                            <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 dark:border-gray-700/50">
+                                <div className="p-2.5 rounded-xl bg-teal-100 dark:bg-teal-900/40">
+                                    <Globe className="h-5 w-5 text-teal-600 dark:text-teal-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">เลือกผู้ถูกประเมิน</h3>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">สรุปผู้ประเมินภายนอกตามกลุ่ม · พ.ศ. {buddhistYear}</p>
+                                </div>
+                                <button onClick={() => setGroupModalOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
+                                    <X className="h-4 w-4" />
+                                </button>
+                            </div>
+
+                            {/* search */}
+                            <div className="px-5 pt-4">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    <input
+                                        autoFocus
+                                        type="text"
+                                        placeholder="พิมพ์ค้นหาชื่อผู้ถูกประเมิน..."
+                                        value={groupModalSearch}
+                                        onChange={(e) => setGroupModalSearch(e.target.value)}
+                                        className="w-full text-sm rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800/80 pl-9 pr-8 py-2.5 focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 transition-all"
+                                    />
+                                    {groupModalSearch && (
+                                        <button onClick={() => setGroupModalSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* list */}
+                            <div className="px-5 py-3 max-h-72 overflow-y-auto">
+                                {groupModalUsers.length === 0 ? (
+                                    <p className="text-center text-xs text-gray-400 py-8">ไม่พบผู้ถูกประเมินที่ค้นหา</p>
+                                ) : (
+                                    <div className="space-y-1">
+                                        {groupModalUsers.map((u) => {
+                                            const active = String(u.id) === groupModalUser;
+                                            return (
+                                                <button
+                                                    key={u.id}
+                                                    onClick={() => setGroupModalUser(String(u.id))}
+                                                    className={cn(
+                                                        "w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-sm text-left transition-all",
+                                                        active
+                                                            ? "bg-teal-50 dark:bg-teal-900/30 ring-1 ring-teal-400/60 text-teal-800 dark:text-teal-200 font-semibold"
+                                                            : "hover:bg-gray-50 dark:hover:bg-gray-700/30 text-gray-700 dark:text-gray-200",
+                                                    )}
+                                                >
+                                                    <span className="truncate">{u.name}</span>
+                                                    {active && <Check className="h-4 w-4 flex-shrink-0 text-teal-600 dark:text-teal-400" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                {availableUsers.length > 50 && (
+                                    <p className="text-center text-[10px] text-gray-400 mt-2">แสดง 50 รายแรก — พิมพ์ค้นหาเพื่อกรอง</p>
+                                )}
+                            </div>
+
+                            {/* footer */}
+                            <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-100 dark:border-gray-700/50">
+                                <button onClick={() => setGroupModalOpen(false)} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
+                                    ยกเลิก
+                                </button>
+                                <button
+                                    disabled={!groupModalUser || exporting !== null}
+                                    onClick={async () => {
+                                        await handleExport("external-group-summary", groupModalUser);
+                                        setGroupModalOpen(false);
+                                    }}
+                                    className={cn(
+                                        "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all",
+                                        "bg-teal-600 text-white hover:bg-teal-500 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed",
+                                    )}
+                                >
+                                    {exporting === "external-group-summary" ? (
+                                        <><Loader2 className="h-4 w-4 animate-spin" />กำลังสร้าง...</>
+                                    ) : (
+                                        <><ArrowDownToLine className="h-4 w-4" />ดาวน์โหลด .xlsx</>
+                                    )}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };
