@@ -208,6 +208,21 @@ it('submitter sheet: 1 row per completed session, group from code', function () 
     expect((string) $sheet->getCell('E2')->getValue())->toContain('2026-05-21');
 });
 
+it('getAvailableUsers (LOV ของ modal) คืน role=user รวม evaluatee — กัน modal ว่าง', function () {
+    // beforeEach สร้าง $this->evaluatee (role=user, fname=สุเมธ) + $this->admin (role=admin)
+    $ctrl = app(App\Http\Controllers\AdminEvaluationReportController::class);
+    $m = new ReflectionMethod($ctrl, 'getAvailableUsers');
+    $m->setAccessible(true);
+    $list = collect($m->invoke($ctrl));
+
+    expect($list)->not->toBeEmpty();
+    $names = $list->map(fn ($r) => is_array($r) ? $r['name'] : $r->name);
+    expect($names->contains(fn ($n) => str_contains((string) $n, 'สุเมธ')))->toBeTrue();
+    // admin ต้องไม่อยู่ใน LOV
+    $ids = $list->map(fn ($r) => is_array($r) ? $r['id'] : $r->id);
+    expect($ids->contains($this->admin->id))->toBeFalse();
+});
+
 it('filters by selected evaluatee (user_id)', function () {
     $other = makeOrgUserGS(['role' => 'user', 'grade' => '13']);
     [$o1, $c1] = gsCode($this->evaluatee->id, $this->eval->id);
