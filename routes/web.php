@@ -404,6 +404,8 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
             ->name('export-governors');
         Route::post('/export/external-org', [AdminEvaluationReportController::class, 'exportExternalOrgReport'])
             ->name('export-external-org');
+        Route::post('/export/external-group-summary', [AdminEvaluationReportController::class, 'exportExternalGroupSummary'])
+            ->name('export-external-group-summary');
         Route::post('/export/detailed-data', [AdminEvaluationReportController::class, 'exportDetailedEvaluationData'])
             ->name('export-detailed-data');
         Route::post('/export/pending-evaluators', [AdminEvaluationReportController::class, 'exportPendingEvaluators'])

@@ -4641,4 +4641,174 @@ class AdminEvaluationReportController extends Controller
             return response()->json(['error' => 'การส่งออกรายงานล้มเหลว: ' . $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Export สรุปผู้ประเมินภายนอกตามกลุ่ม (ต่อ 1 ผู้ถูกประเมิน) — รูปแบบ sumet_external_evaluators v2
+     * 3 sheet: สรุปตามกลุ่ม / รายชื่อผู้ส่งแล้ว / รายชื่อผู้ได้รับเชิญทั้งหมด
+     * "กลุ่ม" มาจาก access code (1 code = 1 group_label) ไม่ใช่ name-match;
+     * sent = นับ completed session, map กลุ่มผ่าน code; session ที่ code ไม่มี stakeholder → (ไม่ระบุกลุ่ม)
+     */
+    public function exportExternalGroupSummary(Request $request)
+    {
+        try {
+            $this->boostLimits();
+
+            $fiscalYear  = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
+            $evaluateeId = $request->input('user_id');
+            $UNGROUPED   = '(ไม่ระบุกลุ่ม)';
+            $UNKNOWN_ORG = '(ไม่ระบุหน่วยงาน)';
+
+            // 1) ผู้ได้รับเชิญ = external_stakeholders ของ evaluatee + ปีงบ
+            $stQ = DB::table('external_stakeholders as st')->where('st.fiscal_year', $fiscalYear);
+            if ($evaluateeId) $stQ->where('st.evaluatee_id', $evaluateeId);
+            $stakeholders = $stQ
+                ->orderByRaw("COALESCE(NULLIF(TRIM(st.group_label),''),'~')")
+                ->orderBy('st.organization_name')
+                ->select('st.external_access_code_id', 'st.group_label', 'st.organization_name', 'st.contact_person')
+                ->get();
+
+            // map: code -> group_label (1 code = 1 group), code -> [contact_person => org]
+            $codeGroup  = [];
+            $contactOrg = [];
+            $invited    = [];
+            foreach ($stakeholders as $s) {
+                $g = trim((string) ($s->group_label ?? ''));
+                if ($g !== '' && !isset($codeGroup[$s->external_access_code_id])) {
+                    $codeGroup[$s->external_access_code_id] = $g;
+                }
+                $contactOrg[$s->external_access_code_id][(string) $s->contact_person] = $s->organization_name;
+                $key = $g !== '' ? $g : $UNGROUPED;
+                $invited[$key] = ($invited[$key] ?? 0) + 1;
+            }
+
+            // 2) ส่งแล้ว = completed session ที่มี answer ของ evaluatee (1 submission = 1 แถว)
+            $sentQ = DB::table('external_evaluation_sessions as ses')
+                ->join('answers as a', 'a.external_session_id', '=', 'ses.id')
+                ->whereNotNull('ses.completed_at');
+            if ($evaluateeId) $sentQ->where('a.evaluatee_id', $evaluateeId);
+            $sentSessions = $sentQ
+                ->groupBy('ses.id', 'ses.external_access_code_id', 'ses.evaluator_name', 'ses.completed_at')
+                ->orderBy('ses.completed_at')
+                ->get(['ses.id', 'ses.external_access_code_id', 'ses.evaluator_name', 'ses.completed_at']);
+
+            $sent          = [];
+            $submitterRows = [];
+            foreach ($sentSessions as $ss) {
+                $g = $codeGroup[$ss->external_access_code_id] ?? $UNGROUPED;
+                $sent[$g] = ($sent[$g] ?? 0) + 1;
+                $org = $contactOrg[$ss->external_access_code_id][(string) $ss->evaluator_name] ?? $UNKNOWN_ORG;
+                $submitterRows[] = [
+                    'name'  => $ss->evaluator_name ?: '-',
+                    'org'   => $org,
+                    'group' => $g,
+                    'date'  => $ss->completed_at ? \Carbon\Carbon::parse($ss->completed_at)->format('Y-m-d H:i:s') : '-',
+                ];
+            }
+
+            // evaluatee name + ตำแหน่ง สำหรับหัวเรื่อง
+            $eeName = '';
+            $eePos  = '';
+            if ($evaluateeId) {
+                $ee = DB::table('users as u')->leftJoin('positions as p', 'p.id', '=', 'u.position_id')
+                    ->where('u.id', $evaluateeId)
+                    ->select('u.prename', 'u.fname', 'u.lname', 'p.title as pos')->first();
+                if ($ee) {
+                    $eeName = trim(($ee->prename ?? '') . ($ee->fname ?? '') . ' ' . ($ee->lname ?? ''));
+                    $eePos  = $ee->pos ?? '';
+                }
+            }
+
+            $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+            $bold   = ['font' => ['bold' => true]];
+            $hdrFill = function ($sheet, $range) {
+                $sheet->getStyle($range)->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+                $sheet->getStyle($range)->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                    ->getStartColor()->setRGB('0F766E');
+            };
+
+            // ── Sheet 1: สรุปตามกลุ่ม ──
+            $s1 = $spreadsheet->getActiveSheet();
+            $s1->setTitle('สรุปตามกลุ่ม');
+            $titleSuffix = $eeName !== '' ? (' — ' . $eeName . ($eePos !== '' ? " ({$eePos})" : '')) : '';
+            $s1->setCellValue('A1', 'สรุปผู้ประเมินภายนอก' . $titleSuffix . ' ปีงบ ' . ($fiscalYear + 543));
+            $s1->mergeCells('A1:D1');
+            $s1->getStyle('A1')->getFont()->setSize(14)->setBold(true);
+            $s1->setCellValue('A3', 'กลุ่มที่สังกัด');
+            $s1->setCellValue('B3', 'ผู้ได้รับเชิญ');
+            $s1->setCellValue('C3', 'ส่งแล้ว');
+            $s1->setCellValue('D3', 'คงเหลือ');
+            $hdrFill($s1, 'A3:D3');
+
+            $groups = array_unique(array_merge(array_keys($invited), array_keys($sent)));
+            usort($groups, fn ($a, $b) => strcmp($a, $b)); // "(" มาก่อนตัวอักษรไทย → (ไม่ระบุกลุ่ม) อยู่บน
+            $row = 4;
+            $totInv = $totSent = 0;
+            foreach ($groups as $g) {
+                $inv = $invited[$g] ?? 0;
+                $snt = $sent[$g] ?? 0;
+                $s1->setCellValue('A' . $row, $g);
+                $s1->setCellValue('B' . $row, $inv);
+                $s1->setCellValue('C' . $row, $snt);
+                $s1->setCellValue('D' . $row, $inv - $snt);
+                $totInv += $inv;
+                $totSent += $snt;
+                $row++;
+            }
+            $s1->setCellValue('A' . $row, 'รวมทั้งหมด');
+            $s1->setCellValue('B' . $row, $totInv);
+            $s1->setCellValue('C' . $row, $totSent);
+            $s1->setCellValue('D' . $row, $totInv - $totSent);
+            $s1->getStyle("A{$row}:D{$row}")->applyFromArray($bold);
+            foreach (['A' => 34, 'B' => 14, 'C' => 12, 'D' => 12] as $c => $w) $s1->getColumnDimension($c)->setWidth($w);
+
+            // ── Sheet 2: รายชื่อผู้ส่งแล้ว ──
+            $s2 = $spreadsheet->createSheet();
+            $s2->setTitle('รายชื่อผู้ส่งแล้ว');
+            foreach (['A1' => 'ลำดับ', 'B1' => 'ชื่อผู้ประเมิน', 'C1' => 'หน่วยงาน', 'D1' => 'กลุ่มที่สังกัด', 'E1' => 'วันที่ส่ง'] as $cell => $h) {
+                $s2->setCellValue($cell, $h);
+            }
+            $hdrFill($s2, 'A1:E1');
+            $r = 2;
+            foreach ($submitterRows as $i => $sr) {
+                $s2->setCellValue('A' . $r, $i + 1);
+                $s2->setCellValue('B' . $r, $sr['name']);
+                $s2->setCellValue('C' . $r, $sr['org']);
+                $s2->setCellValue('D' . $r, $sr['group']);
+                $s2->setCellValue('E' . $r, $sr['date']);
+                $r++;
+            }
+            foreach (['A' => 8, 'B' => 32, 'C' => 40, 'D' => 26, 'E' => 20] as $c => $w) $s2->getColumnDimension($c)->setWidth($w);
+
+            // ── Sheet 3: รายชื่อผู้ได้รับเชิญทั้งหมด ──
+            $s3 = $spreadsheet->createSheet();
+            $s3->setTitle('รายชื่อผู้ได้รับเชิญทั้งหมด');
+            foreach (['A1' => 'ลำดับ', 'B1' => 'ชื่อผู้ประเมิน', 'C1' => 'หน่วยงาน', 'D1' => 'กลุ่มที่สังกัด'] as $cell => $h) {
+                $s3->setCellValue($cell, $h);
+            }
+            $hdrFill($s3, 'A1:D1');
+            $r = 2;
+            foreach ($stakeholders as $i => $s) {
+                $s3->setCellValue('A' . $r, $i + 1);
+                $s3->setCellValue('B' . $r, $s->contact_person ?: '-');
+                $s3->setCellValue('C' . $r, $s->organization_name ?: '-');
+                $s3->setCellValue('D' . $r, trim((string) ($s->group_label ?? '')) ?: $UNGROUPED);
+                $r++;
+            }
+            foreach (['A' => 8, 'B' => 32, 'C' => 40, 'D' => 26] as $c => $w) $s3->getColumnDimension($c)->setWidth($w);
+
+            $spreadsheet->setActiveSheetIndex(0);
+
+            $filename = 'external-group-summary-FY' . ($fiscalYear + 543) . '-' . now()->format('YmdHis') . '.xlsx';
+            $filePath = storage_path('app/exports/' . $filename);
+            if (!file_exists(dirname($filePath))) {
+                mkdir(dirname($filePath), 0755, true);
+            }
+            (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($filePath);
+
+            return response()->download($filePath, $filename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            Log::error('Export external group summary error: ' . $e->getMessage());
+            return response()->json(['error' => 'การส่งออกรายงานล้มเหลว: ' . $e->getMessage()], 500);
+        }
+    }
 }
