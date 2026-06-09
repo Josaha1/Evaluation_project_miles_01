@@ -86,48 +86,87 @@ class CleanExternalOverscopeAnswers extends Command
     }
 
     /**
-     * คืน [intended evaluatee ids, tier] หรือ [null, null] ถ้า map ไม่ได้.
-     * Tier1 = ผูก external_stakeholder_id ตรง / Tier2 = ชื่อผู้ประเมินตรง contact_person ใน code เดียวกัน.
+     * คืน [intended evaluatee ids, tier] หรือ [null, null] ถ้า map ไม่ได้/ก้ำกึ่ง.
+     * scope = union evaluatee ทุก row ของ "คนเดียวกัน" ข้ามกลุ่ม/ข้าม code (FK ชี้บริษัท / ไม่งั้น match ชื่อ).
      */
     private function deriveIntended(ExternalEvaluationSession $session): array
     {
-        // Tier1 — FK ตรง
+        // ระบุ "คน" จาก FK (ถ้ามี) หรือชื่อผู้ประเมิน — 1 คนเป็น stakeholder ได้หลายกลุ่ม → ต้องประเมินหลายคน
+        $fkOrgCore = null;
+        $tier = 'name';
+        $key = '';
         if ($session->external_stakeholder_id && ($stk = $session->stakeholder)) {
-            $ids = $this->stakeholderScope($stk->fiscal_year, $stk->organization_name, $stk->contact_person);
-            if (! empty($ids)) return [$ids, 'fk'];
+            $key = $this->personKey($stk->contact_person);
+            $fkOrgCore = $this->orgCore($stk->organization_name);
+            $tier = 'fk';
+        }
+        if ($key === '') {
+            $key = $this->personKey($session->evaluator_name);
+            $tier = 'name';
+        }
+        if (mb_strlen($key) < 4) return [null, null];
+
+        $fy = optional($session->accessCode)->fiscal_year ?? optional($session->stakeholder)->fiscal_year;
+
+        $rows = ExternalStakeholder::query()
+            ->when($fy, fn ($q) => $q->where('fiscal_year', $fy))
+            ->get()
+            ->filter(fn ($s) => $this->personKey($s->contact_person) === $key);
+        if ($rows->isEmpty()) return [null, null];
+
+        if ($fkOrgCore) {
+            // FK ชี้บริษัทชัด → เก็บเฉพาะ row บริษัทเดียวกับ FK (รองรับสะกดต่าง = substring กัน)
+            $rows = $rows->filter(fn ($s) => $this->sameCompany($this->orgCore($s->organization_name), $fkOrgCore));
+        } else {
+            // ชื่อตรงแต่โยงหลายบริษัท + แยกไม่ออก → ก้ำกึ่ง → ไม่แตะ (safe)
+            $orgs = $rows->map(fn ($s) => $this->orgCore($s->organization_name))->filter()->unique()->values()->all();
+            if (count($orgs) > 1 && ! $this->orgsOneCompany($orgs)) return [null, null];
         }
 
-        // Tier2 — normalize(evaluator_name) == normalize(contact_person) ใน code เดียวกัน
-        $ne = ExternalStakeholder::normalizeName($session->evaluator_name);
-        if ($ne !== '') {
-            $matches = ExternalStakeholder::where('external_access_code_id', $session->external_access_code_id)
-                ->get()
-                ->filter(fn ($s) => $s->contact_person
-                    && ExternalStakeholder::normalizeName($s->contact_person) === $ne);
-            if ($matches->isNotEmpty()) {
-                $ids = [];
-                foreach ($matches->unique(fn ($s) => $s->organization_name.'|'.$s->contact_person) as $m) {
-                    $ids = array_merge($ids, $this->stakeholderScope($m->fiscal_year, $m->organization_name, $m->contact_person));
-                }
-                $ids = array_values(array_unique($ids));
-                if (! empty($ids)) return [$ids, 'name'];
-            }
-        }
-
-        return [null, null];
+        $intended = $rows->pluck('evaluatee_id')->unique()->values()->all();
+        return empty($intended) ? [null, null] : [$intended, $tier];
     }
 
-    /**
-     * evaluatee ทั้งหมดของ stakeholder identity (fiscal + normalize org + contact ตรง) — มิเรอร์ scope ของ dashboard.
-     */
-    private function stakeholderScope($fiscalYear, ?string $org, ?string $contact): array
+    /** คีย์ระบุตัวคน: บรรทัดแรก → ตัดคำนำหน้า → ตัดส่วน "ตำแหน่ง/เบอร์" → เก็บเฉพาะอักษรไทย (รวม variant ชื่อเดียวกัน). */
+    private function personKey(?string $name): string
     {
-        $orgN = ExternalStakeholder::normalizeName($org);
+        if (! $name) return '';
+        $s = preg_split('/\r|\n/', $name)[0];
+        $s = mb_strtolower(trim($s));
+        foreach (['นางสาว', 'น.ส.', 'นาย', 'นาง', 'คุณ', 'ดร.', 'ว่าที่ร้อยตรี', 'ว่าที่ ร.ต.', 'ว่าที่'] as $p) {
+            $pp = mb_strtolower($p);
+            if (mb_strpos($s, $pp) === 0) { $s = mb_substr($s, mb_strlen($pp)); break; }
+        }
+        $cut = mb_strpos($s, 'ตำแหน่ง');
+        if ($cut !== false) $s = mb_substr($s, 0, $cut);
+        return preg_replace('/[^ก-๙]/u', '', $s);
+    }
 
-        return ExternalStakeholder::where('fiscal_year', $fiscalYear)->get()
-            ->filter(fn ($s) => ExternalStakeholder::normalizeName($s->organization_name) === $orgN
-                && (empty($contact) || $s->contact_person === $contact))
-            ->pluck('evaluatee_id')->unique()->values()->all();
+    /** แก่นชื่อบริษัท: ตัดวงเล็บ + คำว่าบริษัท/จำกัด/มหาชน + เก็บเฉพาะอักษรไทย. */
+    private function orgCore(?string $org): string
+    {
+        if (! $org) return '';
+        $s = mb_strtolower(trim($org));
+        $s = preg_replace('/\(.*?\)/u', '', $s);
+        foreach (['บริษัท', 'จำกัด', 'มหาชน', 'หจก.', 'ห้างหุ้นส่วน'] as $w) $s = str_replace(mb_strtolower($w), '', $s);
+        return preg_replace('/[^ก-๙]/u', '', $s);
+    }
+
+    private function sameCompany(string $a, string $b): bool
+    {
+        if ($a === '' || $b === '') return false;
+        return $a === $b || mb_strpos($a, $b) !== false || mb_strpos($b, $a) !== false;
+    }
+
+    /** ตัวสั้นสุดเป็น substring ของทุกตัว → ถือว่าบริษัทเดียวกัน (สะกดต่าง). */
+    private function orgsOneCompany(array $orgs): bool
+    {
+        $orgs = array_values(array_filter($orgs));
+        if (count($orgs) <= 1) return true;
+        usort($orgs, fn ($x, $y) => mb_strlen($x) <=> mb_strlen($y));
+        $short = $orgs[0];
+        foreach ($orgs as $o) if (mb_strpos($o, $short) === false) return false;
+        return true;
     }
 
     private function logRow(int $sid, string $status, ?string $tier, array $intended, array $deletedIds, int $count, bool $dry): void
