@@ -1413,8 +1413,9 @@ class EvaluationExportService
                 DB::raw("'right' as angle"),
                 // Use session id as unique key — each session = separate row in pivot
                 DB::raw("CONCAT('SESS-', COALESCE(ses.id, 0)) as evaluator_emid"),
-                // Show person's name + org in parentheses
-                DB::raw("CONCAT(COALESCE(ses.evaluator_name, '(ไม่ระบุชื่อ)'), ' [', eo.name, ']') as evaluator_name"),
+                // ชื่อผู้ประเมิน + กลุ่ม (eo.name) แยกคนละคอลัมน์ ไม่รวมในวงเล็บ
+                DB::raw("COALESCE(ses.evaluator_name, '(ไม่ระบุชื่อ)') as evaluator_name"),
+                DB::raw("eo.name as group_label"),
             ]);
             if (!empty($filters['external_org_id'])) $query->where('eo.id', $filters['external_org_id']);
         } elseif ($selfEvalOnly) {
@@ -1479,6 +1480,7 @@ class EvaluationExportService
                     'position' => $r->position ?? '',
                     'evaluator_emid' => $r->evaluator_emid,
                     'evaluator_name' => $r->evaluator_name,
+                    'group_label' => $r->group_label ?? '',
                     'angle' => $r->angle,
                     'scores' => array_fill(0, count($questionIds), ''),
                 ];
@@ -1541,16 +1543,19 @@ class EvaluationExportService
         }
 
         // 4. Write header
+        // external mode มีคอลัมน์ "กลุ่ม" เพิ่ม → fixed cols = 10 (A-J) ไม่ใช่ 9 (A-I)
+        $fixedColCount = $externalOrgMode ? 10 : 9;
+        $lastFixedColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($fixedColCount);
         $title = $customTitle ?? ('รายงานการประเมิน: ' . $evaluation->title);
         $sheet->setCellValue('A1', $title);
-        $sheet->mergeCells('A1:I1');
+        $sheet->mergeCells("A1:{$lastFixedColLetter}1");
         $sheet->getStyle('A1')->getFont()->setSize(14)->setBold(true);
         $sheet->setCellValue('A2', 'วันที่สร้าง: ' . now()->format('d/m/Y H:i') . ' | จำนวน ' . count($rows) . ' รายการ');
-        $sheet->mergeCells('A2:I2');
+        $sheet->mergeCells("A2:{$lastFixedColLetter}2");
 
         // Build column layout: questions + per-aspect avg
         $colLayout = [];
-        $currentCol = 10;
+        $currentCol = $fixedColCount + 1;
         $aspectQIndices = [];
         foreach ($questions as $i => $q) {
             $aspectQIndices[$q->aspect][] = $i;
@@ -1583,11 +1588,14 @@ class EvaluationExportService
         }
         $sheet->getRowDimension(4)->setRowHeight(40);
 
-        // Fixed headers (row 5)
-        $evaluatorHeader = $externalOrgMode ? 'องค์กรภายนอก' : 'ผู้ประเมิน';
-        $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>$evaluatorHeader,'I5'=>'องศาการประเมิน'];
+        // Fixed headers (row 5) — external mode แยกคอลัมน์ "กลุ่ม" (I) ออกจากชื่อผู้ประเมิน (H)
+        if ($externalOrgMode) {
+            $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'กลุ่ม','J5'=>'องศาการประเมิน'];
+        } else {
+            $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'องศาการประเมิน'];
+        }
         foreach ($fixedHeaders as $cell => $h) $sheet->setCellValue($cell, $h);
-        $sheet->getColumnDimension('I')->setWidth(15);
+        $sheet->getColumnDimension($externalOrgMode ? 'J' : 'I')->setWidth(15);
 
         // Question + avg headers
         foreach ($colLayout as $colIdx => $info) {
@@ -1608,8 +1616,8 @@ class EvaluationExportService
         // Header styling
         $lastColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($lastDataCol);
         $sheet->getStyle("A5:{$lastColLetter}5")->getFont()->setBold(true)->setSize(9);
-        $sheet->getStyle("A5:I5")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('4F46E5');
-        $sheet->getStyle("A5:I5")->getFont()->getColor()->setRGB('FFFFFF');
+        $sheet->getStyle("A5:{$lastFixedColLetter}5")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('4F46E5');
+        $sheet->getStyle("A5:{$lastFixedColLetter}5")->getFont()->getColor()->setRGB('FFFFFF');
         foreach ($colLayout as $colIdx => $info) {
             $c = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx);
             if ($info['type'] === 'q') {
@@ -1633,7 +1641,12 @@ class EvaluationExportService
             $sheet->setCellValue('F' . $rowNum, $r['department']);
             $sheet->setCellValue('G' . $rowNum, $r['position']);
             $sheet->setCellValue('H' . $rowNum, $r['evaluator_name']);
-            $sheet->setCellValue('I' . $rowNum, $this->translateAngle($r['angle']));
+            if ($externalOrgMode) {
+                $sheet->setCellValue('I' . $rowNum, $r['group_label']);
+                $sheet->setCellValue('J' . $rowNum, $this->translateAngle($r['angle']));
+            } else {
+                $sheet->setCellValue('I' . $rowNum, $this->translateAngle($r['angle']));
+            }
 
             foreach ($colLayout as $colIdx => $info) {
                 $c = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx);
@@ -1670,8 +1683,9 @@ class EvaluationExportService
             $counter++;
         }
 
-        // Auto-width fixed columns
-        foreach (['A','B','C','D','E','F','G','H'] as $c) {
+        // Auto-width fixed columns (external เพิ่มคอลัมน์ "กลุ่ม" I)
+        $autoCols = $externalOrgMode ? ['A','B','C','D','E','F','G','H','I'] : ['A','B','C','D','E','F','G','H'];
+        foreach ($autoCols as $c) {
             $sheet->getColumnDimension($c)->setAutoSize(true);
         }
     }
