@@ -212,10 +212,11 @@ it('external pivot: link ตรง external_stakeholders.external_session_id →
     expect($sheet->getCell('I6')->getValue())->toBe('บริษัท แกมม่า จำกัด');
 });
 
-it('regular pivot: คอลัมน์คงเดิม (ไม่มี "กลุ่ม", ไม่ขยับ)', function () {
+it('regular pivot (ผู้บริหาร/พนักงาน): มีคอลัมน์ "ตำแหน่งของผู้ประเมิน" (I) + แสดงตำแหน่ง', function () {
     [$eval, $q] = makeRatingEval();
     $evaluator = makeOrgUserGC(['role' => 'user', 'grade' => '7']);
     $evaluatee = makeOrgUserGC(['role' => 'user', 'grade' => '12']);
+    $evaluatorPos = DB::table('positions')->where('id', $evaluator->position_id)->value('title');
 
     EvaluationAssignment::factory()->create([
         'evaluator_id' => $evaluator->id, 'evaluatee_id' => $evaluatee->id,
@@ -229,5 +230,7 @@ it('regular pivot: คอลัมน์คงเดิม (ไม่มี "ก
     $sheet = invokePivot($eval->id, ['fiscal_year' => 2026], false, false);
 
     expect($sheet->getCell('H5')->getValue())->toBe('ผู้ประเมิน');
-    expect($sheet->getCell('I5')->getValue())->toBe('องศาการประเมิน');
+    expect($sheet->getCell('I5')->getValue())->toBe('ตำแหน่งของผู้ประเมิน');
+    expect($sheet->getCell('J5')->getValue())->toBe('องศาการประเมิน');
+    expect($sheet->getCell('I6')->getValue())->toBe($evaluatorPos);
 });
