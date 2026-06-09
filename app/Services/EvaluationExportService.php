@@ -1415,7 +1415,8 @@ class EvaluationExportService
             $query->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
                   ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
                   ->leftJoin('external_evaluation_sessions as ses', 'a.external_session_id', '=', 'ses.id')
-                  // ชื่อบริษัทผูก: (1) ses.external_stakeholder_id ตรง ๆ (2) normalize ชื่อ = contact_person ใน code เดียวกัน
+                  // ชื่อบริษัทผูก: (0) link ตรง external_stakeholders.external_session_id (1) ses.external_stakeholder_id (2) normalize ชื่อ = contact_person ใน code เดียวกัน
+                  ->leftJoin('external_stakeholders as es0', 'es0.external_session_id', '=', 'ses.id')
                   ->leftJoin('external_stakeholders as es', 'ses.external_stakeholder_id', '=', 'es.id')
                   ->leftJoin('external_stakeholders as es2', function ($j) use ($norm, $ne) {
                       $j->on('es2.external_access_code_id', '=', 'a.external_access_code_id')
@@ -1437,7 +1438,7 @@ class EvaluationExportService
                 DB::raw("CONCAT('SESS-', COALESCE(ses.id, 0)) as evaluator_emid"),
                 // ชื่อผู้ประเมิน / ชื่อบริษัท (organization_name) / กลุ่ม (eo.name) แยกคนละคอลัมน์
                 DB::raw("COALESCE(ses.evaluator_name, '(ไม่ระบุชื่อ)') as evaluator_name"),
-                DB::raw("COALESCE(es.organization_name, es2.organization_name, $subFiscalExact, $subSubstr, '(ไม่ระบุหน่วยงาน)') as company_name"),
+                DB::raw("COALESCE(es0.organization_name, es.organization_name, es2.organization_name, $subFiscalExact, $subSubstr, '(ไม่ระบุหน่วยงาน)') as company_name"),
                 DB::raw("eo.name as group_label"),
             ]);
             if (!empty($filters['external_org_id'])) $query->where('eo.id', $filters['external_org_id']);

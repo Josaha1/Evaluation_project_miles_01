@@ -182,6 +182,36 @@ it('external pivot: จับบริษัทไม่ได้เลย → f
     expect($sheet->getCell('I6')->getValue())->toBe('(ไม่ระบุหน่วยงาน)');
 });
 
+it('external pivot: link ตรง external_stakeholders.external_session_id → ได้บริษัท (ไม่ต้อง match ชื่อ)', function () {
+    [$eval, $q] = makeRatingEval();
+    $evaluatee = makeOrgUserGC(['role' => 'user', 'grade' => '12']);
+
+    $org = ExternalOrganization::factory()->create(['name' => 'สื่อมวลชน']);
+    $code = ExternalAccessCode::factory()->create([
+        'external_organization_id' => $org->id, 'evaluation_id' => $eval->id,
+        'evaluatee_id' => $evaluatee->id, 'fiscal_year' => '2026',
+    ]);
+    // ชื่อพิมพ์เพี้ยนจน match ไม่ได้ แต่ stakeholder ชี้ session ตรง ๆ
+    $session = ExternalEvaluationSession::factory()->create([
+        'external_access_code_id' => $code->id, 'external_organization_id' => $org->id,
+        'evaluation_id' => $eval->id, 'evaluatee_id' => $evaluatee->id, 'evaluator_name' => 'Xyz',
+    ]);
+    ExternalStakeholder::create([
+        'external_access_code_id' => $code->id, 'evaluatee_id' => $evaluatee->id,
+        'fiscal_year' => 2026, 'group_label' => 'สื่อมวลชน', 'organization_name' => 'บริษัท แกมม่า จำกัด',
+        'contact_person' => 'คนละชื่อ', 'external_session_id' => $session->id,
+    ]);
+    Answer::create([
+        'evaluation_id' => $eval->id, 'user_id' => $evaluatee->id, 'evaluatee_id' => $evaluatee->id,
+        'question_id' => $q->id, 'value' => '4', 'fiscal_year' => 2026,
+        'external_access_code_id' => $code->id, 'external_session_id' => $session->id,
+    ]);
+
+    $sheet = invokePivot($eval->id, ['fiscal_year' => 2026], false, true);
+
+    expect($sheet->getCell('I6')->getValue())->toBe('บริษัท แกมม่า จำกัด');
+});
+
 it('regular pivot: คอลัมน์คงเดิม (ไม่มี "กลุ่ม", ไม่ขยับ)', function () {
     [$eval, $q] = makeRatingEval();
     $evaluator = makeOrgUserGC(['role' => 'user', 'grade' => '7']);
