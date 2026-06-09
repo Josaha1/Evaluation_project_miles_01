@@ -1408,11 +1408,17 @@ class EvaluationExportService
             $query->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
                   ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
                   ->leftJoin('external_evaluation_sessions as ses', 'a.external_session_id', '=', 'ses.id')
-                  // ชื่อบริษัทผูก 2 ทาง: (1) ses.external_stakeholder_id ตรง ๆ (2) fallback match access_code + evaluator_name=contact_person (วิธีเดียวกับรายงานสรุปตามกลุ่ม)
+                  // ชื่อบริษัทผูก 2 ทาง: (1) ses.external_stakeholder_id ตรง ๆ (2) fallback match access_code + ชื่อ (normalize ตัดคำนำหน้า/ช่องว่าง/ข้อความหลังบรรทัดใหม่ กัน typo ชื่อพิมพ์มือ)
                   ->leftJoin('external_stakeholders as es', 'ses.external_stakeholder_id', '=', 'es.id')
                   ->leftJoin('external_stakeholders as es2', function ($j) {
+                      $norm = function (string $col): string {
+                          $b = "TRIM(SUBSTRING_INDEX($col, CHAR(10), 1))";
+                          foreach (['นางสาว', 'นาย', 'นาง', 'คุณ'] as $p) $b = "REPLACE($b, '$p', '')";
+                          return "LOWER(REPLACE($b, ' ', ''))";
+                      };
                       $j->on('es2.external_access_code_id', '=', 'a.external_access_code_id')
-                        ->on('es2.contact_person', '=', 'ses.evaluator_name');
+                        ->whereRaw($norm('es2.contact_person') . ' = ' . $norm('ses.evaluator_name'))
+                        ->whereRaw($norm('ses.evaluator_name') . " <> ''");
                   })
                   ->whereNotNull('a.external_access_code_id');
             $query->addSelect([
