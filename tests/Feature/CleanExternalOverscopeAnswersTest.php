@@ -182,3 +182,64 @@ it('in-scope: ไม่มี over-scope → ไม่ลบ + status in_scope',
         'external_evaluation_session_id' => $s->id, 'status' => 'in_scope', 'deleted_count' => 0,
     ]);
 });
+
+it('multi-group: คนเดียวอยู่หลาย code + ชื่อมี variant → union ข้าม code (เก็บของจริงครบ ลบเฉพาะเกิน)', function () {
+    $orgB = ExternalOrganization::factory()->create(['name' => 'คู่ค้า']);
+    $codeB = ExternalAccessCode::factory()->create([
+        'external_organization_id' => $orgB->id, 'evaluation_id' => $this->eval->id, 'fiscal_year' => '2026',
+    ]);
+    // A อยู่ code แรก | B อยู่ codeB (อีกกลุ่ม) — บริษัทเดียวกัน, contact variant ต่างกัน
+    ExternalStakeholder::create([
+        'external_access_code_id' => $this->code->id, 'evaluatee_id' => $this->A->id, 'fiscal_year' => 2026,
+        'group_label' => 'คู่ความร่วมมือ', 'organization_name' => 'บริษัท เทคนิคสิ่งแวดล้อมไทย จำกัด',
+        'contact_person' => 'นายสมชาย ปิยะวรสกุล',
+    ]);
+    ExternalStakeholder::create([
+        'external_access_code_id' => $codeB->id, 'evaluatee_id' => $this->B->id, 'fiscal_year' => 2026,
+        'group_label' => 'คู่ค้า', 'organization_name' => 'บริษัท เทคนิคสิ่งแวดล้อม จำกัด',
+        'contact_person' => 'นายสมชาย ปิยะวรสกุล ตำแหน่ง ผู้จัดการทั่วไป'.chr(10).'082 468 6861',
+    ]);
+    $s = ExternalEvaluationSession::factory()->create([
+        'external_access_code_id' => $this->code->id, 'external_organization_id' => $this->org->id,
+        'evaluation_id' => $this->eval->id, 'evaluatee_id' => $this->A->id,
+        'evaluator_name' => 'นายสมชาย ปิยะวรสกุล ตำแหน่ง ผู้จัดการทั่วไป'.chr(10).'082 468 6861', 'completed_at' => now(),
+    ]);
+    foreach ([$this->A, $this->B, $this->C] as $u) {
+        ovsAnswerFor($this->eval->id, $this->q->id, $this->code->id, $s->id, $this->evaluator->id, $u->id);
+    }
+
+    Artisan::call('external:clean-overscope-answers');
+
+    expect(Answer::where('external_session_id', $s->id)->where('evaluatee_id', $this->A->id)->exists())->toBeTrue();
+    expect(Answer::where('external_session_id', $s->id)->where('evaluatee_id', $this->B->id)->exists())->toBeTrue();  // ของจริงข้ามกลุ่ม ต้องไม่ถูกลบ
+    expect(Answer::where('external_session_id', $s->id)->where('evaluatee_id', $this->C->id)->exists())->toBeFalse(); // เกิน ลบ
+    $this->assertDatabaseHas('external_overscope_cleanup_logs', [
+        'external_evaluation_session_id' => $s->id, 'status' => 'cleaned', 'deleted_count' => 1,
+    ]);
+});
+
+it('ambiguous: ชื่อเดียวกันคนละบริษัท → ไม่แตะ (unmapped)', function () {
+    ExternalStakeholder::create([
+        'external_access_code_id' => $this->code->id, 'evaluatee_id' => $this->A->id, 'fiscal_year' => 2026,
+        'group_label' => 'คู่ความร่วมมือ', 'organization_name' => 'บริษัท เอ จำกัด', 'contact_person' => 'นายโจ ใจดี',
+    ]);
+    ExternalStakeholder::create([
+        'external_access_code_id' => $this->code->id, 'evaluatee_id' => $this->B->id, 'fiscal_year' => 2026,
+        'group_label' => 'คู่ความร่วมมือ', 'organization_name' => 'บริษัท บี จำกัด', 'contact_person' => 'นายโจ ใจดี',
+    ]);
+    $s = ExternalEvaluationSession::factory()->create([
+        'external_access_code_id' => $this->code->id, 'external_organization_id' => $this->org->id,
+        'evaluation_id' => $this->eval->id, 'evaluatee_id' => $this->A->id,
+        'evaluator_name' => 'นายโจ ใจดี', 'completed_at' => now(),
+    ]);
+    foreach ([$this->A, $this->B, $this->C] as $u) {
+        ovsAnswerFor($this->eval->id, $this->q->id, $this->code->id, $s->id, $this->evaluator->id, $u->id);
+    }
+
+    Artisan::call('external:clean-overscope-answers');
+
+    expect(Answer::where('external_session_id', $s->id)->count())->toBe(3); // ไม่ลบเลย
+    $this->assertDatabaseHas('external_overscope_cleanup_logs', [
+        'external_evaluation_session_id' => $s->id, 'status' => 'unmapped',
+    ]);
+});
