@@ -86,44 +86,35 @@ class CleanExternalOverscopeAnswers extends Command
     }
 
     /**
-     * คืน [intended evaluatee ids, tier] หรือ [null, null] ถ้า map ไม่ได้/ก้ำกึ่ง.
-     * scope = union evaluatee ทุก row ของ "คนเดียวกัน" ข้ามกลุ่ม/ข้าม code (FK ชี้บริษัท / ไม่งั้น match ชื่อ).
+     * คืน [intended evaluatee ids, tier] หรือ [null, null] ถ้า map ไม่ได้.
+     * scope = UNION evaluatee ทุก row ของ "คนเดียวกัน" (ชื่อ-สกุลตรง) ข้ามกลุ่ม/code/บริษัท.
+     * 1 คนเป็น stakeholder ได้หลายบริษัท/หลายกลุ่ม → ต้องรวมทุกคนที่รับผิดชอบ ไม่งั้นลบของจริงทิ้ง.
      */
     private function deriveIntended(ExternalEvaluationSession $session): array
     {
-        // ระบุ "คน" จาก FK (ถ้ามี) หรือชื่อผู้ประเมิน — 1 คนเป็น stakeholder ได้หลายกลุ่ม → ต้องประเมินหลายคน
-        $fkOrgCore = null;
         $tier = 'name';
         $key = '';
         if ($session->external_stakeholder_id && ($stk = $session->stakeholder)) {
-            $key = $this->personKey($stk->contact_person);
-            $fkOrgCore = $this->orgCore($stk->organization_name);
+            $key = $this->personKey($stk->contact_person);   // FK ยืนยันตัวคนแล้ว
             $tier = 'fk';
         }
         if ($key === '') {
             $key = $this->personKey($session->evaluator_name);
             $tier = 'name';
+            // ไม่มี FK → ต้องเป็นชื่อ-สกุลเต็ม (≥2 token) กันชื่อโดด/generic/อังกฤษ ชนมั่ว
+            if ($this->nameTokens($session->evaluator_name) < 2) return [null, null];
         }
         if (mb_strlen($key) < 4) return [null, null];
 
         $fy = optional($session->accessCode)->fiscal_year ?? optional($session->stakeholder)->fiscal_year;
 
-        $rows = ExternalStakeholder::query()
+        // union evaluatee ทุก row ที่ชื่อตรง — รวมทุกบริษัท/กลุ่มของคนนั้น (1 คนหลาย org = ต่อกัน)
+        $intended = ExternalStakeholder::query()
             ->when($fy, fn ($q) => $q->where('fiscal_year', $fy))
             ->get()
-            ->filter(fn ($s) => $this->personKey($s->contact_person) === $key);
-        if ($rows->isEmpty()) return [null, null];
+            ->filter(fn ($s) => $this->personKey($s->contact_person) === $key)
+            ->pluck('evaluatee_id')->unique()->values()->all();
 
-        if ($fkOrgCore) {
-            // FK ชี้บริษัทชัด → เก็บเฉพาะ row บริษัทเดียวกับ FK (รองรับสะกดต่าง = substring กัน)
-            $rows = $rows->filter(fn ($s) => $this->sameCompany($this->orgCore($s->organization_name), $fkOrgCore));
-        } else {
-            // ชื่อตรงแต่โยงหลายบริษัท + แยกไม่ออก → ก้ำกึ่ง → ไม่แตะ (safe)
-            $orgs = $rows->map(fn ($s) => $this->orgCore($s->organization_name))->filter()->unique()->values()->all();
-            if (count($orgs) > 1 && ! $this->orgsOneCompany($orgs)) return [null, null];
-        }
-
-        $intended = $rows->pluck('evaluatee_id')->unique()->values()->all();
         return empty($intended) ? [null, null] : [$intended, $tier];
     }
 
@@ -142,31 +133,20 @@ class CleanExternalOverscopeAnswers extends Command
         return preg_replace('/[^ก-๙]/u', '', $s);
     }
 
-    /** แก่นชื่อบริษัท: ตัดวงเล็บ + คำว่าบริษัท/จำกัด/มหาชน + เก็บเฉพาะอักษรไทย. */
-    private function orgCore(?string $org): string
+    /** นับ token ชื่อ (แยกช่องว่าง) เฉพาะที่มีอักษรไทย — กันชื่อโดด 1 คำ/ชื่ออังกฤษ. */
+    private function nameTokens(?string $name): int
     {
-        if (! $org) return '';
-        $s = mb_strtolower(trim($org));
-        $s = preg_replace('/\(.*?\)/u', '', $s);
-        foreach (['บริษัท', 'จำกัด', 'มหาชน', 'หจก.', 'ห้างหุ้นส่วน'] as $w) $s = str_replace(mb_strtolower($w), '', $s);
-        return preg_replace('/[^ก-๙]/u', '', $s);
-    }
-
-    private function sameCompany(string $a, string $b): bool
-    {
-        if ($a === '' || $b === '') return false;
-        return $a === $b || mb_strpos($a, $b) !== false || mb_strpos($b, $a) !== false;
-    }
-
-    /** ตัวสั้นสุดเป็น substring ของทุกตัว → ถือว่าบริษัทเดียวกัน (สะกดต่าง). */
-    private function orgsOneCompany(array $orgs): bool
-    {
-        $orgs = array_values(array_filter($orgs));
-        if (count($orgs) <= 1) return true;
-        usort($orgs, fn ($x, $y) => mb_strlen($x) <=> mb_strlen($y));
-        $short = $orgs[0];
-        foreach ($orgs as $o) if (mb_strpos($o, $short) === false) return false;
-        return true;
+        if (! $name) return 0;
+        $s = preg_split('/\r|\n/', $name)[0];
+        $s = mb_strtolower(trim($s));
+        foreach (['นางสาว', 'น.ส.', 'นาย', 'นาง', 'คุณ', 'ดร.', 'ว่าที่ร้อยตรี', 'ว่าที่ ร.ต.', 'ว่าที่'] as $p) {
+            $pp = mb_strtolower($p);
+            if (mb_strpos($s, $pp) === 0) { $s = mb_substr($s, mb_strlen($pp)); break; }
+        }
+        $cut = mb_strpos($s, 'ตำแหน่ง');
+        if ($cut !== false) $s = mb_substr($s, 0, $cut);
+        $parts = array_filter(preg_split('/\s+/u', trim($s)), fn ($p) => preg_match('/[ก-๙]/u', $p));
+        return count($parts);
     }
 
     private function logRow(int $sid, string $status, ?string $tier, array $intended, array $deletedIds, int $count, bool $dry): void
