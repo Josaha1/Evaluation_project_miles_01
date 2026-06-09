@@ -1405,20 +1405,40 @@ class EvaluationExportService
             // External org: join via external_access_codes → external_organizations + session
             // Each SESSION = 1 evaluator submission (multiple people from same org → multiple sessions)
             // Use session.id as unique evaluator key so they don't collapse
+            // normalize ชื่อ: ตัดข้อความหลังบรรทัดใหม่ + คำนำหน้า + ช่องว่าง (กัน typo ชื่อพิมพ์มือ)
+            $norm = function (string $col): string {
+                $b = "TRIM(SUBSTRING_INDEX($col, CHAR(10), 1))";
+                foreach (['น.ส.', 'นางสาว', 'นาย', 'นาง', 'คุณ', 'ดร.'] as $p) $b = "REPLACE($b, '$p', '')";
+                return "LOWER(REPLACE($b, ' ', ''))";
+            };
+            $ne = $norm('ses.evaluator_name');
             $query->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
                   ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
                   ->leftJoin('external_evaluation_sessions as ses', 'a.external_session_id', '=', 'ses.id')
-                  // ชื่อบริษัทเอาจาก stakeholder ที่ผูก link ตรง: external_session_id หรือ external_stakeholder_id (ไม่ match ชื่อ)
+                  // ชื่อบริษัทผูก: (0) link ตรง external_stakeholders.external_session_id (1) ses.external_stakeholder_id (2) normalize ชื่อ = contact_person ใน code เดียวกัน
                   ->leftJoin('external_stakeholders as es0', 'es0.external_session_id', '=', 'ses.id')
                   ->leftJoin('external_stakeholders as es', 'ses.external_stakeholder_id', '=', 'es.id')
+                  ->leftJoin('external_stakeholders as es2', function ($j) use ($norm, $ne) {
+                      $j->on('es2.external_access_code_id', '=', 'a.external_access_code_id')
+                        ->whereRaw($norm('es2.contact_person') . ' = ' . $ne)
+                        ->whereRaw($ne . " <> ''");
+                  })
                   ->whereNotNull('a.external_access_code_id');
+            // tier 3: ชื่อตรง contact_person ข้าม code ภายในปีงบเดียวกัน (คนลงทะเบียน code นึง แต่ส่งอีก code) — ใช้เฉพาะที่ชี้บริษัทเดียว
+            $subFiscalExact = "(SELECT CASE WHEN COUNT(DISTINCT s2.organization_name)=1 THEN MAX(s2.organization_name) END"
+                . " FROM external_stakeholders s2 WHERE s2.fiscal_year = eac.fiscal_year"
+                . " AND CHAR_LENGTH($ne) >= 3 AND " . $norm('s2.contact_person') . " = $ne)";
+            // tier 4: ชื่อที่พิมพ์เป็น substring ของ contact_person ใน code เดียวกัน และชี้บริษัทเดียว (unique) — กัน assign ผิด
+            $subSubstr = "(SELECT CASE WHEN COUNT(DISTINCT s.organization_name)=1 THEN MAX(s.organization_name) END"
+                . " FROM external_stakeholders s WHERE s.external_access_code_id = a.external_access_code_id"
+                . " AND CHAR_LENGTH($ne) >= 3 AND INSTR(" . $norm('s.contact_person') . ", $ne) > 0)";
             $query->addSelect([
                 DB::raw("'right' as angle"),
                 // Use session id as unique key — each session = separate row in pivot
                 DB::raw("CONCAT('SESS-', COALESCE(ses.id, 0)) as evaluator_emid"),
-                // ชื่อผู้ประเมิน / ชื่อบริษัท (organization_name จาก link ตรง) / กลุ่ม (eo.name) แยกคนละคอลัมน์
+                // ชื่อผู้ประเมิน / ชื่อบริษัท (organization_name) / กลุ่ม (eo.name) แยกคนละคอลัมน์
                 DB::raw("COALESCE(ses.evaluator_name, '(ไม่ระบุชื่อ)') as evaluator_name"),
-                DB::raw("COALESCE(es0.organization_name, es.organization_name, '(ไม่ระบุหน่วยงาน)') as company_name"),
+                DB::raw("COALESCE(es0.organization_name, es.organization_name, es2.organization_name, $subFiscalExact, $subSubstr, '(ไม่ระบุหน่วยงาน)') as company_name"),
                 DB::raw("eo.name as group_label"),
             ]);
             if (!empty($filters['external_org_id'])) $query->where('eo.id', $filters['external_org_id']);
