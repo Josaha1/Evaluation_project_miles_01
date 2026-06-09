@@ -1408,26 +1408,17 @@ class EvaluationExportService
             $query->join('external_access_codes as eac', 'a.external_access_code_id', '=', 'eac.id')
                   ->join('external_organizations as eo', 'eac.external_organization_id', '=', 'eo.id')
                   ->leftJoin('external_evaluation_sessions as ses', 'a.external_session_id', '=', 'ses.id')
-                  // ชื่อบริษัทผูก 2 ทาง: (1) ses.external_stakeholder_id ตรง ๆ (2) fallback match access_code + ชื่อ (normalize ตัดคำนำหน้า/ช่องว่าง/ข้อความหลังบรรทัดใหม่ กัน typo ชื่อพิมพ์มือ)
+                  // ชื่อบริษัทเอาจาก stakeholder ที่ผูก link ตรง: external_session_id หรือ external_stakeholder_id (ไม่ match ชื่อ)
+                  ->leftJoin('external_stakeholders as es0', 'es0.external_session_id', '=', 'ses.id')
                   ->leftJoin('external_stakeholders as es', 'ses.external_stakeholder_id', '=', 'es.id')
-                  ->leftJoin('external_stakeholders as es2', function ($j) {
-                      $norm = function (string $col): string {
-                          $b = "TRIM(SUBSTRING_INDEX($col, CHAR(10), 1))";
-                          foreach (['นางสาว', 'นาย', 'นาง', 'คุณ'] as $p) $b = "REPLACE($b, '$p', '')";
-                          return "LOWER(REPLACE($b, ' ', ''))";
-                      };
-                      $j->on('es2.external_access_code_id', '=', 'a.external_access_code_id')
-                        ->whereRaw($norm('es2.contact_person') . ' = ' . $norm('ses.evaluator_name'))
-                        ->whereRaw($norm('ses.evaluator_name') . " <> ''");
-                  })
                   ->whereNotNull('a.external_access_code_id');
             $query->addSelect([
                 DB::raw("'right' as angle"),
                 // Use session id as unique key — each session = separate row in pivot
                 DB::raw("CONCAT('SESS-', COALESCE(ses.id, 0)) as evaluator_emid"),
-                // ชื่อผู้ประเมิน / ชื่อบริษัท (organization_name) / กลุ่ม (eo.name) แยกคนละคอลัมน์
+                // ชื่อผู้ประเมิน / ชื่อบริษัท (organization_name จาก link ตรง) / กลุ่ม (eo.name) แยกคนละคอลัมน์
                 DB::raw("COALESCE(ses.evaluator_name, '(ไม่ระบุชื่อ)') as evaluator_name"),
-                DB::raw("COALESCE(es.organization_name, es2.organization_name, '(ไม่ระบุหน่วยงาน)') as company_name"),
+                DB::raw("COALESCE(es0.organization_name, es.organization_name, '(ไม่ระบุหน่วยงาน)') as company_name"),
                 DB::raw("eo.name as group_label"),
             ]);
             if (!empty($filters['external_org_id'])) $query->where('eo.id', $filters['external_org_id']);
