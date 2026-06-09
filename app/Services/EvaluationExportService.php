@@ -1452,6 +1452,7 @@ class EvaluationExportService
             ]);
         } else {
             $query->join('users as evaluator', 'a.user_id', '=', 'evaluator.id')
+                  ->leftJoin('positions as evaluator_pos', 'evaluator.position_id', '=', 'evaluator_pos.id')
                   ->join('evaluation_assignments as ea', function ($j) {
                       $j->on('a.evaluation_id', '=', 'ea.evaluation_id')
                         ->on('a.user_id', '=', 'ea.evaluator_id')
@@ -1461,6 +1462,7 @@ class EvaluationExportService
             $query->addSelect([
                 'evaluator.emid as evaluator_emid',
                 DB::raw("CONCAT(evaluator.prename, evaluator.fname, ' ', evaluator.lname) as evaluator_name"),
+                'evaluator_pos.title as evaluator_position',
             ]);
         }
 
@@ -1504,6 +1506,7 @@ class EvaluationExportService
                     'position' => $r->position ?? '',
                     'evaluator_emid' => $r->evaluator_emid,
                     'evaluator_name' => $r->evaluator_name,
+                    'evaluator_position' => $r->evaluator_position ?? '',
                     'company_name' => $r->company_name ?? '',
                     'group_label' => $r->group_label ?? '',
                     'angle' => $r->angle,
@@ -1569,7 +1572,8 @@ class EvaluationExportService
 
         // 4. Write header
         // external mode เพิ่มคอลัมน์ "ชื่อบริษัท"(I) + "กลุ่ม"(J) → fixed cols = 11 (A-K) ไม่ใช่ 9 (A-I)
-        $fixedColCount = $externalOrgMode ? 11 : 9;
+        // external 11 (+ชื่อบริษัท+กลุ่ม) · regular 10 (+ตำแหน่งผู้ประเมิน) · self 9
+        $fixedColCount = $externalOrgMode ? 11 : ($selfEvalOnly ? 9 : 10);
         $lastFixedColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($fixedColCount);
         $title = $customTitle ?? ('รายงานการประเมิน: ' . $evaluation->title);
         $sheet->setCellValue('A1', $title);
@@ -1613,14 +1617,17 @@ class EvaluationExportService
         }
         $sheet->getRowDimension(4)->setRowHeight(40);
 
-        // Fixed headers (row 5) — external mode แยก "ชื่อบริษัท"(I) + "กลุ่ม"(J) ออกจากชื่อผู้ประเมิน (H)
+        // Fixed headers (row 5) — external: +ชื่อบริษัท(I)+กลุ่ม(J); regular: +ตำแหน่งผู้ประเมิน(I); self: เดิม
         if ($externalOrgMode) {
             $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'ชื่อบริษัท','J5'=>'กลุ่ม','K5'=>'องศาการประเมิน'];
-        } else {
+        } elseif ($selfEvalOnly) {
             $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'องศาการประเมิน'];
+        } else {
+            $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'ตำแหน่งของผู้ประเมิน','J5'=>'องศาการประเมิน'];
         }
         foreach ($fixedHeaders as $cell => $h) $sheet->setCellValue($cell, $h);
-        $sheet->getColumnDimension($externalOrgMode ? 'K' : 'I')->setWidth(15);
+        $sheet->getColumnDimension($externalOrgMode ? 'K' : ($selfEvalOnly ? 'I' : 'J'))->setWidth(15);
+        if (!$externalOrgMode && !$selfEvalOnly) $sheet->getColumnDimension('I')->setWidth(22);
 
         // Question + avg headers
         foreach ($colLayout as $colIdx => $info) {
@@ -1670,8 +1677,11 @@ class EvaluationExportService
                 $sheet->setCellValue('I' . $rowNum, $r['company_name']);
                 $sheet->setCellValue('J' . $rowNum, $r['group_label']);
                 $sheet->setCellValue('K' . $rowNum, $this->translateAngle($r['angle']));
-            } else {
+            } elseif ($selfEvalOnly) {
                 $sheet->setCellValue('I' . $rowNum, $this->translateAngle($r['angle']));
+            } else {
+                $sheet->setCellValue('I' . $rowNum, $r['evaluator_position']);
+                $sheet->setCellValue('J' . $rowNum, $this->translateAngle($r['angle']));
             }
 
             foreach ($colLayout as $colIdx => $info) {
@@ -1709,8 +1719,8 @@ class EvaluationExportService
             $counter++;
         }
 
-        // Auto-width fixed columns (external เพิ่มคอลัมน์ "ชื่อบริษัท" I + "กลุ่ม" J)
-        $autoCols = $externalOrgMode ? ['A','B','C','D','E','F','G','H','I','J'] : ['A','B','C','D','E','F','G','H'];
+        // Auto-width fixed columns (external +I,J · regular +I ตำแหน่งผู้ประเมิน · self เดิม)
+        $autoCols = $externalOrgMode ? ['A','B','C','D','E','F','G','H','I','J'] : ($selfEvalOnly ? ['A','B','C','D','E','F','G','H'] : ['A','B','C','D','E','F','G','H','I']);
         foreach ($autoCols as $c) {
             $sheet->getColumnDimension($c)->setAutoSize(true);
         }
