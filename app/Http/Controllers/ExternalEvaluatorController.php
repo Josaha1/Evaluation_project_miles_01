@@ -730,7 +730,8 @@ class ExternalEvaluatorController extends Controller
                 ->update(['external_session_id' => $externalSession->id]);
         }
 
-        return redirect()->route('external.evaluate');
+        // single=1 (คลิกการ์ดบุคคล) → โฟกัสฟอร์มรายคน | ไม่งั้น (ประเมินทั้งหมด) → ฟอร์มหลายคน
+        return redirect()->route('external.evaluate', $request->boolean('single') ? ['focus' => $pivot->evaluatee_id] : []);
     }
 
     /**
@@ -833,6 +834,17 @@ class ExternalEvaluatorController extends Controller
                 ],
             ])
             ->toArray();
+
+        // โหมดรายคน: ?focus={id} → ฟอร์มเฉพาะคนนั้น (คลิกการ์ด) | ไม่งั้น = ที่เหลือ (เหลือ 1 → รายคนอัตโนมัติ)
+        $focusId = (int) $request->query('focus');
+        if ($focusId && $byEvaluatee->contains('id', $focusId)) {
+            $byEvaluatee = $byEvaluatee->where('id', $focusId)->values();
+        } else {
+            $answeredIds = collect(array_keys($existingAnswers))
+                ->map(fn ($k) => (int) explode('_', $k)[0])->unique();
+            $pending = $byEvaluatee->reject(fn ($e) => $answeredIds->contains($e['id']))->values();
+            if ($pending->count() === 1) $byEvaluatee = $pending;
+        }
 
         return Inertia::render('ExternalEvaluation', [
             'evaluation'      => $evaluation,

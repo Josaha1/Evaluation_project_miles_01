@@ -50,8 +50,9 @@ export default function ExternalDashboard() {
         if (flash?.error) toast.error(flash.error);
     }, [flash]);
 
-    const handleSelect = (evaluateeId: number) => {
-        router.post(route("external.select-evaluatee", { evaluateeId }));
+    // single=true (คลิกการ์ดบุคคล) → ฟอร์มรายคน | false (ประเมินทั้งหมด) → ฟอร์มหลายคน
+    const handleSelect = (evaluateeId: number, single = false) => {
+        router.post(route("external.select-evaluatee", { evaluateeId }), { single: single ? 1 : 0 });
     };
 
     const [skipModal, setSkipModal] = useState<{ evaluateeId: number; name: string } | null>(null);
@@ -286,7 +287,7 @@ export default function ExternalDashboard() {
                                             ? "ring-2 ring-emerald-300 bg-emerald-50/50"
                                             : "hover:ring-2 hover:ring-violet-300 hover:shadow-lg cursor-pointer"
                                     )}
-                                    onClick={() => !e.is_completed && handleSelect(e.id)}
+                                    onClick={() => !e.is_completed && handleSelect(e.id, true)}
                                 >
                                     <div className="flex items-start gap-3">
                                         <div className={cn(
