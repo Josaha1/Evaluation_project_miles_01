@@ -194,6 +194,25 @@ class ExternalEvaluatorController extends Controller
             return back()->withErrors(['code' => 'องค์กรที่เชื่อมโยงกับรหัสนี้ไม่ได้เปิดใช้งาน']);
         }
 
+        // แก้บั๊ก: verify group stakeholder ตาม org → ส่ง id ของ "row แรกบริษัท" มาทุก contact
+        // บริษัทใช้ร่วมหลายผู้บริหาร (เช่น GUSCO) → คลิกชื่อตัวเองได้ row ผิด → resolve ใหม่จากชื่อที่เลือกจริง
+        $selName = trim((string) $request->input('evaluator_name'));
+        $selOrg = trim((string) $request->input('evaluator_position'));
+        if ($selName !== '' && $selOrg !== '') {
+            $selNameNorm = \App\Models\ExternalStakeholder::normalizeName($selName);
+            $selOrgNorm = \App\Models\ExternalStakeholder::normalizeName($selOrg);
+            $match = \App\Models\ExternalStakeholder::where('fiscal_year', $accessCode->fiscal_year)
+                ->get()
+                ->filter(fn ($s) => \App\Models\ExternalStakeholder::normalizeName($s->organization_name) === $selOrgNorm
+                    && $s->contact_person
+                    && \App\Models\ExternalStakeholder::normalizeName($s->contact_person) === $selNameNorm)
+                ->sortByDesc(fn ($s) => $s->external_access_code_id === $accessCode->id) // row ใน code ที่ login ก่อน
+                ->first();
+            if ($match) {
+                $request->merge(['stakeholder_id' => $match->id]);
+            }
+        }
+
         // ─── Cross-group consolidation ────────────────────────────────────────
         // When a stakeholder picks their org, find ALL codes (across any group)
         // where the same org name appears in this fy. Login session will track
