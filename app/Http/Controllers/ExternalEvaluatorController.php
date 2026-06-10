@@ -834,6 +834,14 @@ class ExternalEvaluatorController extends Controller
             ])
             ->toArray();
 
+        // เหลือ "ยังไม่ประเมิน" คนเดียว → โฟกัสฟอร์มรายคน (ไม่ต้องโชว์ลิสต์หลายคน)
+        $answeredIds = collect(array_keys($existingAnswers))
+            ->map(fn ($k) => (int) explode('_', $k)[0])->unique();
+        $pending = $byEvaluatee->reject(fn ($e) => $answeredIds->contains($e['id']))->values();
+        if ($pending->count() === 1) {
+            $byEvaluatee = $pending;
+        }
+
         return Inertia::render('ExternalEvaluation', [
             'evaluation'      => $evaluation,
             'evaluatees'      => $byEvaluatee,                                  // PLURAL — list of all sharing this form
