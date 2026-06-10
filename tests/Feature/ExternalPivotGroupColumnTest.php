@@ -212,6 +212,37 @@ it('external pivot: link ตรง external_stakeholders.external_session_id →
     expect($sheet->getCell('I6')->getValue())->toBe('บริษัท แกมม่า จำกัด');
 });
 
+it('external pivot: มีคอลัมน์ "เวลาที่ส่งแบบประเมิน" (L) + แสดง completed_at', function () {
+    [$eval, $q] = makeRatingEval();
+    $evaluatee = makeOrgUserGC(['role' => 'user', 'grade' => '12']);
+
+    $org = ExternalOrganization::factory()->create(['name' => 'สื่อมวลชน']);
+    $code = ExternalAccessCode::factory()->create([
+        'external_organization_id' => $org->id, 'evaluation_id' => $eval->id,
+        'evaluatee_id' => $evaluatee->id, 'fiscal_year' => '2026',
+    ]);
+    $stakeholder = ExternalStakeholder::create([
+        'external_access_code_id' => $code->id, 'evaluatee_id' => $evaluatee->id,
+        'fiscal_year' => 2026, 'group_label' => 'สื่อมวลชน', 'organization_name' => 'บริษัท ABC จำกัด',
+    ]);
+    $session = ExternalEvaluationSession::factory()->create([
+        'external_access_code_id' => $code->id, 'external_organization_id' => $org->id,
+        'external_stakeholder_id' => $stakeholder->id,
+        'evaluation_id' => $eval->id, 'evaluatee_id' => $evaluatee->id, 'evaluator_name' => 'นายประเสริฐ ก',
+        'completed_at' => '2026-05-21 14:30:00',
+    ]);
+    Answer::create([
+        'evaluation_id' => $eval->id, 'user_id' => $evaluatee->id, 'evaluatee_id' => $evaluatee->id,
+        'question_id' => $q->id, 'value' => '4', 'fiscal_year' => 2026,
+        'external_access_code_id' => $code->id, 'external_session_id' => $session->id,
+    ]);
+
+    $sheet = invokePivot($eval->id, ['fiscal_year' => 2026], false, true);
+
+    expect($sheet->getCell('L5')->getValue())->toBe('เวลาที่ส่งแบบประเมิน');
+    expect((string) $sheet->getCell('L6')->getValue())->toBe('21/05/2026 14:30');
+});
+
 it('regular pivot (ผู้บริหาร/พนักงาน): มีคอลัมน์ "ตำแหน่งของผู้ประเมิน" (I) + แสดงตำแหน่ง', function () {
     [$eval, $q] = makeRatingEval();
     $evaluator = makeOrgUserGC(['role' => 'user', 'grade' => '7']);
