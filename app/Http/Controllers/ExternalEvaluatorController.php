@@ -730,8 +730,10 @@ class ExternalEvaluatorController extends Controller
                 ->update(['external_session_id' => $externalSession->id]);
         }
 
-        // single=1 (คลิกการ์ดบุคคล) → โฟกัสฟอร์มรายคน | ไม่งั้น (ประเมินทั้งหมด) → ฟอร์มหลายคน
-        return redirect()->route('external.evaluate', $request->boolean('single') ? ['focus' => $pivot->evaluatee_id] : []);
+        // default = รายคน (focus) — เลือกคนนี้คือจะประเมินคนนี้; bulk เฉพาะกด "ประเมินทั้งหมด" (ส่ง single=0)
+        // ทำเป็น default กัน JS เก่า (cache) ที่ไม่ส่ง single → คลิกการ์ดต้องได้ฟอร์มรายคนเสมอ
+        $bulk = $request->has('single') && ! $request->boolean('single');
+        return redirect()->route('external.evaluate', $bulk ? [] : ['focus' => $pivot->evaluatee_id]);
     }
 
     /**
