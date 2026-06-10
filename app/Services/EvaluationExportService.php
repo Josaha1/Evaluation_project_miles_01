@@ -1440,6 +1440,7 @@ class EvaluationExportService
                 DB::raw("COALESCE(ses.evaluator_name, '(ไม่ระบุชื่อ)') as evaluator_name"),
                 DB::raw("COALESCE(es0.organization_name, es.organization_name, es2.organization_name, $subFiscalExact, $subSubstr, '(ไม่ระบุหน่วยงาน)') as company_name"),
                 DB::raw("eo.name as group_label"),
+                DB::raw("ses.completed_at as submitted_at"),
             ]);
             if (!empty($filters['external_org_id'])) $query->where('eo.id', $filters['external_org_id']);
         } elseif ($selfEvalOnly) {
@@ -1509,6 +1510,7 @@ class EvaluationExportService
                     'evaluator_position' => $r->evaluator_position ?? '',
                     'company_name' => $r->company_name ?? '',
                     'group_label' => $r->group_label ?? '',
+                    'submitted_at' => $r->submitted_at ?? null,
                     'angle' => $r->angle,
                     'scores' => array_fill(0, count($questionIds), ''),
                 ];
@@ -1571,9 +1573,9 @@ class EvaluationExportService
         }
 
         // 4. Write header
-        // external mode เพิ่มคอลัมน์ "ชื่อบริษัท"(I) + "กลุ่ม"(J) → fixed cols = 11 (A-K) ไม่ใช่ 9 (A-I)
-        // external 11 (+ชื่อบริษัท+กลุ่ม) · regular 10 (+ตำแหน่งผู้ประเมิน) · self 9
-        $fixedColCount = $externalOrgMode ? 11 : ($selfEvalOnly ? 9 : 10);
+        // external mode: +ชื่อบริษัท(I)+กลุ่ม(J)+องศา(K)+เวลาที่ส่ง(L) → fixed cols = 12 (A-L)
+        // external 12 (+ชื่อบริษัท+กลุ่ม+เวลาที่ส่ง) · regular 10 (+ตำแหน่งผู้ประเมิน) · self 9
+        $fixedColCount = $externalOrgMode ? 12 : ($selfEvalOnly ? 9 : 10);
         $lastFixedColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($fixedColCount);
         $title = $customTitle ?? ('รายงานการประเมิน: ' . $evaluation->title);
         $sheet->setCellValue('A1', $title);
@@ -1619,7 +1621,7 @@ class EvaluationExportService
 
         // Fixed headers (row 5) — external: +ชื่อบริษัท(I)+กลุ่ม(J); regular: +ตำแหน่งผู้ประเมิน(I); self: เดิม
         if ($externalOrgMode) {
-            $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'ชื่อบริษัท','J5'=>'กลุ่ม','K5'=>'องศาการประเมิน'];
+            $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'ชื่อบริษัท','J5'=>'กลุ่ม','K5'=>'องศาการประเมิน','L5'=>'เวลาที่ส่งแบบประเมิน'];
         } elseif ($selfEvalOnly) {
             $fixedHeaders = ['A5'=>'ลำดับ','B5'=>'รหัสผู้ถูกประเมิน','C5'=>'ชื่อผู้ถูกประเมิน','D5'=>'ระดับ','E5'=>'สายงาน','F5'=>'ฝ่าย','G5'=>'ตำแหน่ง','H5'=>'ผู้ประเมิน','I5'=>'องศาการประเมิน'];
         } else {
@@ -1627,6 +1629,7 @@ class EvaluationExportService
         }
         foreach ($fixedHeaders as $cell => $h) $sheet->setCellValue($cell, $h);
         $sheet->getColumnDimension($externalOrgMode ? 'K' : ($selfEvalOnly ? 'I' : 'J'))->setWidth(15);
+        if ($externalOrgMode) $sheet->getColumnDimension('L')->setWidth(18);
         if (!$externalOrgMode && !$selfEvalOnly) $sheet->getColumnDimension('I')->setWidth(22);
 
         // Question + avg headers
@@ -1677,6 +1680,8 @@ class EvaluationExportService
                 $sheet->setCellValue('I' . $rowNum, $r['company_name']);
                 $sheet->setCellValue('J' . $rowNum, $r['group_label']);
                 $sheet->setCellValue('K' . $rowNum, $this->translateAngle($r['angle']));
+                // เวลาที่ส่งแบบประเมิน (completed_at ของ session)
+                $sheet->setCellValue('L' . $rowNum, $r['submitted_at'] ? \Carbon\Carbon::parse($r['submitted_at'])->format('d/m/Y H:i') : '');
             } elseif ($selfEvalOnly) {
                 $sheet->setCellValue('I' . $rowNum, $this->translateAngle($r['angle']));
             } else {
