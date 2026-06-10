@@ -55,3 +55,26 @@ it('showEvaluation: เหลือยังไม่ประเมินคน
             ->has('evaluatees', 1)
             ->where('evaluatees.0.id', $B->id));
 });
+
+it('showEvaluation: ?focus={id} → ฟอร์มรายคน แม้เหลือหลายคน (โหมดคลิกการ์ด)', function () {
+    $eval = Evaluation::factory()->create(['status' => 'published', 'fiscal_year' => 2026, 'user_type' => 'internal', 'grade_min' => 9, 'grade_max' => 12, 'title' => 'eval ext']);
+    $part = Part::factory()->create(['evaluation_id' => $eval->id, 'order' => 1]);
+    $aspect = Aspect::factory()->create(['part_id' => $part->id]);
+    Question::factory()->create(['part_id' => $part->id, 'aspect_id' => $aspect->id, 'type' => 'rating', 'order' => 1]);
+
+    $A = spUser(); $B = spUser();
+    $org = ExternalOrganization::factory()->create(['name' => 'g']);
+    $code = ExternalAccessCode::factory()->create(['external_organization_id' => $org->id, 'evaluation_id' => $eval->id, 'fiscal_year' => '2026', 'is_used' => false, 'max_uses' => null, 'expires_at' => null]);
+    foreach ([$A, $B] as $u) {
+        DB::table('external_code_evaluatees')->insert(['external_access_code_id' => $code->id, 'evaluatee_id' => $u->id, 'evaluation_id' => $eval->id, 'created_at' => now(), 'updated_at' => now()]);
+        ExternalStakeholder::create(['external_access_code_id' => $code->id, 'evaluatee_id' => $u->id, 'fiscal_year' => 2026, 'group_label' => 'g', 'organization_name' => 'บริษัท ร่วม จำกัด', 'contact_person' => 'นายโจ ใจดี']);
+    }
+    $this->post(route('external.login.submit'), ['code' => $code->code, 'evaluator_name' => 'นายโจ ใจดี', 'evaluator_position' => 'บริษัท ร่วม จำกัด']);
+
+    // ไม่มี focus + 2 คนยังไม่ประเมิน → หลายคน
+    $this->get(route('external.evaluate'))
+        ->assertInertia(fn (AssertableInertia $p) => $p->has('evaluatees', 2));
+    // focus=A → รายคน (A)
+    $this->get(route('external.evaluate', ['focus' => $A->id]))
+        ->assertInertia(fn (AssertableInertia $p) => $p->has('evaluatees', 1)->where('evaluatees.0.id', $A->id));
+});
