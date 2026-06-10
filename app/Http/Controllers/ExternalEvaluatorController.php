@@ -199,13 +199,7 @@ class ExternalEvaluatorController extends Controller
         $selName = trim((string) $request->input('evaluator_name'));
         $selOrg = trim((string) $request->input('evaluator_position'));
         if ($selName !== '' && $selOrg !== '') {
-            $selNameNorm = \App\Models\ExternalStakeholder::normalizeName($selName);
-            $selOrgNorm = \App\Models\ExternalStakeholder::normalizeName($selOrg);
-            $match = \App\Models\ExternalStakeholder::where('fiscal_year', $accessCode->fiscal_year)
-                ->get()
-                ->filter(fn ($s) => \App\Models\ExternalStakeholder::normalizeName($s->organization_name) === $selOrgNorm
-                    && $s->contact_person
-                    && \App\Models\ExternalStakeholder::normalizeName($s->contact_person) === $selNameNorm)
+            $match = \App\Models\ExternalStakeholder::identityRows($accessCode->fiscal_year, $selName, $selOrg)
                 ->sortByDesc(fn ($s) => $s->external_access_code_id === $accessCode->id) // row ใน code ที่ login ก่อน
                 ->first();
             if ($match) {
@@ -224,14 +218,9 @@ class ExternalEvaluatorController extends Controller
             $picked = \App\Models\ExternalStakeholder::where('id', $stakeholderId)->first();
             if ($picked) {
                 $pickedOrgName = $picked->organization_name;
-                $orgNorm = \App\Models\ExternalStakeholder::normalizeName($pickedOrgName);
-                $relatedCodeIds = \App\Models\ExternalStakeholder::query()
-                    ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$orgNorm])
-                    ->where('fiscal_year', $accessCode->fiscal_year)
-                    ->pluck('external_access_code_id')
-                    ->unique()
-                    ->values()
-                    ->all();
+                // related codes = ทุก code ของ "คนเดียวกัน" (personKey+org-core) → dashboard/form เห็นครบข้าม code/variant
+                $relatedCodeIds = \App\Models\ExternalStakeholder::identityRows($accessCode->fiscal_year, $picked->contact_person, $picked->organization_name)
+                    ->pluck('external_access_code_id')->unique()->values()->all();
                 if (empty($relatedCodeIds)) $relatedCodeIds = [$accessCode->id];
             }
         } elseif ($request->filled('evaluator_position')) {
@@ -534,12 +523,8 @@ class ExternalEvaluatorController extends Controller
         // mode B: custom (ไม่มี stakeholder_id แต่ มี picked_org_name) → scope ทั้ง org ข้าม code
         if ($externalSession->external_stakeholder_id && $externalSession->stakeholder) {
             $stk = $externalSession->stakeholder;
-            $orgNorm = \App\Models\ExternalStakeholder::normalizeName($stk->organization_name);
-            $myEvaluateeIds = \App\Models\ExternalStakeholder::query()
-                ->where('fiscal_year', $stk->fiscal_year)
-                ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$orgNorm])
-                ->when($stk->contact_person, fn ($q) => $q->where('contact_person', $stk->contact_person))
-                ->pluck('evaluatee_id')->unique()->all();
+            // scope = evaluatee ทั้งหมดของคนเดียวกัน (personKey+org-core) → เห็น/ประเมินครบใน login เดียว ข้าม code/variant
+            $myEvaluateeIds = \App\Models\ExternalStakeholder::evaluateeScope($stk->fiscal_year, $stk->contact_person, $stk->organization_name);
             $pivotQuery->whereIn('p.evaluatee_id', $myEvaluateeIds);
         } elseif ($pickedOrg) {
             $orgNorm = \App\Models\ExternalStakeholder::normalizeName($pickedOrg);
@@ -566,11 +551,13 @@ class ExternalEvaluatorController extends Controller
         // Mark completed via answers (across all related sessions of this evaluator? or just current session)
         // For now: completion = ANY answer for this evaluatee from sessions linked to picked org
         $pickedOrgNorm = $pickedOrg ? \App\Models\ExternalStakeholder::normalizeName($pickedOrg) : null;
-        // include sessions ทั้งหมดของ evaluator คนนี้ใน scope codes + session ปัจจุบัน
-        // (กัน external_stakeholders.external_session_id เก็บแค่ session ล่าสุด → orphan answers)
+        // include sessions ทั้งหมดของ "คนเดียวกัน" (personKey) ใน scope codes + session ปัจจุบัน
+        // match ด้วย personKey เพื่อนับ session ที่ชื่อมี variant ครบ (ไม่งั้น % เสร็จเพี้ยน)
+        $myKey = \App\Models\ExternalStakeholder::personKey($externalSession->evaluator_name);
         $evaluatorSessionIds = \App\Models\ExternalEvaluationSession::query()
             ->whereIn('external_access_code_id', $relatedCodeIds)
-            ->where('evaluator_name', $externalSession->evaluator_name)
+            ->get()
+            ->filter(fn ($s) => $myKey !== '' && \App\Models\ExternalStakeholder::personKey($s->evaluator_name) === $myKey)
             ->pluck('id')->toArray();
         $sessionsForOrg = array_values(array_unique(array_merge(
             [$externalSession->id],
@@ -788,12 +775,8 @@ class ExternalEvaluatorController extends Controller
         // Phase 5: cross-code aggregation — เหมือน showDashboard
         if ($externalSession->external_stakeholder_id && $externalSession->stakeholder) {
             $stk = $externalSession->stakeholder;
-            $orgNorm = \App\Models\ExternalStakeholder::normalizeName($stk->organization_name);
-            $myEvaluateeIds = \App\Models\ExternalStakeholder::query()
-                ->where('fiscal_year', $stk->fiscal_year)
-                ->whereRaw('LOWER(REPLACE(REPLACE(REPLACE(organization_name, " ", ""), CHAR(9), ""), CHAR(10), "")) = ?', [$orgNorm])
-                ->when($stk->contact_person, fn ($q) => $q->where('contact_person', $stk->contact_person))
-                ->pluck('evaluatee_id')->unique()->all();
+            // scope = evaluatee ทั้งหมดของคนเดียวกัน (personKey+org-core) → เห็น/ประเมินครบใน login เดียว ข้าม code/variant
+            $myEvaluateeIds = \App\Models\ExternalStakeholder::evaluateeScope($stk->fiscal_year, $stk->contact_person, $stk->organization_name);
             $pivotQuery->whereIn('p.evaluatee_id', $myEvaluateeIds);
         } elseif ($pickedOrg) {
             $pickedNorm = \App\Models\ExternalStakeholder::normalizeName($pickedOrg);

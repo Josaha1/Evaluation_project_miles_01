@@ -95,58 +95,27 @@ class CleanExternalOverscopeAnswers extends Command
         $tier = 'name';
         $key = '';
         if ($session->external_stakeholder_id && ($stk = $session->stakeholder)) {
-            $key = $this->personKey($stk->contact_person);   // FK ยืนยันตัวคนแล้ว
+            $key = ExternalStakeholder::personKey($stk->contact_person);   // FK ยืนยันตัวคนแล้ว
             $tier = 'fk';
         }
         if ($key === '') {
-            $key = $this->personKey($session->evaluator_name);
+            $key = ExternalStakeholder::personKey($session->evaluator_name);
             $tier = 'name';
             // ไม่มี FK → ต้องเป็นชื่อ-สกุลเต็ม (≥2 token) กันชื่อโดด/generic/อังกฤษ ชนมั่ว
-            if ($this->nameTokens($session->evaluator_name) < 2) return [null, null];
+            if (ExternalStakeholder::nameTokens($session->evaluator_name) < 2) return [null, null];
         }
         if (mb_strlen($key) < 4) return [null, null];
 
         $fy = optional($session->accessCode)->fiscal_year ?? optional($session->stakeholder)->fiscal_year;
 
-        // union evaluatee ทุก row ที่ชื่อตรง — รวมทุกบริษัท/กลุ่มของคนนั้น (1 คนหลาย org = ต่อกัน)
+        // union evaluatee ทุก row ที่ชื่อตรง — รวมทุกบริษัท/กลุ่มของคนนั้น (cleanup: ยึดชื่อล้วน ไม่ guard org)
         $intended = ExternalStakeholder::query()
             ->when($fy, fn ($q) => $q->where('fiscal_year', $fy))
             ->get()
-            ->filter(fn ($s) => $this->personKey($s->contact_person) === $key)
+            ->filter(fn ($s) => ExternalStakeholder::personKey($s->contact_person) === $key)
             ->pluck('evaluatee_id')->unique()->values()->all();
 
         return empty($intended) ? [null, null] : [$intended, $tier];
-    }
-
-    /** คีย์ระบุตัวคน: บรรทัดแรก → ตัดคำนำหน้า → ตัดส่วน "ตำแหน่ง/เบอร์" → เก็บเฉพาะอักษรไทย (รวม variant ชื่อเดียวกัน). */
-    private function personKey(?string $name): string
-    {
-        if (! $name) return '';
-        $s = preg_split('/\r|\n/', $name)[0];
-        $s = mb_strtolower(trim($s));
-        foreach (['นางสาว', 'น.ส.', 'นาย', 'นาง', 'คุณ', 'ดร.', 'ว่าที่ร้อยตรี', 'ว่าที่ ร.ต.', 'ว่าที่'] as $p) {
-            $pp = mb_strtolower($p);
-            if (mb_strpos($s, $pp) === 0) { $s = mb_substr($s, mb_strlen($pp)); break; }
-        }
-        $cut = mb_strpos($s, 'ตำแหน่ง');
-        if ($cut !== false) $s = mb_substr($s, 0, $cut);
-        return preg_replace('/[^ก-๙]/u', '', $s);
-    }
-
-    /** นับ token ชื่อ (แยกช่องว่าง) เฉพาะที่มีอักษรไทย — กันชื่อโดด 1 คำ/ชื่ออังกฤษ. */
-    private function nameTokens(?string $name): int
-    {
-        if (! $name) return 0;
-        $s = preg_split('/\r|\n/', $name)[0];
-        $s = mb_strtolower(trim($s));
-        foreach (['นางสาว', 'น.ส.', 'นาย', 'นาง', 'คุณ', 'ดร.', 'ว่าที่ร้อยตรี', 'ว่าที่ ร.ต.', 'ว่าที่'] as $p) {
-            $pp = mb_strtolower($p);
-            if (mb_strpos($s, $pp) === 0) { $s = mb_substr($s, mb_strlen($pp)); break; }
-        }
-        $cut = mb_strpos($s, 'ตำแหน่ง');
-        if ($cut !== false) $s = mb_substr($s, 0, $cut);
-        $parts = array_filter(preg_split('/\s+/u', trim($s)), fn ($p) => preg_match('/[ก-๙]/u', $p));
-        return count($parts);
     }
 
     private function logRow(int $sid, string $status, ?string $tier, array $intended, array $deletedIds, int $count, bool $dry): void
