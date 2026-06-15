@@ -91,7 +91,8 @@ export default function ExternalLogin() {
                 return;
             }
             setVerified(body);
-            setStep(2);
+            // open code = ไม่มี stakeholder pre-list → ข้ามเลือกหน่วยงาน ไปกรอกชื่อ+บริษัทเอง
+            setStep((body.stakeholders?.length ?? 0) === 0 ? 3 : 2);
         } catch (e: any) {
             setVerifyError(e.message);
         } finally {
@@ -100,6 +101,10 @@ export default function ExternalLogin() {
     };
 
     const handleVerify = () => verifyCode(data.code);
+
+    // open code: ไม่มี stakeholder → กรอกบริษัท+ชื่อเอง (ไม่มีขั้นเลือกหน่วยงาน)
+    const isOpen = !!verified && verified.stakeholders.length === 0;
+    const displayOrg = isOpen ? data.evaluator_position : pickedOrg;
 
     // unique orgs จาก stakeholders → step 2 dropdown
     const uniqueOrgs = useMemo(() => {
@@ -157,7 +162,8 @@ export default function ExternalLogin() {
         post(route("external.login.submit"));
     };
 
-    const canProceedStep3 = data.evaluator_name.trim().length > 0;
+    const canProceedStep3 = data.evaluator_name.trim().length > 0
+        && (!isOpen || data.evaluator_position.trim().length > 0);
 
     return (
         <div className="min-h-screen gradient-primary-soft relative overflow-hidden">
@@ -200,8 +206,9 @@ export default function ExternalLogin() {
                     {/* Stepper — 3 ขั้นเสมอ; step 1 (กรอกรหัส) เป็น auth gate ก่อนเริ่ม wizard */}
                     {step !== 1 && (
                         <div className="flex items-center justify-center gap-2 mb-5 flex-wrap">
-                            {([2, 3, 4] as Step[]).map((s, i, arr) => {
+                            {((isOpen ? [3, 4] : [2, 3, 4]) as Step[]).map((s, i, arr) => {
                                 const displayNum = i + 1;
+                                const label = isOpen && s === 3 ? "กรอกข้อมูล" : STEP_LABELS[s];
                                 return (
                                     <div key={s} className="flex items-center gap-1.5">
                                         <div className={cn(
@@ -215,7 +222,7 @@ export default function ExternalLogin() {
                                             "text-[11px] font-medium",
                                             step === s ? "text-violet-700" : step > s ? "text-emerald-700" : "text-gray-500"
                                         )}>
-                                            {STEP_LABELS[s]}
+                                            {label}
                                         </span>
                                         {i < arr.length - 1 && <ChevronRight className="w-3 h-3 text-gray-300" />}
                                     </div>
@@ -338,6 +345,7 @@ export default function ExternalLogin() {
                         {step === 3 && verified && (
                             <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
                                 className="space-y-4">
+                                {!isOpen && (
                                 <div className="glass-card rounded-2xl p-5">
                                     <div className="p-3 rounded-xl bg-violet-50 border border-violet-200 flex items-center gap-2">
                                         <CheckCircle className="w-4 h-4 text-violet-600 shrink-0" />
@@ -347,14 +355,45 @@ export default function ExternalLogin() {
                                         </div>
                                     </div>
                                 </div>
+                                )}
 
                                 <div className="glass-card rounded-2xl p-5 space-y-3">
                                     <div className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
                                         <UserIcon className="w-4 h-4 text-violet-600" />
-                                        {orgHasNamedContacts ? "เลือกชื่อของคุณ" : "กรอกชื่อ-นามสกุล"}
+                                        {isOpen ? "กรอกข้อมูลผู้ประเมิน" : orgHasNamedContacts ? "เลือกชื่อของคุณ" : "กรอกชื่อ-นามสกุล"}
                                     </div>
 
-                                    {orgHasNamedContacts ? (
+                                    {isOpen ? (
+                                        <div className="space-y-3">
+                                            <div>
+                                                <label className="text-[11px] font-medium text-gray-500 mb-1 block">บริษัท / หน่วยงาน</label>
+                                                <div className="relative">
+                                                    <Building2 className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
+                                                    <input
+                                                        type="text"
+                                                        value={data.evaluator_position}
+                                                        onChange={(e) => setData("evaluator_position", e.target.value)}
+                                                        placeholder="เช่น บริษัท ตัวอย่าง จำกัด"
+                                                        className="w-full text-sm border-2 border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                        autoFocus
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="text-[11px] font-medium text-gray-500 mb-1 block">ชื่อ-นามสกุล</label>
+                                                <div className="relative">
+                                                    <UserIcon className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
+                                                    <input
+                                                        type="text"
+                                                        value={data.evaluator_name}
+                                                        onChange={(e) => pickPerson("", e.target.value)}
+                                                        placeholder="เช่น นายสมชาย ใจดี"
+                                                        className="w-full text-sm border-2 border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : orgHasNamedContacts ? (
                                         <>
                                             <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                                                 {orgStakeholders.map((s) => {
@@ -412,10 +451,12 @@ export default function ExternalLogin() {
                                 </div>
 
                                 <div className="flex gap-2 justify-between">
+                                    {!isOpen && (
                                     <button type="button" onClick={() => { setStep(2); setPickedOrg(""); }}
                                         className="flex items-center gap-1.5 px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:bg-gray-50">
                                         <ArrowLeft className="w-4 h-4" /> ย้อน
                                     </button>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={() => setStep(4)}
@@ -452,7 +493,7 @@ export default function ExternalLogin() {
                                             <Building2 className="w-4 h-4 text-violet-600 mt-0.5 shrink-0" />
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-[11px] font-semibold text-violet-700 uppercase tracking-wide">หน่วยงาน</div>
-                                                <div className="text-sm font-bold text-gray-800 break-words">{pickedOrg}</div>
+                                                <div className="text-sm font-bold text-gray-800 break-words">{displayOrg}</div>
                                             </div>
                                         </div>
 
