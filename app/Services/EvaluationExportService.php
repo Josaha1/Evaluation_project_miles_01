@@ -1438,7 +1438,8 @@ class EvaluationExportService
                 DB::raw("CONCAT('SESS-', COALESCE(ses.id, 0)) as evaluator_emid"),
                 // ชื่อผู้ประเมิน / ชื่อบริษัท (organization_name) / กลุ่ม (eo.name) แยกคนละคอลัมน์
                 DB::raw("COALESCE(ses.evaluator_name, '(ไม่ระบุชื่อ)') as evaluator_name"),
-                DB::raw("COALESCE(es0.organization_name, es.organization_name, es2.organization_name, $subFiscalExact, $subSubstr, '(ไม่ระบุหน่วยงาน)') as company_name"),
+                // open code: ไม่มี stakeholder → ใช้บริษัทที่ผู้ประเมินพิมพ์เอง (evaluator_position) เป็น fallback ก่อนสุดท้าย
+                DB::raw("COALESCE(es0.organization_name, es.organization_name, es2.organization_name, $subFiscalExact, $subSubstr, NULLIF(TRIM(ses.evaluator_position), ''), '(ไม่ระบุหน่วยงาน)') as company_name"),
                 DB::raw("eo.name as group_label"),
                 DB::raw("ses.completed_at as submitted_at"),
             ]);
