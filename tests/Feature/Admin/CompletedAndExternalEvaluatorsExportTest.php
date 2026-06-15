@@ -136,6 +136,53 @@ it('completed-external: 200 with placeholder when none', function () {
     $res->assertOk();
 });
 
+it('completed-external: open code (ไม่มี stakeholder) → แถว company จาก evaluator_position', function () {
+    $ee = makeOrgUserCE(['role' => 'user', 'prename' => 'นาย', 'fname' => 'สุเมธ', 'lname' => 'ก', 'grade' => '13']);
+    Evaluation::find($this->eval->id)->update(['title' => 'แบบประเมิน ผวก']);
+
+    $org = ExternalOrganization::create([
+        'name' => 'บุคคลภายนอกทั่วไป (Open)', 'org_code' => 'OPN'.rand(10, 99), 'is_active' => true,
+    ]);
+    $code = ExternalAccessCode::create([
+        'code' => 'OPEN-'.rand(1000, 9999), 'external_organization_id' => $org->id,
+        'evaluatee_id' => $ee->id, 'evaluation_id' => $this->eval->id, 'fiscal_year' => 2026, 'is_used' => false,
+    ]);
+    DB::table('external_code_evaluatees')->insert([
+        'external_access_code_id' => $code->id, 'evaluatee_id' => $ee->id,
+        'evaluation_id' => $this->eval->id, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $ses = ExternalEvaluationSession::create([
+        'external_access_code_id' => $code->id, 'external_organization_id' => $org->id,
+        'evaluatee_id' => $ee->id, 'evaluation_id' => $this->eval->id, 'session_token' => 'opn'.$code->id,
+        'evaluator_name' => 'นายอิสระ กรอกเอง', 'evaluator_position' => 'บริษัท เปิดเสรี จำกัด',
+        'started_at' => now()->subMinutes(10), 'completed_at' => now(),
+    ]);
+    $partId = DB::table('parts')->insertGetId(['evaluation_id' => $this->eval->id, 'title' => 'P', 'order' => 1, 'created_at' => now(), 'updated_at' => now()]);
+    $qId = DB::table('questions')->insertGetId(['part_id' => $partId, 'title' => 'Q', 'type' => 'rating', 'order' => 1, 'created_at' => now(), 'updated_at' => now()]);
+    \App\Models\Answer::create([
+        'evaluation_id' => $this->eval->id, 'user_id' => $ee->id, 'evaluatee_id' => $ee->id,
+        'question_id' => $qId, 'value' => '5', 'fiscal_year' => 2026,
+        'external_access_code_id' => $code->id, 'external_session_id' => $ses->id,
+    ]);
+
+    $res = $this->actingAs($this->admin)
+        ->post('/admin/reports/evaluation/export/completed-evaluators-external', ['fiscal_year' => 2026]);
+    $res->assertOk();
+
+    $sheet = loadXlsx($res)->getActiveSheet();
+    $found = false;
+    for ($r = 5; $r <= $sheet->getHighestRow(); $r++) {
+        if ($sheet->getCell('B'.$r)->getValue() === 'บริษัท เปิดเสรี จำกัด') {
+            expect($sheet->getCell('C'.$r)->getValue())->toBe('นายอิสระ กรอกเอง'); // ผู้ติดต่อ
+            expect($sheet->getCell('M'.$r)->getValue())->toBe('นายอิสระ กรอกเอง'); // ผู้กรอกข้อมูล
+            expect($sheet->getCell('L'.$r)->getValue())->toBe('สำเร็จ');
+            $found = true;
+            break;
+        }
+    }
+    expect($found)->toBeTrue();
+});
+
 it('pending-external: returns 200 + xlsx for unfinished', function () {
     makeExtPair($this->evaluatee->id, $this->eval->id, null);
 
