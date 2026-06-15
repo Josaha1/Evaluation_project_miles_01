@@ -208,6 +208,18 @@ it('submitter sheet: 1 row per completed session, group from code', function () 
     expect((string) $sheet->getCell('E2')->getValue())->toContain('2026-05-21');
 });
 
+it('submitter sheet: open code (ไม่มี stakeholder) → หน่วยงาน = บริษัทที่พิมพ์เอง (evaluator_position)', function () {
+    [$org, $code] = gsCode($this->evaluatee->id, $this->eval->id);
+    // open code: ไม่มี stakeholder row; ผู้ส่งกรอกบริษัทเองเก็บใน evaluator_position
+    $ses = gsCompleted($org, $code, $this->evaluatee->id, $this->eval->id, 'นายอิสระ กรอกเอง');
+    $ses->update(['evaluator_position' => 'บริษัท เปิดเสรี จำกัด']);
+
+    $book = gsLoadXlsx(gsPost($this->actingAs($this->admin), $this->evaluatee->id)->assertOk());
+    $sheet = $book->getSheetByName('รายชื่อผู้ส่งแล้ว');
+    expect($sheet->getCell('B2')->getValue())->toBe('นายอิสระ กรอกเอง');
+    expect($sheet->getCell('C2')->getValue())->toBe('บริษัท เปิดเสรี จำกัด');
+});
+
 it('getAvailableUsers (LOV ของ modal) คืน role=user รวม evaluatee — กัน modal ว่าง', function () {
     // beforeEach สร้าง $this->evaluatee (role=user, fname=สุเมธ) + $this->admin (role=admin)
     $ctrl = app(App\Http\Controllers\AdminEvaluationReportController::class);

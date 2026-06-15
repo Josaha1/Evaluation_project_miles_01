@@ -4696,16 +4696,19 @@ class AdminEvaluationReportController extends Controller
                 ->whereNotNull('ses.completed_at');
             if ($evaluateeId) $sentQ->where('a.evaluatee_id', $evaluateeId);
             $sentSessions = $sentQ
-                ->groupBy('ses.id', 'ses.external_access_code_id', 'ses.evaluator_name', 'ses.completed_at')
+                ->groupBy('ses.id', 'ses.external_access_code_id', 'ses.evaluator_name', 'ses.evaluator_position', 'ses.completed_at')
                 ->orderBy('ses.completed_at')
-                ->get(['ses.id', 'ses.external_access_code_id', 'ses.evaluator_name', 'ses.completed_at']);
+                ->get(['ses.id', 'ses.external_access_code_id', 'ses.evaluator_name', 'ses.evaluator_position', 'ses.completed_at']);
 
             $sent          = [];
             $submitterRows = [];
             foreach ($sentSessions as $ss) {
                 $g = $codeGroup[$ss->external_access_code_id] ?? $UNGROUPED;
                 $sent[$g] = ($sent[$g] ?? 0) + 1;
-                $org = $contactOrg[$ss->external_access_code_id][(string) $ss->evaluator_name] ?? $UNKNOWN_ORG;
+                // open code: ไม่มี stakeholder → ใช้บริษัทที่ผู้ประเมินพิมพ์เอง (evaluator_position) ก่อน fallback unknown
+                $typedOrg = trim((string) ($ss->evaluator_position ?? ''));
+                $org = $contactOrg[$ss->external_access_code_id][(string) $ss->evaluator_name]
+                    ?? ($typedOrg !== '' ? $typedOrg : $UNKNOWN_ORG);
                 $submitterRows[] = [
                     'name'  => $ss->evaluator_name ?: '-',
                     'org'   => $org,
