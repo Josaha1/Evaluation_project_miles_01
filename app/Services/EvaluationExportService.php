@@ -758,6 +758,7 @@ class EvaluationExportService
             ->leftJoin('options as o', 'a.value', '=', DB::raw('CAST(o.id AS CHAR)'))
             ->where('eac.fiscal_year', $fiscalYear)
             ->whereNotNull('a.external_access_code_id')
+            ->whereNotNull('ses.completed_at')  // นับเฉพาะที่ส่งสำเร็จ — ให้ตรงกับ completed-evaluators (กัน in-progress)
             ->groupBy('eo.id', 'eo.name', 'eo.org_code', 'ses.evaluator_name', 'evaluatee.id', 'evaluatee.fname', 'evaluatee.lname', 'evaluatee.grade')
             ->select([
                 'eo.name as org_name',
@@ -1423,7 +1424,8 @@ class EvaluationExportService
                         ->whereRaw($norm('es2.contact_person') . ' = ' . $ne)
                         ->whereRaw($ne . " <> ''");
                   })
-                  ->whereNotNull('a.external_access_code_id');
+                  ->whereNotNull('a.external_access_code_id')
+                  ->whereNotNull('ses.completed_at');  // เฉพาะส่งสำเร็จ — ให้ตรงกับ completed-evaluators (กัน in-progress)
             // tier 3: ชื่อตรง contact_person ข้าม code ภายในปีงบเดียวกัน (คนลงทะเบียน code นึง แต่ส่งอีก code) — ใช้เฉพาะที่ชี้บริษัทเดียว
             $subFiscalExact = "(SELECT CASE WHEN COUNT(DISTINCT s2.organization_name)=1 THEN MAX(s2.organization_name) END"
                 . " FROM external_stakeholders s2 WHERE s2.fiscal_year = eac.fiscal_year"
