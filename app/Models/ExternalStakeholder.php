@@ -36,6 +36,18 @@ class ExternalStakeholder extends Model
         return preg_replace('/\s+/u', '', mb_strtolower(trim($name)));
     }
 
+    /** คีย์เทียบชื่อผู้ประเมิน↔contact_person: ตัดคำนำหน้า + ช่องว่าง + lowercase (รวม variant สเปซ/คำนำหน้า ใช้กับชื่ออังกฤษได้). */
+    public static function matchKey(?string $name): string
+    {
+        if (! $name) return '';
+        $s = mb_strtolower(trim(preg_split('/\r|\n/', $name)[0]));
+        foreach (['นางสาว', 'น.ส.', 'นาย', 'นาง', 'คุณ', 'ดร.', 'ว่าที่ร้อยตรี', 'ว่าที่ ร.ต.', 'ว่าที่'] as $p) {
+            $pp = mb_strtolower($p);
+            if (mb_strpos($s, $pp) === 0) { $s = mb_substr($s, mb_strlen($pp)); break; }
+        }
+        return preg_replace('/\s+/u', '', $s);
+    }
+
     /** คีย์ระบุตัวคน: บรรทัดแรก → ตัดคำนำหน้า → ตัด "ตำแหน่ง/เบอร์" → เก็บเฉพาะอักษรไทย (รวม variant ชื่อเดียวกัน). */
     public static function personKey(?string $name): string
     {

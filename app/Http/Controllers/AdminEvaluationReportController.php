@@ -4405,6 +4405,108 @@ class AdminEvaluationReportController extends Controller
         return $this->exportExternalEvaluatorsByStatus($request, completed: false);
     }
 
+    /** filters ผู้ถูกประเมินที่ใช้ร่วมทุก external report */
+    private function externalEvaluateeFilters(Request $request): array
+    {
+        return $request->only(['user_id', 'grade', 'division_id', 'department_id', 'position_id']);
+    }
+
+    /**
+     * แหล่งกลาง #1 (submission-driven): ผู้ส่งสำเร็จภายนอกทุกคน — ไม่ตัดคนที่ชื่อพิมพ์ไม่ตรง pre-list
+     * 1 row = 1 (session × ผู้ถูกประเมิน) ที่ completed; enrich stakeholder ด้วย matchKey
+     * กลุ่ม fallback = eo.name, บริษัท fallback = evaluator_position (กัน OPEN/ชื่อไม่ match หาย)
+     */
+    private function externalSubmittedEvaluators(int $fiscalYear, array $filters = []): \Illuminate\Support\Collection
+    {
+        $q = DB::table('answers as a')
+            ->join('external_evaluation_sessions as ses', 'ses.id', '=', 'a.external_session_id')
+            ->join('external_access_codes as ac', 'ac.id', '=', 'a.external_access_code_id')
+            ->join('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
+            ->join('users as ee', 'ee.id', '=', 'a.evaluatee_id')
+            ->leftJoin('external_code_evaluatees as ece', function ($j) {
+                $j->on('ece.external_access_code_id', '=', 'a.external_access_code_id')
+                  ->on('ece.evaluatee_id', '=', 'a.evaluatee_id');
+            })
+            ->leftJoin('evaluations as ev', 'ev.id', '=', 'ece.evaluation_id')
+            ->whereNotNull('ses.completed_at')
+            ->where('ac.fiscal_year', $fiscalYear);
+        foreach (['user_id' => 'ee.id', 'grade' => 'ee.grade', 'division_id' => 'ee.division_id', 'department_id' => 'ee.department_id', 'position_id' => 'ee.position_id'] as $k => $col) {
+            if ($v = ($filters[$k] ?? null)) $q->where($col, $k === 'grade' ? (string) $v : $v);
+        }
+        $rows = $q->groupBy('ses.id', 'a.evaluatee_id', 'ses.evaluator_name', 'ses.evaluator_position',
+                'ac.id', 'eo.id', 'eo.name', 'ev.title', 'ee.prename', 'ee.fname', 'ee.lname', 'ee.grade')
+            ->select(
+                'ses.id as session_id', 'a.evaluatee_id', 'ses.evaluator_name', 'ses.evaluator_position',
+                'ac.id as code_id', 'eo.id as eo_id', 'eo.name as eo_name', 'ev.title as evaluation_title',
+                'ee.prename as ee_prename', 'ee.fname as ee_fname', 'ee.lname as ee_lname', 'ee.grade as evaluatee_grade',
+                DB::raw('MIN(ses.started_at) as started_at'), DB::raw('MAX(ses.completed_at) as completed_at')
+            )->get();
+
+        $stByCode = DB::table('external_stakeholders')->where('fiscal_year', $fiscalYear)
+            ->get(['external_access_code_id', 'evaluatee_id', 'contact_person', 'organization_name', 'group_label', 'contact_info', 'coordinator', 'code'])
+            ->groupBy('external_access_code_id');
+
+        return $rows->map(function ($r) use ($stByCode) {
+            $key = \App\Models\ExternalStakeholder::matchKey($r->evaluator_name);
+            $cand = $stByCode->get($r->code_id, collect());
+            // ผูก stakeholder: ผู้ถูกประเมินเดียวกัน + ชื่อ normalized ตรง → ไม่ตรงคนใช้ตรงชื่ออย่างเดียว → ไม่ตรง = OPEN/พิมพ์เอง
+            $match = ($key === '') ? null : (
+                $cand->first(fn ($s) => $s->evaluatee_id == $r->evaluatee_id && \App\Models\ExternalStakeholder::matchKey($s->contact_person) === $key)
+                ?? $cand->first(fn ($s) => \App\Models\ExternalStakeholder::matchKey($s->contact_person) === $key)
+            );
+            $typedOrg = trim((string) ($r->evaluator_position ?? ''));
+            $r->group_label       = ($match && trim((string) $match->group_label) !== '') ? $match->group_label : $r->eo_name;
+            $r->organization_name = ($match && $match->organization_name) ? $match->organization_name : ($typedOrg !== '' ? $typedOrg : '(ไม่ระบุหน่วยงาน)');
+            $r->contact_person    = $match->contact_person ?? $r->evaluator_name;
+            $r->contact_info      = $match->contact_info ?? null;
+            $r->coordinator       = $match->coordinator ?? null;
+            $r->stakeholder_code  = $match->code ?? null;
+            $r->matched           = $match !== null;
+            return $r;
+        })->sortBy(fn ($r) => ($r->group_label ?? '') . '|' . ($r->organization_name ?? '') . '|' . ($r->ee_fname ?? ''))->values();
+    }
+
+    /**
+     * แหล่งกลาง #2 (invited-driven): ผู้ได้รับเชิญภายนอก (stakeholder pre-list) + flag completed
+     * completed = matchKey ตรงกับผู้ส่งจริง (กัน false-pending เมื่อชื่อพิมพ์ต่าง pre-list)
+     */
+    private function externalInvitedEvaluators(int $fiscalYear, array $filters = []): \Illuminate\Support\Collection
+    {
+        $q = DB::table('external_stakeholders as st')
+            ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'st.external_access_code_id')
+            ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
+            ->leftJoin('external_code_evaluatees as ece', function ($j) {
+                $j->on('ece.external_access_code_id', '=', 'ac.id')->on('ece.evaluatee_id', '=', 'st.evaluatee_id');
+            })
+            ->leftJoin('evaluations as ev', 'ev.id', '=', 'ece.evaluation_id')
+            ->leftJoin('users as ee', 'ee.id', '=', 'st.evaluatee_id')
+            ->where('st.fiscal_year', $fiscalYear);
+        foreach (['user_id' => 'ee.id', 'grade' => 'ee.grade', 'division_id' => 'ee.division_id', 'department_id' => 'ee.department_id', 'position_id' => 'ee.position_id'] as $k => $col) {
+            if ($v = ($filters[$k] ?? null)) $q->where($col, $k === 'grade' ? (string) $v : $v);
+        }
+        $rows = $q->orderBy('eo.name')->orderBy('st.organization_name')->orderBy('ee.fname')
+            ->select(
+                'st.external_access_code_id as code_id', 'st.evaluatee_id',
+                'eo.name as eo_name', 'st.group_label', 'st.organization_name', 'st.contact_person',
+                'st.contact_info', 'st.coordinator', 'st.code as stakeholder_code',
+                'ee.prename as ee_prename', 'ee.fname as ee_fname', 'ee.lname as ee_lname', 'ee.grade as evaluatee_grade',
+                'ev.title as evaluation_title'
+            )->get();
+
+        $submitted = $this->externalSubmittedEvaluators($fiscalYear, $filters)
+            ->mapWithKeys(fn ($s) => [$s->code_id . '|' . $s->evaluatee_id . '|' . \App\Models\ExternalStakeholder::matchKey($s->evaluator_name) => true]);
+
+        return $rows->map(function ($r) use ($submitted) {
+            $r->group_label       = trim((string) $r->group_label) !== '' ? $r->group_label : ($r->eo_name ?? '');
+            $r->organization_name = $r->organization_name ?: '(ไม่ระบุหน่วยงาน)';
+            $r->started_at        = null;
+            $r->completed_at      = null;
+            $r->evaluator_name    = null;
+            $r->completed         = isset($submitted[$r->code_id . '|' . $r->evaluatee_id . '|' . \App\Models\ExternalStakeholder::matchKey($r->contact_person)]);
+            return $r;
+        });
+    }
+
     /**
      * shared external evaluators export — split by status
      * row = 1 external_stakeholders entry (1 stakeholder × 1 evaluatee)
@@ -4417,133 +4519,14 @@ class AdminEvaluationReportController extends Controller
 
             $fiscalYear = (int) $request->input('fiscal_year', $this->getCurrentFiscalYear());
 
-            // session-per-slot key จาก answers ไม่ใช่ session row โดยตรง
-            // (session.evaluatee_id = คนแรกที่เลือกตอน login เท่านั้น แต่ submit ครอบหลายคน
-            //  เช่น session 199 ของวีรชาติ มี evaluatee_id=1042 แต่ answers ครอบ {872,946,1042}
-            //  ต้อง group จาก answers.evaluatee_id เพื่อ leftJoin แต่ละ stakeholder slot ติด)
-            $sessionSub = DB::table('answers as a')
-                ->join('external_evaluation_sessions as ses', 'ses.id', '=', 'a.external_session_id')
-                ->select(
-                    'a.external_access_code_id',
-                    'a.evaluatee_id',
-                    'ses.evaluator_name',
-                    DB::raw('MIN(ses.started_at) as started_at'),
-                    DB::raw('MAX(ses.completed_at) as completed_at')
-                )
-                ->groupBy('a.external_access_code_id', 'a.evaluatee_id', 'ses.evaluator_name');
-
-            $q = DB::table('external_stakeholders as st')
-                ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'st.external_access_code_id')
-                ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
-                ->leftJoin('external_code_evaluatees as ece', function ($j) {
-                    $j->on('ece.external_access_code_id', '=', 'ac.id')
-                      ->on('ece.evaluatee_id', '=', 'st.evaluatee_id');
-                })
-                ->leftJoin('evaluations as ev', 'ev.id', '=', 'ece.evaluation_id')
-                ->leftJoin('users as ee', 'ee.id', '=', 'st.evaluatee_id')
-                ->leftJoinSub($sessionSub, 's', function ($j) {
-                    $j->on('s.external_access_code_id', '=', 'st.external_access_code_id')
-                      ->on('s.evaluatee_id', '=', 'st.evaluatee_id')
-                      ->on('s.evaluator_name', '=', 'st.contact_person');
-                })
-                ->where('st.fiscal_year', $fiscalYear);
-
+            // ดึงจากแหล่งกลาง: completed = submission-driven (ไม่ drop คนชื่อพิมพ์ไม่ตรง),
+            // pending = invited ที่ยังไม่ส่ง (เช็ค completed ด้วย matchKey กัน false-pending)
+            $filters = $this->externalEvaluateeFilters($request);
             if ($completed) {
-                // สำเร็จ = มี answer ของ (code, evaluatee) + evaluator_name = contact_person ใน session ที่ completed
-                // (เลิกใช้ st.external_session_id เป็น join key เพราะ field นี้ stale —
-                //  user login ซ้ำ session ใหม่ไม่ถูก link → คน submit จริงหายจาก export.
-                //  ต้อง match evaluator_name กับ contact_person เพื่อกัน false positive ระหว่าง
-                //  stakeholder slot คนละคน ที่ใช้ (code, evaluatee) เดียวกัน)
-                $q->whereExists(function ($sub) {
-                    $sub->select(DB::raw(1))->from('answers as ans2')
-                        ->join('external_evaluation_sessions as ses2', 'ses2.id', '=', 'ans2.external_session_id')
-                        ->whereColumn('ans2.external_access_code_id', 'st.external_access_code_id')
-                        ->whereColumn('ans2.evaluatee_id', 'st.evaluatee_id')
-                        ->whereNotNull('ses2.completed_at')
-                        ->where(function ($w) {
-                            $w->whereColumn('ses2.evaluator_name', 'st.contact_person')
-                              ->orWhereNull('st.contact_person');
-                        });
-                });
+                $rows = $this->externalSubmittedEvaluators($fiscalYear, $filters);
             } else {
-                $q->whereNotExists(function ($sub) {
-                    $sub->select(DB::raw(1))->from('answers as ans2')
-                        ->join('external_evaluation_sessions as ses2', 'ses2.id', '=', 'ans2.external_session_id')
-                        ->whereColumn('ans2.external_access_code_id', 'st.external_access_code_id')
-                        ->whereColumn('ans2.evaluatee_id', 'st.evaluatee_id')
-                        ->whereNotNull('ses2.completed_at')
-                        ->where(function ($w) {
-                            $w->whereColumn('ses2.evaluator_name', 'st.contact_person')
-                              ->orWhereNull('st.contact_person');
-                        });
-                });
-            }
-
-            // filter ตาม evaluatee (ผู้ถูกประเมิน)
-            if ($v = $request->input('user_id'))       $q->where('ee.id', $v);
-            if ($v = $request->input('grade'))         $q->where('ee.grade', (string) $v);
-            if ($v = $request->input('division_id'))   $q->where('ee.division_id', $v);
-            if ($v = $request->input('department_id')) $q->where('ee.department_id', $v);
-            if ($v = $request->input('position_id'))   $q->where('ee.position_id', $v);
-
-            $rows = $q->orderBy('eo.name')->orderBy('st.organization_name')->orderBy('ee.fname')
-                ->select(
-                    'eo.name as group_label',
-                    'st.organization_name', 'st.contact_person', 'st.contact_info', 'st.coordinator',
-                    'st.code as stakeholder_code',
-                    'ee.prename as ee_prename', 'ee.fname as ee_fname', 'ee.lname as ee_lname',
-                    'ee.grade as evaluatee_grade',
-                    'ev.title as evaluation_title',
-                    's.started_at', 's.completed_at', 's.evaluator_name'
-                )->get();
-
-            // open code: ผู้ส่งสำเร็จที่ไม่มี stakeholder row (code+evaluatee ไม่อยู่ใน external_stakeholders)
-            // → ดึงจาก session ตรง ๆ, ใช้บริษัทที่พิมพ์เอง (evaluator_position) เป็นชื่อหน่วยงาน + eo.name เป็นหมวด
-            if ($completed) {
-                $extra = DB::table('external_evaluation_sessions as ses')
-                    ->join('answers as a', 'a.external_session_id', '=', 'ses.id')
-                    ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'ses.external_access_code_id')
-                    ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
-                    ->leftJoin('external_code_evaluatees as ece', function ($j) {
-                        $j->on('ece.external_access_code_id', '=', 'ses.external_access_code_id')
-                          ->on('ece.evaluatee_id', '=', 'a.evaluatee_id');
-                    })
-                    ->leftJoin('evaluations as ev', 'ev.id', '=', 'ece.evaluation_id')
-                    ->leftJoin('users as ee', 'ee.id', '=', 'a.evaluatee_id')
-                    ->whereNotNull('ses.completed_at')
-                    ->where('a.fiscal_year', $fiscalYear)
-                    ->whereNotExists(function ($sub) use ($fiscalYear) {
-                        $sub->select(DB::raw(1))->from('external_stakeholders as st2')
-                            ->whereColumn('st2.external_access_code_id', 'ses.external_access_code_id')
-                            ->whereColumn('st2.evaluatee_id', 'a.evaluatee_id')
-                            ->where('st2.fiscal_year', $fiscalYear);
-                    });
-
-                if ($v = $request->input('user_id'))       $extra->where('ee.id', $v);
-                if ($v = $request->input('grade'))         $extra->where('ee.grade', (string) $v);
-                if ($v = $request->input('division_id'))   $extra->where('ee.division_id', $v);
-                if ($v = $request->input('department_id')) $extra->where('ee.department_id', $v);
-                if ($v = $request->input('position_id'))   $extra->where('ee.position_id', $v);
-
-                $extraRows = $extra
-                    ->groupBy('ses.external_access_code_id', 'a.evaluatee_id', 'ses.evaluator_name',
-                        'ses.evaluator_position', 'eo.name', 'ev.title',
-                        'ee.prename', 'ee.fname', 'ee.lname', 'ee.grade')
-                    ->select(
-                        'eo.name as group_label',
-                        DB::raw("COALESCE(NULLIF(TRIM(ses.evaluator_position), ''), '(ไม่ระบุหน่วยงาน)') as organization_name"),
-                        'ses.evaluator_name as contact_person',
-                        DB::raw('NULL as contact_info'), DB::raw('NULL as coordinator'),
-                        DB::raw('NULL as stakeholder_code'),
-                        'ee.prename as ee_prename', 'ee.fname as ee_fname', 'ee.lname as ee_lname',
-                        'ee.grade as evaluatee_grade',
-                        'ev.title as evaluation_title',
-                        DB::raw('MIN(ses.started_at) as started_at'),
-                        DB::raw('MAX(ses.completed_at) as completed_at'),
-                        'ses.evaluator_name as evaluator_name'
-                    )->get();
-
-                $rows = $rows->concat($extraRows)
+                $rows = $this->externalInvitedEvaluators($fiscalYear, $filters)
+                    ->reject(fn ($r) => $r->completed)
                     ->sortBy(fn ($r) => ($r->group_label ?? '') . '|' . ($r->organization_name ?? '') . '|' . ($r->ee_fname ?? ''))
                     ->values();
             }
@@ -4727,17 +4710,25 @@ class AdminEvaluationReportController extends Controller
                 ->select('st.external_access_code_id', 'st.group_label', 'st.organization_name', 'st.contact_person')
                 ->get();
 
-            // map: code -> group_label (1 code = 1 group), code -> [contact_person => org]
-            $codeGroup  = [];
-            $contactOrg = [];
-            $invited    = [];
+            // กลุ่ม fallback: code ที่ไม่มี stakeholder group (เช่น OPEN) → ใช้ชื่อ org (eo.name)
+            $codeOrgName = DB::table('external_access_codes as ac')
+                ->join('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
+                ->where('ac.fiscal_year', $fiscalYear)
+                ->pluck('eo.name', 'ac.id')->toArray();
+
+            // map: code -> group_label (1 code = 1 group), code -> [contact_person => org] (+ matchKey กันชื่อพิมพ์ต่าง)
+            $codeGroup     = [];
+            $contactOrg    = [];
+            $contactOrgKey = [];
+            $invited       = [];
             foreach ($stakeholders as $s) {
                 $g = trim((string) ($s->group_label ?? ''));
                 if ($g !== '' && !isset($codeGroup[$s->external_access_code_id])) {
                     $codeGroup[$s->external_access_code_id] = $g;
                 }
                 $contactOrg[$s->external_access_code_id][(string) $s->contact_person] = $s->organization_name;
-                $key = $g !== '' ? $g : $UNGROUPED;
+                $contactOrgKey[$s->external_access_code_id][\App\Models\ExternalStakeholder::matchKey($s->contact_person)] = $s->organization_name;
+                $key = $g !== '' ? $g : ($codeOrgName[$s->external_access_code_id] ?? $UNGROUPED);
                 $invited[$key] = ($invited[$key] ?? 0) + 1;
             }
 
@@ -4754,12 +4745,16 @@ class AdminEvaluationReportController extends Controller
             $sent          = [];
             $submitterRows = [];
             foreach ($sentSessions as $ss) {
-                $g = $codeGroup[$ss->external_access_code_id] ?? $UNGROUPED;
+                // กลุ่ม fallback eo.name (กัน OPEN ตกเป็น (ไม่ระบุกลุ่ม))
+                $g = $codeGroup[$ss->external_access_code_id]
+                    ?? ($codeOrgName[$ss->external_access_code_id] ?? $UNGROUPED);
                 $sent[$g] = ($sent[$g] ?? 0) + 1;
-                // open code: ไม่มี stakeholder → ใช้บริษัทที่ผู้ประเมินพิมพ์เอง (evaluator_position) ก่อน fallback unknown
+                // หน่วยงาน: stakeholder ตาม matchKey (ชื่อพิมพ์ต่าง) → exact → บริษัทพิมพ์เอง → unknown
                 $typedOrg = trim((string) ($ss->evaluator_position ?? ''));
-                $org = $contactOrg[$ss->external_access_code_id][(string) $ss->evaluator_name]
-                    ?? ($typedOrg !== '' ? $typedOrg : $UNKNOWN_ORG);
+                $mk = \App\Models\ExternalStakeholder::matchKey($ss->evaluator_name);
+                $org = ($contactOrgKey[$ss->external_access_code_id][$mk] ?? null)
+                    ?: ($contactOrg[$ss->external_access_code_id][(string) $ss->evaluator_name]
+                        ?? ($typedOrg !== '' ? $typedOrg : $UNKNOWN_ORG));
                 $submitterRows[] = [
                     'name'  => $ss->evaluator_name ?: '-',
                     'org'   => $org,
@@ -4854,7 +4849,7 @@ class AdminEvaluationReportController extends Controller
                 $s3->setCellValue('A' . $r, $i + 1);
                 $s3->setCellValue('B' . $r, $s->contact_person ?: '-');
                 $s3->setCellValue('C' . $r, $s->organization_name ?: '-');
-                $s3->setCellValue('D' . $r, trim((string) ($s->group_label ?? '')) ?: $UNGROUPED);
+                $s3->setCellValue('D' . $r, trim((string) ($s->group_label ?? '')) ?: ($codeOrgName[$s->external_access_code_id] ?? $UNGROUPED));
                 $r++;
             }
             foreach (['A' => 8, 'B' => 32, 'C' => 40, 'D' => 26] as $c => $w) $s3->getColumnDimension($c)->setWidth($w);

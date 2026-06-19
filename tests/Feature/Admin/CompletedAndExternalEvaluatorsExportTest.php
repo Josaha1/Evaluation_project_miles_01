@@ -353,18 +353,25 @@ it('pending-external v3: 1 row per stakeholder (ไม่ Cartesian กับ se
 });
 
 it('pending-external v3: excludes stakeholders ที่มี completed session', function () {
-    [$org, $code] = makeV3Stakeholder($this->evaluatee->id, $this->eval->id);
+    [$org, $code] = makeV3Stakeholder($this->evaluatee->id, $this->eval->id); // contact_person = นายเอกพงษ์ มิทิน
     $session = ExternalEvaluationSession::create([
         'external_access_code_id' => $code->id,
         'external_organization_id' => $org->id,
         'evaluatee_id' => $this->evaluatee->id,
         'evaluation_id' => $this->eval->id,
         'session_token' => 'tok-done',
+        'evaluator_name' => 'นายเอกพงษ์ มิทิน',
         'started_at' => now()->subHour(),
         'completed_at' => now(),
     ]);
-    DB::table('external_stakeholders')->where('external_access_code_id', $code->id)
-        ->update(['external_session_id' => $session->id]);
+    // submission จริง (answer-based) → ส่งแล้ว → ต้องไม่อยู่ใน pending
+    $partId = DB::table('parts')->insertGetId(['evaluation_id' => $this->eval->id, 'title' => 'P', 'order' => 1, 'created_at' => now(), 'updated_at' => now()]);
+    $qId = DB::table('questions')->insertGetId(['part_id' => $partId, 'title' => 'Q', 'type' => 'rating', 'order' => 1, 'created_at' => now(), 'updated_at' => now()]);
+    \App\Models\Answer::create([
+        'evaluation_id' => $this->eval->id, 'user_id' => $this->evaluatee->id, 'evaluatee_id' => $this->evaluatee->id,
+        'question_id' => $qId, 'value' => '5', 'fiscal_year' => 2026,
+        'external_access_code_id' => $code->id, 'external_session_id' => $session->id,
+    ]);
     $res = $this->actingAs($this->admin)
         ->post('/admin/reports/evaluation/export/pending-evaluators-external', ['fiscal_year' => 2026]);
     $res->assertOk();
