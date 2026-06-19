@@ -4497,6 +4497,57 @@ class AdminEvaluationReportController extends Controller
                     's.started_at', 's.completed_at', 's.evaluator_name'
                 )->get();
 
+            // open code: ผู้ส่งสำเร็จที่ไม่มี stakeholder row (code+evaluatee ไม่อยู่ใน external_stakeholders)
+            // → ดึงจาก session ตรง ๆ, ใช้บริษัทที่พิมพ์เอง (evaluator_position) เป็นชื่อหน่วยงาน + eo.name เป็นหมวด
+            if ($completed) {
+                $extra = DB::table('external_evaluation_sessions as ses')
+                    ->join('answers as a', 'a.external_session_id', '=', 'ses.id')
+                    ->leftJoin('external_access_codes as ac', 'ac.id', '=', 'ses.external_access_code_id')
+                    ->leftJoin('external_organizations as eo', 'eo.id', '=', 'ac.external_organization_id')
+                    ->leftJoin('external_code_evaluatees as ece', function ($j) {
+                        $j->on('ece.external_access_code_id', '=', 'ses.external_access_code_id')
+                          ->on('ece.evaluatee_id', '=', 'a.evaluatee_id');
+                    })
+                    ->leftJoin('evaluations as ev', 'ev.id', '=', 'ece.evaluation_id')
+                    ->leftJoin('users as ee', 'ee.id', '=', 'a.evaluatee_id')
+                    ->whereNotNull('ses.completed_at')
+                    ->where('a.fiscal_year', $fiscalYear)
+                    ->whereNotExists(function ($sub) use ($fiscalYear) {
+                        $sub->select(DB::raw(1))->from('external_stakeholders as st2')
+                            ->whereColumn('st2.external_access_code_id', 'ses.external_access_code_id')
+                            ->whereColumn('st2.evaluatee_id', 'a.evaluatee_id')
+                            ->where('st2.fiscal_year', $fiscalYear);
+                    });
+
+                if ($v = $request->input('user_id'))       $extra->where('ee.id', $v);
+                if ($v = $request->input('grade'))         $extra->where('ee.grade', (string) $v);
+                if ($v = $request->input('division_id'))   $extra->where('ee.division_id', $v);
+                if ($v = $request->input('department_id')) $extra->where('ee.department_id', $v);
+                if ($v = $request->input('position_id'))   $extra->where('ee.position_id', $v);
+
+                $extraRows = $extra
+                    ->groupBy('ses.external_access_code_id', 'a.evaluatee_id', 'ses.evaluator_name',
+                        'ses.evaluator_position', 'eo.name', 'ev.title',
+                        'ee.prename', 'ee.fname', 'ee.lname', 'ee.grade')
+                    ->select(
+                        'eo.name as group_label',
+                        DB::raw("COALESCE(NULLIF(TRIM(ses.evaluator_position), ''), '(ไม่ระบุหน่วยงาน)') as organization_name"),
+                        'ses.evaluator_name as contact_person',
+                        DB::raw('NULL as contact_info'), DB::raw('NULL as coordinator'),
+                        DB::raw('NULL as stakeholder_code'),
+                        'ee.prename as ee_prename', 'ee.fname as ee_fname', 'ee.lname as ee_lname',
+                        'ee.grade as evaluatee_grade',
+                        'ev.title as evaluation_title',
+                        DB::raw('MIN(ses.started_at) as started_at'),
+                        DB::raw('MAX(ses.completed_at) as completed_at'),
+                        'ses.evaluator_name as evaluator_name'
+                    )->get();
+
+                $rows = $rows->concat($extraRows)
+                    ->sortBy(fn ($r) => ($r->group_label ?? '') . '|' . ($r->organization_name ?? '') . '|' . ($r->ee_fname ?? ''))
+                    ->values();
+            }
+
             $totalCount = $rows->count();
             $label = $completed ? 'ที่ประเมินสำเร็จแล้ว' : 'ที่ยังไม่เสร็จสิ้น';
             $titleColor = $completed ? '059669' : '7C3AED';
