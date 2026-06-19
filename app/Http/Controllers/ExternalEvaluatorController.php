@@ -194,11 +194,17 @@ class ExternalEvaluatorController extends Controller
             return back()->withErrors(['code' => 'องค์กรที่เชื่อมโยงกับรหัสนี้ไม่ได้เปิดใช้งาน']);
         }
 
+        // open/direct code (เช่น OPEN-PWK): ผูก evaluatee+evaluation ของตัวเอง + ไม่มี stakeholder pre-list
+        // (user กรอกชื่อ/บริษัทเอง) → ใช้ของ code นี้เท่านั้น ห้าม identity-match ข้าม code override
+        // (กัน ผวก. โดน eval 9-12 ของ code อื่นที่ชื่อ+บริษัทบังเอิญไปแม็ตช์)
+        $isDirectCode = $accessCode->evaluatee_id && $accessCode->evaluation_id
+            && !\App\Models\ExternalStakeholder::where('external_access_code_id', $accessCode->id)->exists();
+
         // แก้บั๊ก: verify group stakeholder ตาม org → ส่ง id ของ "row แรกบริษัท" มาทุก contact
         // บริษัทใช้ร่วมหลายผู้บริหาร (เช่น GUSCO) → คลิกชื่อตัวเองได้ row ผิด → resolve ใหม่จากชื่อที่เลือกจริง
         $selName = trim((string) $request->input('evaluator_name'));
         $selOrg = trim((string) $request->input('evaluator_position'));
-        if ($selName !== '' && $selOrg !== '') {
+        if (!$isDirectCode && $selName !== '' && $selOrg !== '') {
             $match = \App\Models\ExternalStakeholder::identityRows($accessCode->fiscal_year, $selName, $selOrg)
                 ->sortByDesc(fn ($s) => $s->external_access_code_id === $accessCode->id) // row ใน code ที่ login ก่อน
                 ->first();
@@ -214,7 +220,7 @@ class ExternalEvaluatorController extends Controller
         $pickedOrgName = null;
         $relatedCodeIds = [$accessCode->id];
 
-        if ($stakeholderId = $request->input('stakeholder_id')) {
+        if (!$isDirectCode && ($stakeholderId = $request->input('stakeholder_id'))) {
             $picked = \App\Models\ExternalStakeholder::where('id', $stakeholderId)->first();
             if ($picked) {
                 $pickedOrgName = $picked->organization_name;
@@ -223,7 +229,7 @@ class ExternalEvaluatorController extends Controller
                     ->pluck('external_access_code_id')->unique()->values()->all();
                 if (empty($relatedCodeIds)) $relatedCodeIds = [$accessCode->id];
             }
-        } elseif ($request->filled('evaluator_position')) {
+        } elseif (!$isDirectCode && $request->filled('evaluator_position')) {
             // custom mode: ถ้า org ที่กรอกตรงกับ stakeholder ของ code นี้ → treat เหมือนเลือก org
             $maybeOrg = trim($request->input('evaluator_position'));
             $orgNorm = \App\Models\ExternalStakeholder::normalizeName($maybeOrg);
